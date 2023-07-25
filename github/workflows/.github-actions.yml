@@ -2,11 +2,7 @@ name: CI/CD
 
 on:
   push:
-    branches:
-      - master
   pull_request:
-    branches:
-      - master
   tags: {}  # Run on tag creation
 
 env:
