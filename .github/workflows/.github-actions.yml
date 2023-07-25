@@ -157,9 +157,13 @@ jobs:
     needs: setup
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
+    container:
+      image: ghcr.io/openweathermap/deker/deker-embedded/tox:latest
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.github_token }}
     steps:
-      - name: Set up Python
-        uses: ghcr.io/openweathermap/deker/deker-embedded/tox:latest
+
       - name: Install tox
         run: |
           pip install tox
