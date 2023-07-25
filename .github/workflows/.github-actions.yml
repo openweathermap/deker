@@ -3,7 +3,6 @@ name: CI/CD
 on:
   push:
   pull_request:
-  tags: {}  # Run on tag creation
 
 env:
   PYTHON_IMAGE: python:3.9.0-slim-buster
@@ -52,7 +51,6 @@ jobs:
   linters:
     needs: setup
     runs-on: ubuntu-latest
-    retry: 2
 
     steps:
       - name: Checkout code
@@ -158,9 +156,7 @@ jobs:
   tox_tests:
     needs: setup
     runs-on: ubuntu-latest
-    only:
-      - tags
-
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Set up Python
         uses: ${{ env.DOCKER_REPO_IMAGE }}
