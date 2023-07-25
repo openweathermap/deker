@@ -1,0 +1,29 @@
+[run]
+branch = True
+omit =
+    examples/*
+    tests/*
+    tmp.py
+    setup.py
+    deker/typings.py
+    deker/app_types/shell.py
+    deker/tools/profiling.py
+    deker/tools/data.py
+    profiling/*
+
+[html]
+directory = tests/code_coverage
+
+[report]
+fail_under=95
+exclude_lines =
+    no cov
+    pragma: no cover
+    if typing.TYPE_CHECKING:
+    if TYPE_CHECKING:
+    if __name__ == .__main__.:
+    pass
+    raise NotImplementedError
+    except ImportError
+    except ModuleNotFoundError
+    except Exception

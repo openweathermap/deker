@@ -1,0 +1,243 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - master
+  tags: {}  # Run on tag creation
+
+env:
+  PYTHON_IMAGE: python:3.9.0-slim-buster
+  DOCKER_IMAGE: docker:20.10.23
+  PYTHON_PACKAGE_NAME: deker
+  DOCKER_REG_IMAGE: ${{ secrets.CI_REGISTRY_IMAGE }}
+  DOCKER_REPO_IMAGE: repo.owm.io/${{ github.repository_owner }}/${{ github.repository_name }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install virtualenv
+          virtualenv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+          pip install -r lints.txt
+          pip list
+        working-directory: ${{ env.PYTHON_PACKAGE_NAME }}
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Cache virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'lints.txt') }}
+
+      - name: Save virtual environment artifacts
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: venv
+          path: venv
+
+  linters:
+    needs: setup
+    runs-on: ubuntu-latest
+    retry: 2
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Install linters
+        run: |
+          pip install isort black ruff
+          pip install bandit mypy
+        working-directory: ${{ env.PYTHON_PACKAGE_NAME }}
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Run linters and checks
+        run: |
+          source venv/bin/activate
+          isort ./${{ env.PYTHON_PACKAGE_NAME }}
+          black ./${{ env.PYTHON_PACKAGE_NAME }}
+          ruff ./${{ env.PYTHON_PACKAGE_NAME }}
+          bandit -r ./${{ env.PYTHON_PACKAGE_NAME }} -c pyproject.toml
+          mypy ./${{ env.PYTHON_PACKAGE_NAME }} --install-types --non-interactive --config-file pyproject.toml
+        working-directory: ${{ env.PYTHON_PACKAGE_NAME }}
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save linter reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: linter-reports
+          path: report.xml
+
+  tests:
+    needs: setup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Run shuffled tests
+        run: |
+          source venv/bin/activate
+          pytest --random-order --junitxml=tests.xml
+        working-directory: ${{ env.PYTHON_PACKAGE_NAME }}
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: test-reports
+          path: tests.xml
+
+  coverage:
+    needs: setup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Install coverage
+        run: |
+          pip install coverage
+        working-directory: ${{ env.PYTHON_PACKAGE_NAME }}
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Run coverage
+        run: |
+          source venv/bin/activate
+          coverage run -m pytest --junitxml=report.xml
+          coverage report --fail-under=95
+          coverage xml
+        working-directory: ${{ env.PYTHON_PACKAGE_NAME }}
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save coverage reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: coverage-reports
+          path: coverage.xml
+
+  tox_tests:
+    needs: setup
+    runs-on: ubuntu-latest
+    only:
+      - tags
+
+    steps:
+      - name: Set up Python
+        uses: ${{ env.DOCKER_REPO_IMAGE }}
+
+      - name: Install tox
+        run: |
+          pip install tox
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Run tox tests
+        run: |
+          export PIP_EXTRA_INDEX_URL=https://gitlab-ci-token:${{ secrets.CI_JOB_TOKEN }}@gitlab.app.org/api/v4/groups/713/-/packages/pypi/simple
+          tox
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+  docs:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [public, docs/public]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Install Sphinx
+        run: |
+          pip install -U sphinx sphinx-rtd-theme
+        working-directory: ${{ env.PYTHON_PACKAGE_NAME }}/docs
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Build Sphinx docs
+        run: |
+          cd ${{ env.PYTHON_PACKAGE_NAME }}/docs
+          sphinx-build -b html . ${{ matrix.target }}
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save docs artifacts
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: docs
+          path: ${{ env.PYTHON_PACKAGE_NAME }}/docs/${{ matrix.target }}
+
+  pypi:
+    needs: setup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Install twine
+        run: |
+          pip install twine
+        working-directory: ${{ env.PYTHON_PACKAGE_NAME }}
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Build and publish to PyPI
+        run: |
+          python setup.py sdist bdist_wheel
+          TWINE_PASSWORD=${{ secrets.CI_JOB_TOKEN }} TWINE_USERNAME=gitlab-ci-token python -m twine upload --repository-url ${{ secrets.CI_API_V4_URL }}/projects
