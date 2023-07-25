@@ -34,7 +34,7 @@ jobs:
           pip install -r requirements.txt
           pip install -r lints.txt
           pip list
-        working-directory: ${{ env.PYTHON_PACKAGE_NAME }}
+
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
 
