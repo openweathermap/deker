@@ -159,8 +159,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - name: Set up Python
-        uses: ${{ env.DOCKER_REPO_IMAGE }}
-
+        uses: ghcr.io/openweathermap/deker/deker-embedded/tox:latest
       - name: Install tox
         run: |
           pip install tox
