@@ -97,7 +97,6 @@ jobs:
       - name: Run shuffled tests
         run: |
           source venv/bin/activate
-          export ROOT_PATH=$RUNNER_TEMP
           pytest --random-order --junitxml=tests.xml
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
