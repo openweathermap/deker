@@ -109,7 +109,7 @@ jobs:
           path: tests.xml
 
   coverage:
-    needs: setup
+    needs: [setup, tests]
     runs-on: ubuntu-latest
 
     steps:
