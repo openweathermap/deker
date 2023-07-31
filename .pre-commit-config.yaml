@@ -89,31 +89,31 @@ repos:
         stages:
           - commit
 
-#  - repo: https://github.com/PyCQA/flake8
-#    rev: 5.0.4  # Possible releases: https://github.com/PyCQA/flake8/releases
-#    hooks:
-#      - id: flake8
-#        name: flake8
-#        files: ^deker/
-#        always_run: false
-#        args: [ --config, setup.cfg, deker]
-#        verbose: true
-#        additional_dependencies:
-#          - flake8-bugbear
-#          - flake8-pytest-style
-#          - flake8-docstrings
-#          - flake8-import-order
-#          - darglint
-#        stages:
-#          - commit
-
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
-    rev: v0.0.275
+  - repo: https://github.com/PyCQA/flake8
+    rev: 5.0.4  # Possible releases: https://github.com/PyCQA/flake8/releases
     hooks:
-      - id: ruff
+      - id: flake8
+        name: flake8
         files: ^deker/
-        args: [--fix]
+        always_run: false
+        args: [ --config, setup.cfg, deker]
+        verbose: true
+        additional_dependencies:
+          - flake8-bugbear
+          - flake8-pytest-style
+          - flake8-docstrings
+          - flake8-import-order
+          - darglint
+        stages:
+          - commit
+
+#  - repo: https://github.com/astral-sh/ruff-pre-commit
+#    # Ruff version.
+#    rev: v0.0.275
+#    hooks:
+#      - id: ruff
+#        files: ^deker/
+#        args: [--fix]
 
   - repo: https://github.com/pre-commit/mirrors-mypy
     rev: v1.3.0  # Possible releases: https://github.com/python/mypy/tags
