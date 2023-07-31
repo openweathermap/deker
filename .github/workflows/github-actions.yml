@@ -110,7 +110,7 @@ jobs:
           path: tests.xml
 
   coverage:
-    needs: tests
+    needs: setup
     runs-on: ubuntu-latest
     if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
     steps:
