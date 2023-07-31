@@ -291,7 +291,7 @@ class WriteVarrayLock(BaseLock):
         # Release array locks
         for lock in self.locks:
             Flock(lock).release()
-            Path(f"{lock}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink()
+            Path(f"{lock}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink(missing_ok=True)
         super().release()
 
     @staticmethod
