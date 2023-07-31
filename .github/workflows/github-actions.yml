@@ -1,4 +1,4 @@
-name: CI/CD
+name: pipeline
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
 env:
   PYTHON_IMAGE: 3.9
   DOCKER_IMAGE: docker:20.10.23
-  PYTHON_PACKAGE_NAME: deker 
+  PYTHON_PACKAGE_NAME: deker
   DOCKER_REG_IMAGE: ${{ secrets.CI_REGISTRY_IMAGE }}
 
 jobs:
@@ -16,7 +16,7 @@ jobs:
     timeout-minutes: 60
 
     steps:
-      - name: Checkout code      
+      - name: Checkout code
         uses: actions/checkout@v2
 
       - name: Set up Python
@@ -216,7 +216,7 @@ jobs:
     environment:
       name: pypi
       url: https://pypi.org/p/deker
-    
+
     steps:
       - uses: actions/download-artifact@v3
         with:
@@ -227,4 +227,3 @@ jobs:
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-
