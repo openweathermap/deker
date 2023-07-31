@@ -51,6 +51,7 @@ def wait_unlock(func: Callable, lock_set: Event, funcs_finished: Event, wait: bo
     :param funcs_finished: multiprocessing event indicating that all functions are finished
     :param wait: whether to wait for the function to complete before releasing the lock
     """
+
     def wrapper(*args, **kwargs):
         lock_set.set()
         if wait:

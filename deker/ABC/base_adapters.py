@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Generator, List, Optional, Tuple, Type, U
 import numpy as np
 
 from deker_tools.slices import create_shape_from_slice
+from deker_tools.time import get_utc
 from numpy import ndarray
 
 from deker.ctx import CTX
@@ -20,11 +21,11 @@ from deker.errors import (
 )
 from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, VArraySchema
-from deker.tools import convert_to_utc, create_attributes_schema, create_dimensions_schema
+from deker.tools import create_attributes_schema, create_dimensions_schema
 from deker.tools.decorators import check_ctx_state
 from deker.types import DTypeEnum, SchemaType
-from deker.types.classes import ArrayMeta
-from deker.types.typings import Data, EllipsisType, Numeric, Slice
+from deker.types.private.classes import ArrayMeta
+from deker.types.private.typings import Data, EllipsisType, Numeric, Slice
 
 
 if TYPE_CHECKING:
@@ -215,10 +216,9 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
 
         try:
             dtype = DTypeEnum[data["dtype"].lstrip("numpy.")].value
-            if data["fill_value"] is not None:
-                fill_value = dtype(data["fill_value"])
-            else:
-                fill_value = data["fill_value"]
+            fill_value = (
+                dtype(data["fill_value"]) if data["fill_value"] is not None else data["fill_value"]
+            )
             # Create schema
             schema = schema_class(
                 **{
@@ -234,10 +234,9 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
                 collection_data.get("options")
             )
 
-            if coll_params:
-                collection_options = storage_adapter.storage_options(**coll_params)
-            else:
-                collection_options = None
+            collection_options = (
+                storage_adapter.storage_options(**coll_params) if coll_params else None
+            )
 
             collection = Collection(
                 name=name,
@@ -251,7 +250,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
             logging.debug(f"Collection {collection.name} read")
             return collection
         except (KeyError, ValueError, TypeError, AttributeError) as e:
-            logging.exception(e)
+            logging.exception(e)  # noqa[TRY401]
             raise DekerMetaDataError(f'Collection "{name}" metadata is invalid/corrupted: {e}')
 
     @staticmethod
@@ -271,7 +270,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
 
 
 class IArrayAdapter(ABC):
-    """Interface for (V)Array Adapters."""
+    """Interface for Array  or VArray adapters."""
 
     def __init__(
         self,
@@ -347,7 +346,7 @@ class IArrayAdapter(ABC):
     def read_meta(self, array: Union["BaseArray", Path]) -> ArrayMeta:
         """Read array metadata.
 
-        :param array: (V)Array instance or Path to meta file
+        :param array: Array or VArray instance or Path to meta file
         """
         pass
 
@@ -446,7 +445,7 @@ class IArrayAdapter(ABC):
                         f"Invalid type passed for {primary_attr.name} filtering: {type(value)}; "
                         f"only datetime.datetime or datetime iso-string are allowed"
                     )
-                value = convert_to_utc(value)
+                value = get_utc(value)
             primary_attribute_filters[primary_attr.name] = value
 
         # If extra args were passed
@@ -470,7 +469,7 @@ class IArrayAdapter(ABC):
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
     ) -> Optional[Union["Array", "VArray"]]:
-        """Find (V)Array by id.
+        """Find Array or VArray  by id.
 
         :param id_: Array id
         :param collection: Collection
@@ -488,7 +487,7 @@ class IArrayAdapter(ABC):
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
     ) -> Optional[Union["Array", "VArray"]]:
-        """Find (V)Array by given primary attributes.
+        """Find Array or VArray by given primary attributes.
 
         :param primary_attributes: key attributes
         :param schema: Array or VArray schema
@@ -517,5 +516,5 @@ class BaseArrayAdapter(IArrayAdapter, ABC):
         pass
 
 
-class BaseVArrayAdapter(IArrayAdapter, ABC):  # noqa: B024
+class BaseVArrayAdapter(IArrayAdapter, ABC):
     """Interface for VArrays' adapters."""

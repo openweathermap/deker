@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Optional, Type
+from typing import TYPE_CHECKING, Any, Optional, Type
 
 
 if TYPE_CHECKING:
@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class CTX:
-    """Deker client context"""
+    """Deker client context."""
 
     def __init__(
         self,
@@ -18,10 +18,11 @@ class CTX:
         storage_adapter: Optional[Type["BaseStorageAdapter"]] = None,
         executor: Optional[ThreadPoolExecutor] = None,
         is_closed: bool = False,
+        extra: Optional[Any] = None,
     ):
         self.uri = uri
         self.storage_adapter = storage_adapter
         self.executor = executor
         self.is_closed = is_closed
         self.config = config
-        self.extra: dict = dict()
+        self.extra: dict = extra if extra else dict()

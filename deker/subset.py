@@ -1,35 +1,3 @@
-"""Subset and VSubset.
-
-These are final "lazy" objects, made from Array or VArray correspondingly,
-that can read, update and clear the data within the array.
-
-(V)Subset is empty on creation and does not access the storage
-until user manually invokes one of its API methods.
-
-If you need to get and manage all the data from the array, you should create
-a subset with (V)Array[:] or (V)Array[...].
-
-Subset and VSubset have the same interface.
-
-Properties:
-    - shape: returns shape of the virtual subset
-    - bounds: returns the bounds that were applied to the array
-    - dtype: returns type of the queried data
-    - fill_value: returns the value that fills empty cells instead of None
-
-API methods:
-    - describe: returns an OrderedDict with description of all subset's dimensions
-    - read: returns a numpy.ndarray with all the data from the subset bounds (!NB: mind your RAM!).
-        If the virtual array is empty, a numpy ndarray of `fill_value`s will be returned
-    - read_xarray: returns an xarray.DataArray with data returned by `read` method and its description.
-        Scalar data can not be converted to xarray.DataArray.
-    - update: writes new data to the storage;
-        * Data can not be None
-        * Data shape shall be equal to the subset shape
-        * Data dtype shall be equal to the array dtype
-    - clear: removes or resets with `fill_value` all data from the storage within the subset bounds;
-"""
-
 import builtins
 
 from typing import TYPE_CHECKING, Iterator, List, Optional, Tuple, Union
@@ -40,53 +8,65 @@ from deker_tools.slices import create_shape_from_slice, match_slice_size, slice_
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
-from deker.dimensions import TimeDimension
 from deker.errors import DekerArrayError, DekerVSubsetError
 from deker.locks import WriteVarrayLock
 from deker.schemas import TimeDimensionSchema
 from deker.tools import not_deleted
-from deker.types.classes import (
+from deker.types.private.classes import (
     ArrayOffset,
     ArrayPosition,
     ArrayPositionedData,
     ArraysCoordinatesWithOffset,
 )
-from deker.types.typings import Arrays, ArraysCoordinates, Data, Numeric, Slice
+from deker.types.private.typings import Arrays, ArraysCoordinates, Data, Numeric, Slice
 
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.arrays import Array, VArray
     from deker.collection import Collection
+    from deker.dimensions import TimeDimension
 
 
 class Subset(BaseSubset):
-    """Array subset.
+    """``Array`` subset.
 
-    A subset of the Array data with set bounds, shape, dtype and fill_value.
+    A subset of the ``Array`` data with set ``bounds``, ``shape``, ``dtype`` and ``fill_value``.
 
-    It is final "lazy" object that can read, update and clear the data within the array.
+    It is final ``lazy`` object that can ``read``, ``update`` and ``clear`` the data within the ``Array``.
     Once created, it does not contain any data and does not access the storage until user manually invokes
     one of the subset API methods. If you need to get and manage all the data from the array you should create
-    a subset with Array[:] or Array[...].
+    a subset with ``Array[:]`` or ``Array[...]``.
 
-        Properties:
-        - shape: returns shape of the virtual subset
-        - bounds: returns the bounds that were applied to the array
-        - dtype: returns type of the queried data
-        - fill_value: returns the value that fills empty cells instead of None
+    Properties
+    ----------
+    - ``shape``: returns shape of the subset
+    - ``bounds``: returns the bounds that were applied to the ``Array``
+    - ``dtype``: returns type of the queried data
+    - ``fill_value``: returns the value that fills empty cells instead of None
 
-    API methods:
-        - describe: returns an OrderedDict with description of all the subset's dimensions
-        - read: returns a numpy.ndarray with all the data from the subset bounds (!NB: mind your RAM!).
-            If the virtual array is empty, a numpy ndarray of `fill_value`s will be returned
-        - read_xarray: returns an xarray.DataArray with data returned by `read` method and its description.
-            Scalar data can not be converted to xarray.DataArray.
-        - update: writes new data to the storage;
-            * Data can not be None
-            * Data shape should be equal to the subset shape
-            * Data dtype should be equal to the array dtype
-        - clear: removes or resets with `fill_value` all data from the storage within the subset bounds;
+    API methods
+    -----------
+
+    - ``describe``: returns an OrderedDict with description of all the subset's dimensions
+    - ``read``: returns a numpy ndarray with all the data from the Subset bounds
+
+      .. note:: If the Subset or Array is empty, a numpy ndarray of ``fill_values`` will be returned
+
+      .. warning:: Mind your RAM!
+
+    - ``read_xarray``: returns an ``xarray.DataArray`` with data returned by `read` method and its description.
+
+      .. attention:: Scalar data cannot be converted to ``xarray.DataArray``
+
+    - ``update``: writes new data to the storage;
+
+      .. note::
+         * Data cannot be ``None``
+         * Data ``shape`` should be equal to the ``Subset.shape``
+         * Data ``dtype`` should be equal to the ``Array.dtype``
+
+    - ``clear``: removes or resets with `fill_value` all data from the storage within the subset bounds;
     """
 
     __slots__ = (
@@ -105,10 +85,10 @@ class Subset(BaseSubset):
     ):
         """Subset initialization.
 
-        :param slice_expression: a slice, tuple of slices or numpy IndexExpression, created by Array.__getitem__()
-        :param shape: subset shape, calculated by Array.__getitem__()
-        :param array: an instance of Array to which the subset is bound
-        :param adapter: Array adapter instance
+        :param slice_expression: a slice, tuple of slices or numpy IndexExpression, created by ``Array.__getitem__()``
+        :param shape: subset shape, calculated by ``Array.__getitem__()``
+        :param array: an instance of ``Array`` to which the subset is bound
+        :param adapter: ``Array`` adapter instance
         """
         self.__bounds = slice_expression
         self.__shape = shape
@@ -119,7 +99,7 @@ class Subset(BaseSubset):
 
     @not_deleted
     def read(self) -> Union[Numeric, np.ndarray]:
-        """Read data from Array slice."""
+        """Read data from ``Array`` slice."""
         self.logger.debug(
             f"Trying to read data from {self.__array.id} bounds={slice_converter[self.__bounds]}"
         )
@@ -129,7 +109,11 @@ class Subset(BaseSubset):
 
     @not_deleted
     def update(self, data: Data) -> None:
-        """Update data in Array slice.
+        """Update data in ``Array`` by slice.
+
+        * Data cannot be ``None``
+        * Data ``shape`` should be equal to the ``Subset.shape``
+        * Data ``dtype`` should be equal to the ``Array.dtype``
 
         :param data: new data which shall match subset slicing
         """
@@ -143,7 +127,7 @@ class Subset(BaseSubset):
 
     @not_deleted
     def clear(self) -> None:
-        """Clear data in Array slice."""
+        """Clear data in ``Array`` by slice."""
         self.logger.debug(
             f"Trying to clear data for {self.__array.id} bounds={slice_converter[self.__bounds]}"
         )
@@ -152,32 +136,50 @@ class Subset(BaseSubset):
 
 
 class VSubset(BaseSubset):
-    """VArray subset.
+    """``VArray`` subset.
 
-    A subset of VArray data with set bounds, shape, dtype and fill_value.
+    A subset of ``VArray`` data with set ``bounds``, ``shape``, ``dtype`` and ``fill_value``.
 
-    It is final "lazy" object that can read, update and clear the data within the virtual array.
+    It is final ``lazy`` object that can ``read``, ``update`` and ``clear`` the data within the ``VArray``.
     Once created, it does not contain any data and does not access the storage until user manually invokes
     one of the virtual subset API methods. If you need to get and manage all the data from array you shall
-    create a virtual subset with VArray[:] or VArray[...].
+    create a virtual subset with ``VArray[:]`` or ``VArray[...]``.
 
-    Properties:
-        - shape: returns shape of the virtual subset
-        - bounds: returns bounds that were applied to virtual array
-        - dtype: returns type of queried data
-        - fill_value: returns value that fills empty cells instead of None
+    Properties
+    ----------
+    - ``shape``: returns shape of the virtual subset
+    - ``bounds``: returns bounds that were applied to ``VArray``
+    - ``dtype``: returns type of queried data
+    - ``fill_value``: returns value that fills empty cells instead of None
 
-    API methods:
-        - describe: returns an OrderedDict with description of all the virtual subset's dimensions
-        - read: returns a numpy ndarray with all the data from the virtual subset's bounds (!NB: mind your RAM!);
-            If the virtual array is empty, a numpy ndarray of `fill_value`s will be returned
-        - read_xarray: returns xarray.DataArray with data returned by `read` method and its description.
-            Scalar data can not be converted to xarray.DataArray.
-        - update: writes new data to the storage;
-            * Data can not be None
-            * Data shape shall be equal to the virtual subset shape
-            * Data dtype shall be equal to the virtual array dtype
-        - clear: removes or resets with `fill_value` all data from the storage within the virtual subset bounds;
+    API methods
+    -----------
+
+    - ``describe``: returns an OrderedDict with description of all VSubset's dimensions
+    - ``read``: returns a numpy ndarray with all the data from the VSubset bounds
+
+      .. note:: If the VSubset or VArray is empty, a numpy ndarray of ``fill_values`` will be returned
+
+      .. warning:: Mind your RAM!
+
+    - ``read_xarray``: returns an ``xarray.DataArray`` with data returned by `read` method and its description.
+
+      .. attention:: Scalar data cannot be converted to ``xarray.DataArray``
+
+    - ``update``: writes new data to the storage;
+
+      .. note::
+         * Data cannot be ``None``
+         * Data ``shape`` shall be equal to the ``VSubset.shape``
+         * Data ``dtype`` shall be equal to the ``VArray.dtype``
+
+    - ``clear``: removes or resets with `fill_value` all data from the storage within the virtual subset bounds;
+
+    :param slice_expression: a slice, tuple of slices or numpy IndexExpression, created by VArray.__getitem__()
+    :param shape: subset shape, calculated by VArray.__getitem__()
+    :param array: an instance of VArray to which the virtual subset is bound
+    :param array_adapter: ArrayAdapter instance
+    :param collection: Collection instance, to which the virtual array is bound
     """
 
     __slots__ = (
@@ -397,21 +399,20 @@ class VSubset(BaseSubset):
             if isinstance(dim, int):
                 prev_position[current_dimension] = array_vposition[current_dimension]
                 return dim
-            else:
-                dim_start, dim_stop, _ = match_slice_size(
-                    array.dimensions[current_dimension].size // array.vgrid[current_dimension], dim
-                )
+
+            dim_start, dim_stop, _ = match_slice_size(
+                array.dimensions[current_dimension].size // array.vgrid[current_dimension], dim
+            )
             positions_length = len(array_vposition)
 
             if prev_position[current_dimension] == array_vposition[current_dimension]:
                 prev_sizes_buffer[current_dimension] = prev_sizes[current_dimension]
-            if not prev_position[current_dimension] == array_vposition[current_dimension]:
+            if prev_position[current_dimension] != array_vposition[current_dimension]:
                 prev_sizes[current_dimension] = prev_sizes_buffer[current_dimension]
 
             for i in range(positions_length):
-                if prev_position[i] != array_vposition[i]:
-                    if i < positions_length - 1:
-                        prev_sizes_buffer[i + 1 : :] = [0] * (positions_length - i - 1)  # noqa
+                if prev_position[i] != array_vposition[i] and i < positions_length - 1:
+                    prev_sizes_buffer[i + 1 : :] = [0] * (positions_length - i - 1)
 
             elems_in_dimension = abs(dim_stop - dim_start)
             if array_vposition[current_dimension] == 0:
@@ -463,6 +464,7 @@ class VSubset(BaseSubset):
         collection: "Collection",
     ):
         """VSubset constructor.
+
         Calculates arrays for future reading.
 
         :param slice_expression: a slice, tuple of slices or numpy IndexExpression, created by VArray.__getitem__()
@@ -495,7 +497,7 @@ class VSubset(BaseSubset):
     @not_deleted
     @WriteVarrayLock()
     def clear(self) -> None:
-        """Clear data in varray slice."""
+        """Clear data in ``VArray`` by slice."""
 
         def _clear(array_pos: ArrayPosition) -> None:
             array = self._create_array_from_vposition(array_pos.vposition)
@@ -512,9 +514,9 @@ class VSubset(BaseSubset):
         self.logger.info(f"{self!s} data cleared")
 
     def __sum_results(self, arrays_data: Iterator) -> np.ndarray:
-        """Arrange data from arrays into vsubset shape.
+        """Arrange data from arrays into VSubset shape.
 
-        :param arrays_data: tuple of data positions in vsubset and data
+        :param arrays_data: tuple of data positions in VSubset and data
         """
         results = np.empty(shape=self.shape, dtype=self.__array.dtype)
         for position, data in arrays_data:
@@ -525,7 +527,7 @@ class VSubset(BaseSubset):
 
     @not_deleted
     def read(self) -> Union[Numeric, np.ndarray]:
-        """Read data from varray slice."""
+        """Read data from ``VArray`` slice."""
 
         def _read_data(array_pos: ArrayPosition) -> Tuple[Slice, Union[Numeric, ndarray, None]]:
             array: "Array" = self._create_array_from_vposition(array_pos.vposition)
@@ -551,7 +553,11 @@ class VSubset(BaseSubset):
     @not_deleted
     @WriteVarrayLock()
     def update(self, data: Data) -> None:
-        """Update data in varray slice.
+        """Update data in ``VArray`` by slice.
+
+        * Data cannot be ``None``
+        * Data ``shape`` should be equal to the ``VSubset.shape``
+        * Data ``dtype`` should be equal to the ``VArray.dtype``
 
         :param data: new data which shall match subset slicing
         """

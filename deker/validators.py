@@ -2,8 +2,9 @@ import datetime
 
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
+from deker_tools.time import get_utc
+
 from deker.errors import DekerValidationError
-from deker.tools.time import convert_to_utc
 
 
 if TYPE_CHECKING:
@@ -20,7 +21,7 @@ def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.d
     if time_attribute is None:
         raise DekerValidationError("No start value provided for time dimension")
     if time_attribute.tzinfo is None or time_attribute.tzinfo != datetime.timezone.utc:
-        time_attribute = convert_to_utc(time_attribute)
+        time_attribute = get_utc(time_attribute)
     return time_attribute
 
 
@@ -42,21 +43,20 @@ def __process_attrs(
 
         else:
             custom_attribute = custom_attributes.get(attr.name)
-            if custom_attribute is not None:
-                if not isinstance(custom_attribute, attr.dtype):
-                    raise DekerValidationError(
-                        f'Custom attribute "{attr.name}" invalid type {type(custom_attributes[attr.name])}; '
-                        f"expected {attr.dtype}"
-                    )
+            if custom_attribute is not None and not isinstance(custom_attribute, attr.dtype):
+                raise DekerValidationError(
+                    f'Custom attribute "{attr.name}" invalid type {type(custom_attributes[attr.name])}; '
+                    f"expected {attr.dtype}"
+                )
 
             if custom_attribute is None:
                 if attr.dtype == datetime.datetime:
-                    raise DekerValidationError(f'Custom attribute "{attr.name}" can not be None')
+                    raise DekerValidationError(f'Custom attribute "{attr.name}" cannot be None')
                 custom_attributes[attr.name] = None
 
         if attr.dtype == datetime.datetime and attr.name in attributes:
             try:
-                utc = convert_to_utc(attributes[attr.name])
+                utc = get_utc(attributes[attr.name])
                 if attr.primary:
                     primary_attributes[attr.name] = utc
                 else:
@@ -78,10 +78,7 @@ def process_attributes(
     """
     from deker.schemas import VArraySchema
 
-    if isinstance(schema, VArraySchema):
-        array_type = "VArray"
-    else:
-        array_type = "Array"
+    array_type = "VArray" if isinstance(schema, VArraySchema) else "Array"
 
     attrs_schema = schema.attributes if schema else None
 

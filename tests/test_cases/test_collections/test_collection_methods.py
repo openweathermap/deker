@@ -10,6 +10,7 @@ from deker_local_adapters.storage_adapters.hdf5 import HDF5CompressionOpts, HDF5
 from tests.parameters.collection_params import ClientParams
 from tests.parameters.uri import embedded_uri
 
+from deker import Scale
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
@@ -27,8 +28,7 @@ from deker.schemas import (
     VArraySchema,
 )
 from deker.tools import get_paths
-from deker.types import Scale
-from deker.types.enums import SchemaType
+from deker.types.private.enums import SchemaType
 
 
 class TestCollectionMethods:

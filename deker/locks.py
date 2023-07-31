@@ -14,14 +14,14 @@ from deker.ABC.base_locks import BaseLock
 from deker.errors import DekerLockError, DekerMemoryError
 from deker.flock import Flock
 from deker.tools.path import get_main_path
-from deker.types.classes import ArrayPositionedData
-from deker.types.enums import LocksExtensions
+from deker.types.private.enums import LocksExtensions
 
 
 if TYPE_CHECKING:
     from deker_local_adapters import LocalArrayAdapter
 
     from deker.arrays import Array, VArray
+    from deker.types.private.classes import ArrayPositionedData
 
 META_DIVIDER = ":"
 
@@ -97,7 +97,7 @@ class ReadArrayLock(BaseLock):
         open(path, "a").close()
         self.logger.debug(f"Acquired lock for {self.lock}")
 
-    def release(self, e: Optional[Exception] = None) -> None:
+    def release(self, e: Optional[Exception] = None) -> None:  # noqa[ARG002]
         """Release lock by deleting file.
 
         :param e: Exception that may have been raised.
@@ -165,7 +165,7 @@ class WriteArrayLock(BaseLock):
 
 
 class WriteVarrayLock(BaseLock):
-    """Write lock for Varays."""
+    """Write lock for VArrays."""
 
     ALLOWED_TYPES = ["VSubset"]
 
@@ -178,13 +178,13 @@ class WriteVarrayLock(BaseLock):
         # Circular import otherwise
         from deker_local_adapters.varray_adapter import LocalVArrayAdapter
 
-        super(WriteVarrayLock, self).check_type()
+        super().check_type()
         adapter = self.instance._VSubset__adapter
         is_running_on_local = isinstance(adapter, LocalVArrayAdapter)
         if not is_running_on_local:
             self.skip_lock = True
 
-    def get_path(self, func_args: Sequence, func_kwargs: Dict) -> Optional[Path]:
+    def get_path(self, func_args: Sequence, func_kwargs: Dict) -> Optional[Path]:  # noqa[ARG002]
         """Path of json Varray file.
 
         :param func_args: arguments of the function that has been called.
@@ -252,16 +252,16 @@ class WriteVarrayLock(BaseLock):
 
         return currently_locked
 
-    def check_existing_lock(self, func_args: Sequence, func_kwargs: Dict) -> None:
+    def check_existing_lock(self, func_args: Sequence, func_kwargs: Dict) -> None:  # noqa[ARG002]
         """If there are any array write/read lock, we shouldn't update varray.
 
         :param func_args: arguments of the function that has been called.
         :param func_kwargs: keyword arguments of the function that has been called.
         """
-        adapter = self.instance._VSubset__array_adapter  # noqa
-        varray = self.instance._VSubset__array  # noqa
+        adapter = self.instance._VSubset__array_adapter
+        varray = self.instance._VSubset__array
 
-        arrays_positions: List[ArrayPositionedData] = self.instance._VSubset__arrays  # noqa
+        arrays_positions: List[ArrayPositionedData] = self.instance._VSubset__arrays
 
         # Clear links to locks
         self.locks = []
@@ -283,7 +283,7 @@ class WriteVarrayLock(BaseLock):
         self.release()
         raise DekerLockError(f"VArray {varray} is locked")
 
-    def release(self, e: Optional[Exception] = None) -> None:
+    def release(self, e: Optional[Exception] = None) -> None:  # noqa[ARG002]
         """Release all locks.
 
         :param e: Exception that may have been raised.
@@ -292,7 +292,7 @@ class WriteVarrayLock(BaseLock):
         for lock in self.locks:
             Flock(lock).release()
             Path(f"{lock}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink()
-        super(WriteVarrayLock, self).release()
+        super().release()
 
     @staticmethod
     def _inner_method_logic(
@@ -356,10 +356,7 @@ class CreateArrayLock(BaseLock):
                 raise DekerLockError(f"Adapter {adapter} is not allowed to create locks for arrays")
 
             # TODO: figure out a way to avoid constructing Array object here
-            if adapter == self.ALLOWED_TYPES[0]:
-                array_type = Array
-            else:
-                array_type = VArray
+            array_type = Array if adapter == self.ALLOWED_TYPES[0] else VArray
             array = array_type(**array)
 
         dir_path = get_main_path(array.id, self.instance.collection_path / self.instance.data_dir)
@@ -414,7 +411,7 @@ class CollectionLock(BaseLock):
 
     ALLOWED_TYPES = ["LocalCollectionAdapter"]
 
-    def get_path(self, func_args: Sequence, func_kwargs: Dict) -> Path:
+    def get_path(self, func_args: Sequence, func_kwargs: Dict) -> Path:  # noqa[ARG002]
         """Return path to collection lock file.
 
         :param func_args: arguments for called method

@@ -10,8 +10,8 @@ from attr import dataclass
 
 from deker.errors import DekerInvalidSchemaError, DekerValidationError
 from deker.tools.schema import get_default_fill_value
-from deker.types.enums import DTypeEnum
-from deker.types.typings import Numeric
+from deker.types.private.enums import DTypeEnum
+from deker.types.private.typings import Numeric
 
 
 @dataclass(repr=True)
@@ -88,7 +88,7 @@ class BaseArraysSchema:
         attrs = tuple(attr for attr in self.attributes if not attr.primary)
         return attrs if attrs else None
 
-    def __attrs_post_init__(self) -> None:  # noqa: C901
+    def __attrs_post_init__(self) -> None:
         """Validate after init."""
         dimensions_type_error = (
             "Dimensions shall be a list or tuple of DimensionSchemas or TimeDimensionSchemas"
@@ -112,7 +112,7 @@ class BaseArraysSchema:
                 self.dtype = np.float64
             elif self.dtype == complex:
                 self.dtype = np.complex128
-            DTypeEnum(self.dtype).value
+            DTypeEnum(self.dtype).value  # noqa[B018]
         except ValueError:
             raise DekerValidationError(f"Invalid dtype value {self.dtype}")
 
@@ -149,10 +149,7 @@ class BaseArraysSchema:
         """Serialize as dict."""
         try:
             dtype = DTypeEnum.get_name(DTypeEnum(self.dtype))
-            if np.isnan(self.fill_value):  # type: ignore[arg-type]
-                fill_value = None
-            else:
-                fill_value = str(self.fill_value)
+            fill_value = None if np.isnan(self.fill_value) else str(self.fill_value)  # type: ignore[arg-type]
 
             return {
                 "dimensions": tuple(dim.as_dict for dim in self.dimensions),

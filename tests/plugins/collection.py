@@ -8,6 +8,7 @@ import pytest
 
 from deker_local_adapters import HDF5Options
 
+from deker import Scale
 from deker.client import Client
 from deker.collection import Collection
 from deker.schemas import (
@@ -17,7 +18,6 @@ from deker.schemas import (
     TimeDimensionSchema,
     VArraySchema,
 )
-from deker.types.classes import Scale
 
 
 @pytest.fixture()

@@ -1,7 +1,8 @@
 import pytest
 
-from deker.dimensions import Dimension, IndexLabels
+from deker.dimensions import Dimension
 from deker.errors import DekerValidationError
+from deker.types import IndexLabels
 
 
 class TestIndexLabels:
@@ -9,8 +10,6 @@ class TestIndexLabels:
         [
             ["1", "2"],
             ("1", "2"),
-            [1, 2],
-            (1, 2),
             [0.1, 0.2],
             (0.1, 0.2),
         ],
@@ -22,6 +21,8 @@ class TestIndexLabels:
             (("1", 2), ("3", 4)),
             (["1", 2], ["3", 4]),
             {"1": 2, "3": 4},
+            [1, 2],
+            (1, 2),
         )
     ]
 

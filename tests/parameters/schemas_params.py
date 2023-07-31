@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from tests.parameters.common import INTEG, _random_positive_int, random_step, random_string
 
+from deker import Scale
 from deker.ABC.base_schemas import BaseDimensionSchema
 from deker.schemas import (
     ArraySchema,
@@ -14,8 +15,7 @@ from deker.schemas import (
     TimeDimensionSchema,
     VArraySchema,
 )
-from deker.types.classes import Scale
-from deker.types.typings import NoneType, Numeric, NumericDtypes
+from deker.types.private.typings import NoneType, Numeric, NumericDtypes
 
 
 def get_vgrids(dimensions: List[BaseDimensionSchema]):

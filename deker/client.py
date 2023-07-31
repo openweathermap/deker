@@ -1,4 +1,3 @@
-"""Deker Client."""
 from __future__ import annotations
 
 import importlib
@@ -6,7 +5,6 @@ import os
 import pkgutil
 import warnings
 
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from multiprocessing import cpu_count
 from pathlib import Path
@@ -17,7 +15,6 @@ from deker_tools.path import is_path_valid
 from psutil import swap_memory, virtual_memory
 from tqdm import tqdm
 
-from deker.ABC.base_collection import BaseCollectionOptions
 from deker.collection import Collection
 from deker.config import DekerConfig
 from deker.ctx import CTX
@@ -26,77 +23,82 @@ from deker.errors import (
     DekerCollectionNotExistsError,
     DekerMetaDataError,
     DekerValidationError,
-    DekerWarning,
 )
 from deker.integrity import IntegrityChecker
 from deker.locks import META_DIVIDER
 from deker.log import SelfLoggerMixin, set_logging_level
 from deker.schemas import ArraySchema, VArraySchema
-from deker.types import LocksExtensions
-from deker.types.classes import ArrayLockMeta, CollectionLockMeta, StorageSize
-from deker.types.enums import LocksTypes
+from deker.tools import convert_human_memory_to_bytes
+from deker.types import ArrayLockMeta, CollectionLockMeta, LocksExtensions, LocksTypes, StorageSize
 from deker.uri import Uri
+from deker.warnings import DekerWarning
 
 
 if TYPE_CHECKING:
+    from concurrent.futures import ThreadPoolExecutor
+
     from deker.ABC.base_adapters import BaseCollectionAdapter
+    from deker.ABC.base_collection import BaseCollectionOptions
     from deker.ABC.base_factory import BaseAdaptersFactory
 
 
 class Client(SelfLoggerMixin):
-    """Deker Client - is the first object a user starts with.
+    """Deker ``Client`` - is the first object user starts with.
 
-    It is being used for creating and getting collections and provides connection/path to Deker collections'
+    It is used for creating and getting ``Collections`` and provides connection/path to Deker collections'
     storage by `uri`. Local collection uri shall contain `file://` schema and path to the collections storage
-    on local machine. Connection to the storage is being provided by a client-based context, which remains
+    on local machine. Connection to the storage is provided by a client-based context, which remains
     open while the Client is open, and vice-versa: while the context is open - the Client is open too.
 
-    Client has a context manager which opens and closes context itself:
-        ```
-        with Client("file://...") as client:
-            ~some important job here~
-        ```
+    ``Client`` has a context manager which opens and closes context itself::
 
-    Anyway you may use Client directly:
-        ```
-        client = Client("file://...")
-        ~some important job here~
-        client.close()
-        ```
+      with Client("file://...") as client:
+          ~some important job here~
 
-    As long as Client has a context manager, its instance is reusable:
-        ```
-        client = Client("file://...")
-        ~some important job here~
-        client.close()
-        with client:
-            ~some important job here~
-        with client:
-            ~some important job here~
-        ```
+    Anyway you may use ``Client`` directly::
 
-    Getter-properties:
-     - is_closed
-     - is_open
-     - meta-version
-     - root_path
+      client = Client("file://...")
+      ~some important job here~
+      client.close()
 
-    API methods:
-        - create_collection: creates a new collection on the storage and returns its object instance to work with.
-            Requires:
-                * collection unique name: one name - one collection
-                * an instance of ArraySchema or VArraySchema
-                * (optional) chunking and compression options
-        - get_collection: returns an object of Collection by a given name if such exists, otherwise - None
-        - check_integrity: checks the integrity of embedded storage database on different levels;
-            Either performs all checks and prints found errors or exit on the first error.
-            The final report may be saved to file.
-        - calculate_storage_size: calculates size of the whole storage or of a defined collection;
-        - close: closes Client and its context
-        - clear_locks: clears all current locks within the storage or a defined collection
-        - __enter__: opens client context manager
-        - __exit__: automatically closes client context manager on its exit
-        - __iter__: iterates over all the collection within the provided uri-path, yields Collection instances.
+    As long as ``Client`` has a context manager, its instance is reusable::
+
+      client = Client("file://...")
+      ~some important job here~
+      client.close()
+      with client:
+          ~some important job here~
+      with client:
+          ~some important job here~
+
+    Properties
+    ----------
+    - ``is_closed``
+    - ``is_open``
+    - ``meta-version``
+    - ``root_path``
+
+    API methods
+    -----------
+    - ``create_collection``: creates a new ``Collection`` on the storage and returns its object instance to work with.
+      Requires:
+        * collection **unique** name
+        * an instance of ArraySchema or VArraySchema
+        * chunking and compression options (optional); default is ``None``
+        * type of a storage adapter (optional); default is ``HDF5StorageAdapter``
+
+    - ``get_collection``: returns an object of ``Collection`` by a given name if such exists, otherwise - ``None``
+    - ``check_integrity``: checks the integrity of embedded storage database at different levels;
+
+      Either performs all checks and prints found errors or exit on the first error.
+      The final report may be saved to file.
+
+    - ``calculate_storage_size``: calculates size of the whole storage or of a defined ``Collection``;
+    - ``close``: closes ``Client`` and its context
+    - ``clear_locks``: clears all current locks within the storage or a defined ``Collection``
+    - ``__enter__``: opens ``Client`` context manager
+    - ``__exit__``: automatically closes ``Client`` context manager on its exit
+    - ``__iter__``: iterates over all the collections within the provided uri-path, yields ``Collection`` instances.
     """
 
     __slots__ = (
@@ -116,7 +118,7 @@ class Client(SelfLoggerMixin):
     def _open(self) -> None:
         """Open client.
 
-        This method is being automatically invoked on Client initiation and in context manager.
+        This method is automatically invoked on ``Client`` initiation and in context manager.
         Normally, you don't need to use it yourself.
         """
         if not self.__plugins:
@@ -145,13 +147,14 @@ class Client(SelfLoggerMixin):
                 config=self.__config,
                 executor=self.__executor,
                 is_closed=self.__is_closed,
+                extra=self.kwargs,  # type: ignore[has-type]
             )
             self.__factory = factory(self.__ctx, self.__uri)
             self.__adapter = self.__factory.get_collection_adapter()
             self.logger.info("Client is open")
 
     def __get_plugins(self) -> None:
-        """Get deker adapters plugins."""
+        """Get Deker adapters plugins."""
         for package in pkgutil.iter_modules():
             if package.ispkg and (
                 package.name.startswith("deker_") and package.name.endswith("_adapters")
@@ -171,34 +174,39 @@ class Client(SelfLoggerMixin):
         write_lock_timeout: int = 60,
         write_lock_check_interval: int = 1,
         loglevel: str = "ERROR",
-        memory_limit: int = 0,
+        memory_limit: Union[int, str] = 0,
+        **kwargs: Any,
     ) -> None:
         """Deker client constructor.
-        Gets plugins (adapters), sets DekerConfig, creates uri and opens client.
-        Raises DekerClientError in case of errors during initialization.
 
-        :param uri: uri for Deker
+        :param uri: uri to Deker storage
         :param executor: external ThreadPoolExecutor instance (optional)
         :param workers: number of threads for Deker
-        :param write_lock_timeout: Timeout for write locks
-        :param write_lock_check_interval: Interval for sleep while waiting for unlock on write
-        :param loglevel: Level for logger
-        :param memory_limit: Limit of memory allocation per one array/subset in bytes;
-            by default - 0, if <= 0 - total RAM + total swap is used,
-            This parameter is used for early runtime break in case of potential memory overflow.
+        :param write_lock_timeout: An amount of seconds during which a parallel writing process waits for release
+          of the locked file
+        :param write_lock_check_interval: An amount of time (in seconds) during which a parallel writing process sleeps
+          between checks for locks
+        :param loglevel: Level of Deker loggers
+        :param memory_limit: Limit of memory allocation per one array/subset in bytes or in human representation of
+          kilobytes, megabytes or gigabytes, e.g. ``"100K"``, ``"512M"``, ``"4G"``. Human representations will be
+          converted into bytes. If result is ``<= 0`` - total RAM + total swap is used
+
+          .. note:: This parameter is used for early runtime break in case of potential memory overflow
+
+        :param kwargs: a wildcard, reserved for any extra parameters
         """
         try:
+            set_logging_level(loglevel.upper())
             self.__get_plugins()
+            mem_limit = convert_human_memory_to_bytes(memory_limit)
             self.__config = DekerConfig(  # type: ignore[call-arg]
                 uri=uri,
                 workers=workers if workers is not None else cpu_count() + 4,
                 write_lock_timeout=write_lock_timeout,
                 write_lock_check_interval=write_lock_check_interval,
-                loglevel=loglevel,
+                loglevel=loglevel.upper(),
                 memory_limit=(
-                    virtual_memory().total + swap_memory().total
-                    if memory_limit <= 0
-                    else memory_limit
+                    virtual_memory().total + swap_memory().total if mem_limit <= 0 else mem_limit
                 ),
             )
             self.__uri: Uri = Uri.create(self.__config.uri)
@@ -206,8 +214,8 @@ class Client(SelfLoggerMixin):
             self.__adapter: Optional["BaseCollectionAdapter"] = None
             self.__factory: Optional["BaseAdaptersFactory"] = None
             self.__ctx: Optional[CTX] = None
-            set_logging_level(self.__config.loglevel)
             self.__executor: Optional[ThreadPoolExecutor] = executor
+            self.kwargs = kwargs
             self._open()
         except Exception as e:
             raise DekerClientError(e)
@@ -229,20 +237,20 @@ class Client(SelfLoggerMixin):
                 f"Collection metadata version is not supported by this version: adapter metadata version: "
                 f"{self.meta_version}, collection metadata version: {collection_metadata.get('metadata_version')}"
             )
-        else:
-            for n, dim in enumerate(collection_metadata["schema"]["dimensions"]):
-                if dim["type"] == "generic" and "scale" not in dim:
-                    collection_metadata["schema"]["dimensions"][n]["scale"] = None
-            collection_metadata["metadata_version"] = self.meta_version
+
+        for n, dim in enumerate(collection_metadata["schema"]["dimensions"]):
+            if dim["type"] == "generic" and "scale" not in dim:
+                collection_metadata["schema"]["dimensions"][n]["scale"] = None
+        collection_metadata["metadata_version"] = self.meta_version
 
     @property
     def meta_version(self) -> str:
-        """Get version of actual collection metadata."""
+        """Get actual metadata version, provided by local adapters."""
         return self.__adapter.metadata_version
 
     @property
     def root_path(self) -> Path:
-        """Check client status."""
+        """Get root path to the current storage."""
         return Path(self.__adapter.uri.path) / self.__config.collections_directory
 
     @property
@@ -258,8 +266,9 @@ class Client(SelfLoggerMixin):
     def calculate_storage_size(self, collection_name: str = "") -> StorageSize:
         """Get the size of the storage or of a certain collection in bytes or converted to human representation.
 
-        WARNING: Size calculation may take a long time. Maybe you'd like to have some coffee while it's working.
-        :param collection_name: Name of a collection. If not passed, the whole storage will be counted.
+        .. warning:: Size calculation may take a long time. Maybe you'd like to have some coffee while it's working.
+
+        :param collection_name: Name of a ``Collection``. If not passed, the whole storage will be counted.
         """
         paths: List[Tuple[Path, str]] = []
         if collection_name:
@@ -295,7 +304,7 @@ class Client(SelfLoggerMixin):
             for collection, ext in pbar:
                 for root, _, files in os.walk(collection):  # type: ignore[type-var]
                     for file in files:  # type: str
-                        if file.endswith(ext):  # noqa
+                        if file.endswith(ext):
                             size += os.path.getsize(Path(root) / file)  # type: ignore[arg-type]
                             pbar.set_description(str(size))
                 pbar.set_description(str(size))
@@ -322,12 +331,12 @@ class Client(SelfLoggerMixin):
         collection_options: Optional[BaseCollectionOptions] = None,
         storage_adapter_type: Optional[str] = None,
     ) -> Collection:
-        """Create a new collection in the database.
+        """Create a new ``Collection`` in the database.
 
-        :param storage_adapter_type: Adapter, which works with files. Default is HDF5StorageAdapter
-        :param name: Name of collection
-        :param schema: Array or VArray schema
-        :param collection_options: Options for compression and chunks
+        :param name: Name of new ``Collection``
+        :param schema: ``Array`` or ``VArray`` schema
+        :param collection_options: Options for compression and chunks (if applicable)
+        :param storage_adapter_type: Type of an adapter, which works with files; default is ``HDF5StorageAdapter``
         """
         if not isinstance(name, str) or not name or name.isspace():
             raise DekerValidationError(f"Collection invalid name: {name}")
@@ -354,9 +363,9 @@ class Client(SelfLoggerMixin):
         self,
         name: str,
     ) -> Optional[Collection]:
-        """Get collection from database by its name.
+        """Get ``Collection`` from database by its name.
 
-        :param name: name of collection
+        :param name: Name of a ``Collection``
         """
         try:
             collection_data: dict = self.__adapter.read(name)
@@ -371,7 +380,7 @@ class Client(SelfLoggerMixin):
             return None
 
     def collection_from_dict(self, collection_data: dict) -> Collection:
-        """Create a new collection in the database from collection metadata dictionary.
+        """Create a new ``Collection`` in the database from collection metadata dictionary.
 
         :param collection_data: Dictionary with collection metadata
         """
@@ -389,19 +398,19 @@ class Client(SelfLoggerMixin):
         for key in default_fields:
             if key not in collection_data:
                 collection_data[key] = default_fields[key]
-            else:
-                if isinstance(default_fields[key], dict):
-                    for k in default_fields[key]:
-                        if k == "dimensions":
-                            for n, dim in enumerate(collection_data[key][k]):
-                                if dim["type"] != "time":
-                                    if "labels" not in dim:
-                                        collection_data[key][k][n]["labels"] = None
-                                    if "scale" not in dim:
-                                        collection_data[key][k][n]["scale"] = None
-                        else:
-                            if k not in collection_data[key]:
-                                collection_data[key][k] = default_fields[key][k]
+
+            elif isinstance(default_fields[key], dict):
+                for k in default_fields[key]:
+                    if k == "dimensions":
+                        for n, dim in enumerate(collection_data[key][k]):
+                            if dim["type"] != "time":
+                                if "labels" not in dim:
+                                    collection_data[key][k][n]["labels"] = None
+                                if "scale" not in dim:
+                                    collection_data[key][k][n]["scale"] = None
+
+                    elif k not in collection_data[key]:
+                        collection_data[key][k] = default_fields[key][k]
         collection = self.__adapter.create_collection_from_meta(  # type: ignore[return-value]
             collection_data, self.__factory
         )
@@ -413,18 +422,19 @@ class Client(SelfLoggerMixin):
     def _iter_collection_locks(
         path: Path, collection_name: str, lock_type: Union[LocksTypes, None] = None
     ) -> list[ArrayLockMeta]:
-        """Return Collection arrays' lockfiles.
+        """Return collection ``Arrays'`` lockfiles.
 
-        :param path: Collection path
-        :param collection_name: collection name
-            If passed - gets locks only from passed collection, else checks every collection in client
-        :param lock_type: LocksTypes enum attribute, leave empty to get every lockfile
+        :param path: ``Collection`` path
+        :param collection_name: name of a ``Collection``
+          If passed - gets locks only from passed collection, else checks every collection in client
+        :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
         """
         locks: list[ArrayLockMeta] = []
         for file in Path.rglob(path, "*lock"):
             if not lock_type or file.name.endswith(LocksExtensions[lock_type.name].value):
                 meta = file.name.split(META_DIVIDER)
-                if len(meta) != 4:
+                meta_separated_numbers = 4
+                if len(meta) != meta_separated_numbers:
                     # discuss other locks print format
                     continue
                 if not lock_type:
@@ -444,17 +454,17 @@ class Client(SelfLoggerMixin):
                 locks.append(lock)
         return locks
 
-    # TODO decide on private/public method
+    # TODO: decide on private/public method
     def _get_locks(
         self,
         collection_name: Union[str, None] = None,
         lock_type: Union[LocksTypes, None] = None,
     ) -> list[Union[CollectionLockMeta, ArrayLockMeta]]:
-        """Return lockfiles of collections and arrays.
+        """Return lockfiles of ``Collections`` and ``Arrays``.
 
-        :param collection_name: Collection name
-            If passed - gets locks only from passed collection, else checks every collection in client
-        :param lock_type: LocksTypes enum attribute, leave empty to get every lockfile
+        :param collection_name: Name of a ``Collection``
+          If passed - gets locks only from passed ``Collection``, else checks every collection in the storage
+        :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
         """
         locks: list[Union[CollectionLockMeta, ArrayLockMeta]] = []
         if collection_name:
@@ -468,30 +478,28 @@ class Client(SelfLoggerMixin):
             )
         else:
             for directory in Path(self.root_path).iterdir():
-                if not lock_type or lock_type == LocksTypes.collection_lock:
-                    if directory.is_file() and directory.name.endswith(
-                        LocksExtensions.collection_lock.value
-                    ):
-                        lock: CollectionLockMeta = {
-                            "Lockfile": directory.name,
-                            "Collection": directory.name[
-                                : -len(LocksExtensions.collection_lock.value)
-                            ],
-                            "Type": LocksTypes.collection_lock.value,
-                            "Creation": datetime.fromtimestamp(
-                                directory.stat().st_ctime
-                            ).isoformat(),
-                        }
-                        print(lock)
-                        locks.append(lock)
+                if (
+                    not lock_type
+                    or lock_type == LocksTypes.collection_lock
+                    and directory.is_file()
+                    and directory.name.endswith(LocksExtensions.collection_lock.value)
+                ):
+                    lock: CollectionLockMeta = {
+                        "Lockfile": directory.name,
+                        "Collection": directory.name[: -len(LocksExtensions.collection_lock.value)],
+                        "Type": LocksTypes.collection_lock.value,
+                        "Creation": datetime.fromtimestamp(directory.stat().st_ctime).isoformat(),
+                    }
+                    print(lock)
+                    locks.append(lock)
                 locks.extend(self._iter_collection_locks(directory, directory.name, lock_type))
         return locks
 
     def clear_locks(self, collection_name: Union[str, None] = None) -> None:
-        """Clear (V)Arrays' readlocks.
+        """Clear the readlocks of Arrays and/or VArrays.
 
-        :param collection_name: collection name
-            If passed - clears lock only in passed collection, else clears locks in every collection in client
+        :param collection_name: Name of a ``Collection``.
+          If passed - clears locks only in the provided collection, else clears locks in every collection in the storage
         """
         root_path = self.root_path
         files_count = 0
@@ -520,21 +528,21 @@ class Client(SelfLoggerMixin):
         to_file: Union[bool, Path, str] = False,
         collection: Union[str, None] = None,
     ) -> None:
-        """Run integrity check.
+        """Run storage integrity check at one of 4 levels.
 
-        There are 4 levels:
-            1. Checks collections integrity, initialises every collection if no collection passed in params
-            2: Checks arrays/varrays initialization and lockfiles
-            3: Checks if arrays/varrays paths are valid, including symlinks
-            4: Checks if stored data is consistent with file-by-file single value reading
+        1. checks ``Collections`` integrity.  If no collection name was passed, iterates over all the
+           ``Collections`` and initialises them one by one
+        2. checks ``Arrays``/``VArrays`` initialization and lockfiles
+        3. checks if ``Arrays``/``VArrays`` paths are valid, including symlinks
+        4. checks if stored data is consistent with file-by-file one point reading
 
-        :param collection: collection name
-            If passed - checks only passed collection, else checks every collection in client
-        :param level: check level
-        :param stop_on_error: flag to stop on first path or data error
-        :param to_file: log errors in file; accepts True/False or a path to file
-            If True - logs errors into a default filename in the current directory
-            If a path to file is passed - logs error to file
+        :param collection: Name of a ``Collection``. If passed - checks only passed collection, else checks
+          every collection in the storage
+        :param level: Check-level
+        :param stop_on_error: Flag to stop on first path or data error
+        :param to_file: Dump errors in file; accepts ``True``/``False`` or a path to file. If ``True`` - dump errors
+          into a default filename in the current directory; if a ``path`` to file is passed - dump errors to the file
+          with a specified name and path.
         """
         errors: str = IntegrityChecker(self, self.root_path, stop_on_error, level).check(collection)
         if not errors:
@@ -551,13 +559,13 @@ class Client(SelfLoggerMixin):
                     / f"deker_integrity_report_{datetime.now().isoformat(timespec='seconds')}.txt"
                 )
             is_path_valid(filename.parent.absolute())
-            with open(filename, "w") as f:
+            with filename.open("w") as f:
                 f.write(errors)
             errors += f"\n\nIntegrity check logged errors in {to_file.absolute()}"
         print(errors)
 
     def __iter__(self) -> Generator[Collection, None, None]:
-        """Iterate over all collections on the storage."""
+        """Iterate over all collections in the storage."""
         for meta in self.__adapter:
             collection = self.__adapter.create_collection_from_meta(
                 meta, self.__factory  # type: ignore[arg-type]

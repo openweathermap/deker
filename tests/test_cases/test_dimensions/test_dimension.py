@@ -3,8 +3,9 @@ from typing import Any
 import pytest
 
 from deker.arrays import Array
-from deker.dimensions import Dimension, IndexLabels
+from deker.dimensions import Dimension
 from deker.errors import DekerValidationError
+from deker.types import IndexLabels
 
 
 class TestDimensionNameValidation:
@@ -135,10 +136,8 @@ class TestDimensionLabelsValidation:
         [
             None,
             ["1", "2"],
-            [1, 2],
             [0.2, 0.1],
             ("1", "2"),
-            (1, 2),
             (0.2, 0.1),
         ],
     )
@@ -174,6 +173,8 @@ class TestDimensionLabelsValidation:
             set(),
             {"abc"},
             {("abc", "def")},
+            [1, 2],
+            (1, 2),
             [],
             [(1, 2), (3, 4)],
             tuple(),

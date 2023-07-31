@@ -2,22 +2,22 @@ import uuid
 
 from datetime import datetime
 from functools import singledispatch
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 
 from deker_tools.data import convert_size_to_human
+from deker_tools.time import get_utc
 from psutil import swap_memory, virtual_memory
 
-from deker.errors import DekerMemoryError, DekerMetaDataError
-from deker.tools.time import convert_to_utc, now
-from deker.types import ArrayMeta
+from deker.errors import DekerMemoryError, DekerMetaDataError, DekerValidationError
 
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.arrays import Array, VArray
     from deker.collection import Collection
+    from deker.types import ArrayMeta
 
 
 def calculate_total_cells_in_array(seq: Union[Tuple[int, ...], List[int]]) -> int:
@@ -28,22 +28,48 @@ def calculate_total_cells_in_array(seq: Union[Tuple[int, ...], List[int]]) -> in
     return int(np.prod(np.array(seq)))
 
 
+def convert_human_memory_to_bytes(memory_limit: Union[int, str]) -> int:
+    """Convert a human memory limit to bytes.
+
+    :param memory_limit: memory limit provided by the user
+    """
+    bytes_ = 1024
+    mapping: Dict[str, int] = {"k": bytes_, "m": bytes_**2, "g": bytes_**3}
+    error = (
+        f"invalid memory_limit value: {memory_limit}; expected `int` or `str` in format [number][unit] "
+        f'where unit is one of ["k", "K", "m", "M", "g", "G"], e.g. "8G" or "512m"'
+    )
+    if not isinstance(memory_limit, (int, str)):
+        raise DekerValidationError(error)
+
+    if isinstance(memory_limit, int):
+        return memory_limit
+
+    limit, div = memory_limit[:-1], memory_limit.lower()[-1]
+    try:
+        int_limit: int = int(limit)
+        bytes_result: int = int_limit * mapping[div]
+        return bytes_result
+    except Exception:
+        raise DekerValidationError(error)
+
+
 def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> None:
     """Memory allocation checker decorator.
+
     Checks if it is possible to allocate memory for array/subset.
 
     :param shape: array or subset shape
     :param dtype: array or subset values dtype
     :param mem_limit_from_settings: deker ram limit in bytes
     """
-    pow_bytes = 1024
     array_values = calculate_total_cells_in_array(shape)
     array_size_bytes = np.dtype(dtype).itemsize * array_values
-    array_size_human = convert_size_to_human(array_size_bytes, pow_bytes=pow_bytes)
+    array_size_human = convert_size_to_human(array_size_bytes)
 
     current_limit = virtual_memory().available + swap_memory().free
     limit = min(mem_limit_from_settings, current_limit)
-    limit_human = convert_size_to_human(limit, pow_bytes=pow_bytes)
+    limit_human = convert_size_to_human(limit)
 
     if array_size_bytes > limit:
         raise DekerMemoryError(
@@ -77,15 +103,12 @@ def create_array_from_meta(
         attrs_schema = collection.array_schema.attributes
     try:
         for attr in attrs_schema:
-            if attr.primary:
-                attributes = meta["primary_attributes"]
-            else:
-                attributes = meta["custom_attributes"]
+            attributes = meta["primary_attributes"] if attr.primary else meta["custom_attributes"]
 
             value = attributes[attr.name]
 
             if attr.dtype == datetime:
-                attributes[attr.name] = convert_to_utc(value)
+                attributes[attr.name] = get_utc(value)
             if attr.dtype == tuple:
                 if (attr.primary or (not attr.primary and value is not None)) and not isinstance(
                     value, list
@@ -117,7 +140,7 @@ def get_id(array: Any) -> str:
 
     :param array: any object
     """
-    from deker.arrays import Array, VArray  # noqa: F811
+    from deker.arrays import Array, VArray
 
     @singledispatch
     def generate_id(arr: Any) -> str:
@@ -128,19 +151,19 @@ def get_id(array: Any) -> str:
         raise TypeError(f"Invalid object type: {type(arr)}")
 
     @generate_id.register(Array)
-    def array_id(arr: Array) -> str:
+    def array_id(arr: Array) -> str:  # noqa[ARG001]
         """Generate id for Array.
 
         :param arr: Array type
         """
-        return str(uuid.uuid5(uuid.NAMESPACE_X500, "array" + now().isoformat()))
+        return str(uuid.uuid5(uuid.NAMESPACE_X500, "array" + get_utc().isoformat()))
 
     @generate_id.register(VArray)
-    def varray_id(arr: VArray) -> str:
+    def varray_id(arr: VArray) -> str:  # noqa[ARG001]
         """Generate id for VArray.
 
         :param arr: VArray type
         """
-        return str(uuid.uuid5(uuid.NAMESPACE_OID, "varray" + now().isoformat()))
+        return str(uuid.uuid5(uuid.NAMESPACE_OID, "varray" + get_utc().isoformat()))
 
     return generate_id(array)

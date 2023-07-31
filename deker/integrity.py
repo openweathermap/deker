@@ -13,7 +13,7 @@ from deker.errors import (
     DekerIntegrityError,
 )
 from deker.tools import get_main_path, get_symlink_path
-from deker.types.enums import LocksExtensions
+from deker.types.private.enums import LocksExtensions
 
 
 if TYPE_CHECKING:
@@ -37,13 +37,13 @@ class DataChecker(BaseChecker):
             subset = array[tuple(s - 1 for s in array.shape)]
             data = subset.read()
         except Exception as e:
-            raise DekerIntegrityError(f"Array {array.id} data is corrupted: {str(e)}")
+            raise DekerIntegrityError(f"Array {array.id} data is corrupted: {e!s}")
         if data.dtype != array.dtype:
             raise DekerIntegrityError(f"Array {array.id} data is corrupted: incorrect dtype")
 
 
 class PathsChecker(BaseChecker):
-    """Checks (V)Array paths."""
+    """Checks Array or VArray paths."""
 
     CHECKER_LEVEL = 3
 
@@ -66,8 +66,8 @@ class PathsChecker(BaseChecker):
     def _validate_paths(self, main_path: Path, symlink_path: Path, collection: Collection) -> None:
         """Validate symlink and main paths.
 
-        :param main_path: (V)Array main path
-        :param symlink_path: (V)Array symlink
+        :param main_path: Array or VArray main path
+        :param symlink_path: Array or VArray symlink
         :param collection: Collection
         """
         if not symlink_path.exists():
@@ -134,7 +134,7 @@ class ArraysChecker(BaseChecker):
     CHECKER_LEVEL = 2
 
     def check_arrays_locks(self, collection: Collection) -> None:
-        """Check if (V)Arrays have no left lockfiles from create method.
+        """Check if Arrays or VArrays have no lockfiles left from create method.
 
         :param collection: Collection to be checked
         """
@@ -155,7 +155,7 @@ class ArraysChecker(BaseChecker):
             raise DekerIntegrityError(self._parse_errors())
 
     def check(self, collection: Collection) -> None:
-        """Check if (V)Arrays in Collection are valid.
+        """Check if Arrays or VArray in Collection are valid.
 
         :param collection: Collection to be checked
         """
@@ -260,7 +260,7 @@ class CollectionsChecker(BaseChecker):
 class IntegrityChecker(BaseChecker):
     """Storage integrity checker."""
 
-    # noqa:
+    # :
     def __init__(self, client: "Client", root_path: Path, stop_on_error: bool, level: int) -> None:
         super().__init__(stop_on_error, {}, defaultdict(list), level, client, root_path)  # type: ignore[attr-defined]
         self.add_checker(CollectionsChecker)
@@ -268,7 +268,7 @@ class IntegrityChecker(BaseChecker):
         self.add_checker(PathsChecker)
         self.add_checker(DataChecker)
 
-    def check(self, collection_name: Optional[str] = None) -> str:  # noqa: C901
+    def check(self, collection_name: Optional[str] = None) -> str:
         """Run integrity check.
 
         :param collection_name: optional collection to check

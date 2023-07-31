@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from deker.managers import FilteredManager
 
 
-class BaseAbstractManager(ABC):  # noqa: B024
+class BaseAbstractManager(ABC):
     """Data manager interface."""
 
     __slots__ = ("__collection", "__array_adapter", "__varray_adapter", "_schema")
@@ -39,11 +39,12 @@ class BaseAbstractManager(ABC):  # noqa: B024
 
     def _get_schema(self) -> BaseArraysSchema:
         """Decide which schema to use (Array or VArray)."""
-        if self.__collection.varray_schema:
-            schema = self.__collection.varray_schema
-        else:
-            schema = self.__collection.array_schema
-        return schema
+        schema = (
+            self.__collection.varray_schema
+            if self.__collection.varray_schema
+            else self.__collection.array_schema
+        )
+        return schema  # type: ignore[return-value]
 
     def filter(self, filters: dict) -> "FilteredManager":
         """Filter Arrays or VArrays by provided condition.

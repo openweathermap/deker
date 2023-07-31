@@ -12,14 +12,13 @@ from numpy import ndarray
 
 from tests.parameters.index_exp_params import valid_index_exp_params
 
-from deker import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema
+from deker import ArraySchema, AttributeSchema, DimensionSchema, Scale, TimeDimensionSchema
 from deker.arrays import Array
 from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerSubsetError
 from deker.subset import Subset
 from deker.tools import get_paths
-from deker.types import Scale
-from deker.types.typings import Slice
+from deker.types.private.typings import Slice
 
 
 class TestArraySubsetMethods:
@@ -231,8 +230,8 @@ class TestSubsetForXArray:
                 ds = xarray.to_dataset()
                 assert ds
 
-                # can not set assert conversion to pandas.DataFrame as all data is np.NaN
-                # and can not be compared with pandas.DataFrame suggested methods
+                # cannot set assert conversion to pandas.DataFrame as all data is np.NaN
+                # and cannot be compared with pandas.DataFrame suggested methods
                 xarray.to_dataframe()  # so just trying to create it
             except Exception as e:
                 raise AssertionError(e)

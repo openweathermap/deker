@@ -8,8 +8,8 @@ from time import sleep
 from uuid import UUID, uuid4
 
 import pytest
-from deker_local_adapters import LocalArrayAdapter
 
+from deker_local_adapters import LocalArrayAdapter
 from pytest_mock import MockerFixture
 
 from deker.arrays import Array, VArray
@@ -74,7 +74,7 @@ class TestReadArrayLock:
         self,
         read_array_lock: ReadArrayLock,
         inserted_array: Array,
-        local_array_adapter: LocalArrayAdapter
+        local_array_adapter: LocalArrayAdapter,
     ):
         """Check if read_array_lock.get_path method works correctly."""
         dir_path = get_main_path(
@@ -101,7 +101,7 @@ class TestReadArrayLock:
         self,
         read_array_lock: ReadArrayLock,
         inserted_array: Array,
-        local_array_adapter: LocalArrayAdapter
+        local_array_adapter: LocalArrayAdapter,
     ):
         """Check correctness of check_existing_lock method"""
         dir_path = get_main_path(
@@ -144,9 +144,7 @@ class TestReadArrayLock:
 class TestWriteArrayLock:
     """Test if WriteArrayLock creates lock file on reading, and we cannot write into it."""
 
-    def test_write_array_lock_check_type_ok(
-        self, array: Array, local_array_adapter
-    ):
+    def test_write_array_lock_check_type_ok(self, array: Array, local_array_adapter):
         """Test if check of type is working properly on right cases."""
 
         lock = WriteArrayLock()
@@ -170,7 +168,7 @@ class TestWriteArrayLock:
         self,
         write_array_lock: WriteArrayLock,
         inserted_array: Array,
-        local_array_adapter: LocalArrayAdapter
+        local_array_adapter: LocalArrayAdapter,
     ):
         """Check correctness of get_path method."""
         dir_path = get_main_path(
@@ -416,9 +414,7 @@ class TestWriteVarrayLock:
 
 
 class TestCollectionLock:
-    def test_lock_deletes_after_memory_error(
-        self, client: Client, collection_adapter
-    ):
+    def test_lock_deletes_after_memory_error(self, client: Client, collection_adapter):
         schema = ArraySchema(
             dimensions=[
                 DimensionSchema(name="x", size=100000),

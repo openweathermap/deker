@@ -96,7 +96,7 @@ class TestFlock:
             flock1.release()
 
     def test_multiple_sync_processes_flock(self):
-        """Tests multiple processes can not acquire lock on the same file."""
+        """Tests multiple processes cannot acquire lock on the same file."""
         cores = multiprocessing.cpu_count() // 2
         processes = cores if cores > 2 else 2
         with ProcessPoolExecutor(max_workers=processes) as ex:

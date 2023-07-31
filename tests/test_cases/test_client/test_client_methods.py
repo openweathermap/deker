@@ -28,13 +28,13 @@ from deker.errors import (
     DekerIntegrityError,
     DekerMemoryError,
     DekerValidationError,
-    DekerWarning,
 )
 from deker.log import set_logging_level
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_symlink_path
 from deker.types import LocksExtensions
-from deker.types.enums import LocksTypes
+from deker.types.private.enums import LocksTypes
+from deker.warnings import DekerWarning
 
 
 class TestClientMethods:
@@ -567,7 +567,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="x", size=1024),
                 ],
                 1052810,
-                "1.05 MB",
+                "1.0 MB",
             ),
             (
                 [
@@ -575,7 +575,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="x", size=10240),
                 ],
                 10489994,
-                "10.49 MB",
+                "10.0 MB",
             ),
             (
                 [
@@ -583,7 +583,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="x", size=10240),
                 ],
                 104861834,
-                "104.86 MB",
+                "100.0 MB",
             ),
             (
                 [
@@ -592,7 +592,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="z", size=1024),
                 ],
                 1073746058,
-                "1.07 GB",
+                "1.0 GB",
             ),
         ],
     )
@@ -620,7 +620,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="x", size=1024),
                 ],
                 1052810,
-                "4.21 MB",
+                "4.02 MB",
             ),
             (
                 [
@@ -628,7 +628,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="x", size=10240),
                 ],
                 10489994,
-                "41.96 MB",
+                "40.02 MB",
             ),
             (
                 [
@@ -636,7 +636,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="x", size=10240),
                 ],
                 104861834,
-                "419.45 MB",
+                "400.02 MB",
             ),
             (
                 [
@@ -645,7 +645,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="z", size=1024),
                 ],
                 1073746058,
-                "4.29 GB",
+                "4.0 GB",
             ),
         ],
     )
@@ -811,7 +811,8 @@ class TestClearLocks:
         assert not list(Path.rglob(root_path, f"*{LocksExtensions.array_read_lock.value}"))
         assert not list(Path.rglob(root_path, f"*{LocksExtensions.varray_lock.value}"))
 
-    def test_client_create_collection_raises_memory_error(self, root_path):
+    @pytest.mark.parametrize("limit_size", [100, "1K", "10k", "25m"])
+    def test_client_create_collection_raises_memory_error(self, root_path, limit_size):
         schema = ArraySchema(
             dimensions=[
                 DimensionSchema(name="x", size=10000),
@@ -821,10 +822,13 @@ class TestClearLocks:
         )
         col_name = "memory_excess"
         with pytest.raises(DekerMemoryError):
-            with Client(embedded_uri(root_path), memory_limit=100, loglevel="CRITICAL") as client:
+            with Client(
+                embedded_uri(root_path), memory_limit=limit_size, loglevel="CRITICAL"
+            ) as client:
                 client.create_collection(col_name, schema)
 
-    def test_client_create_from_dict_raises_memory_error(self, root_path, client):
+    @pytest.mark.parametrize("limit_size", [100, "1K", "10k", "25m"])
+    def test_client_create_from_dict_raises_memory_error(self, root_path, client, limit_size):
         schema = ArraySchema(
             dimensions=[
                 DimensionSchema(name="x", size=10000),
@@ -838,7 +842,7 @@ class TestClearLocks:
         collection.delete()
         with pytest.raises(DekerMemoryError):
             with Client(
-                embedded_uri(root_path), memory_limit=100, loglevel="CRITICAL"
+                embedded_uri(root_path), memory_limit=limit_size, loglevel="CRITICAL"
             ) as extra_client:
                 extra_client.collection_from_dict(coll_dict)
 

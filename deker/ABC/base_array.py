@@ -8,20 +8,20 @@ from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, Union
 
-import numpy
+import numpy as np
 
 from deker_tools.slices import create_shape_from_slice
+from deker_tools.time import get_utc
 
 from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerValidationError
 from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, TimeDimensionSchema, VArraySchema
 from deker.subset import Subset, VSubset
-from deker.tools import convert_to_utc
 from deker.tools.array import check_memory, get_id
 from deker.tools.schema import create_dimensions
-from deker.types.classes import ArrayMeta, Serializer
-from deker.types.typings import FancySlice, Numeric, Slice
+from deker.types.private.classes import ArrayMeta, Serializer
+from deker.types.private.typings import FancySlice, Numeric, Slice
 from deker.validators import process_attributes
 
 
@@ -58,7 +58,7 @@ class _FancySlicer(object):
 
         # check start and stop type
         try:
-            dt = convert_to_utc(value)  # type: ignore[arg-type]
+            dt = get_utc(value)  # type: ignore[arg-type]
             position = int((dt - start) // step)
 
             # if passed timestamp/iso-string does not match step size
@@ -128,12 +128,17 @@ class _FancySlicer(object):
         """
         slice_parameters = []
 
-        if all(st is not None for st in (slice_.start, slice_.stop)):
-            if not type(slice_.start) is type(slice_.stop):  # noqa E721
-                raise IndexError(
-                    f"'start' and 'stop' of {dimension.__class__.__name__} {dimension.name} slice "
-                    f"shall be of the same type"
-                )
+        if all(
+            st is not None for st in (slice_.start, slice_.stop)
+        ) and not type(  # noqa: E721,E714
+            slice_.start
+        ) is type(  # noqa: E721,RUF100
+            slice_.stop
+        ):
+            raise IndexError(
+                f"'start' and 'stop' of {dimension.__class__.__name__} {dimension.name} slice "
+                f"shall be of the same type"
+            )
 
         if slice_.step is not None:
             valid_step_types = int
@@ -229,7 +234,9 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
     ) -> None:
-        if id_ is not None and (not isinstance(id_, str) or len(id_.split("-")) != 5):
+        if id_ is not None and (
+            not isinstance(id_, str) or len(id_.split("-")) != 5  # noqa[PLR2004]
+        ):
             raise DekerValidationError(
                 f"{self.__class__.__name__} id shall be a non-empty uuid.uuid5 string or None"
             )
@@ -245,14 +252,15 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         id_: Optional[str] = None,
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
-        *args: Any,
-        **kwargs: Any,
+        *args: Any,  # noqa[ARG002]
+        **kwargs: Any,  # noqa[ARG002]
     ) -> None:
         """BaseArray constructor.
+
         Validates id, primary and custom attributes, sets attributes to empty dict if None.
 
         :param collection: Collection instance, to which the array is bound
-        :param adapter: (V)Array adapter instance
+        :param adapter: Array or VArray adapter instance
         :param array_adapter: Array adapter instance
         :param id_: Array uuid string
         :param primary_attributes: primary attributes keyword mapping
@@ -285,7 +293,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
     @property
     @abstractmethod
     def _adapter(self) -> "IArrayAdapter":
-        """Return (V)Array adapter."""
+        """Return Array or VArray adapter."""
         pass
 
     @property
@@ -344,7 +352,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         return self.schema.named_shape
 
     @property
-    def fill_value(self) -> Union[Numeric, type(numpy.nan)]:  # type: ignore[valid-type]
+    def fill_value(self) -> Union[Numeric, type(np.nan)]:  # type: ignore[valid-type]
         """Get array fill_value."""
         return self.schema.fill_value
 
@@ -365,6 +373,8 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
                 and isinstance(s.start_value, str)
                 and s.start_value.startswith("$")
             ):
+                if s.start_value[1:] in self.primary_attributes:
+                    continue
                 if s.start_value[1:] not in attributes:
                     for d in self.dimensions:
                         if d.name == s.name:
@@ -388,12 +398,12 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             for key, value in attrs.items():
                 if isinstance(value, datetime):
                     attrs[key] = value.isoformat()
-                elif isinstance(value, numpy.ndarray):
+                elif isinstance(value, np.ndarray):
                     attrs[key] = value.tolist()
                 elif isinstance(value, (list, tuple)):
                     elements = []
                     for element in value:
-                        if isinstance(element, numpy.integer):
+                        if isinstance(element, np.integer):
                             elements.append(int(element))
                         else:
                             elements.append(element)
@@ -432,16 +442,15 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
                     )
                 fancy_item.append(i)
             fancy_item = tuple(fancy_item)
+        elif self._check_int_or_slice_or_ellipsis(item):
+            fancy_item = item
         else:
-            if self._check_int_or_slice_or_ellipsis(item):
-                fancy_item = item
-            else:
-                fancy_item = self._fancy_slice_dimensions(item, self.dimensions[0])
+            fancy_item = self._fancy_slice_dimensions(item, self.dimensions[0])
 
         return fancy_item  # type: ignore[return-value]
 
     def __getitem__(self, item: FancySlice) -> Union[Subset, VSubset]:
-        """Get a subset from (V)Array.
+        """Get a subset from Array or VArray.
 
         :param item: index expression
         """
@@ -474,11 +483,11 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             )
 
         check_memory(shape, self.dtype, self.__adapter.ctx.config.memory_limit)
-        pre_bounds = numpy.index_exp[item]
+        pre_bounds = np.index_exp[item]
         bounds: Union[List, Tuple] = []
         for i in pre_bounds:
             if i is ...:
-                bounds.extend(numpy.index_exp[:])
+                bounds.extend(np.index_exp[:])
             else:
                 bounds.append(i)
         bounds = tuple(bounds)

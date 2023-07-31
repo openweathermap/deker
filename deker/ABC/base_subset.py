@@ -8,11 +8,11 @@ from deker_tools.slices import slice_converter
 
 
 try:
-    from xarray import DataArray  # noqa
+    from xarray import DataArray
 
     xarray_import_error = None
 except ImportError:
-    DataArray = TypeVar("DataArray")  # noqa
+    DataArray = TypeVar("DataArray")
     xarray_import_error = ImportError(
         "No module named 'xarray' found (more likely due to it is not installed): "
         "try running `pip install xarray' or 'pip install deker[xarray]'"
@@ -22,7 +22,7 @@ from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerSubsetError
 from deker.log import SelfLoggerMixin
 from deker.tools import check_memory
-from deker.types.typings import Data, Numeric
+from deker.types.private.typings import Data, Numeric
 
 
 if TYPE_CHECKING:
@@ -56,6 +56,7 @@ class BaseSubset(SelfLoggerMixin, ABC):
         collection: Optional["Collection"] = None,
     ):
         """BaseSubset constructor.
+
         Sets adapters according to subset type: __array_adapter is used in VSubset only.
 
         :param slice_expression: a slice, tuple of slices or numpy IndexExpression, created by VArray.__getitem__()
@@ -121,7 +122,7 @@ class BaseSubset(SelfLoggerMixin, ABC):
                 f"Cannot convert a scalar deker.{subset_name} to xarray.DataArray"
             )
         description = self.describe()
-        dims = [dim for dim in description]
+        dims = list(description)
         new_shape = tuple(len(description[dim]) for dim in description)
         check_memory(self.shape, self.dtype, self.__adapter.ctx.config.memory_limit)
         data = self.read()
@@ -199,13 +200,13 @@ class BaseSubset(SelfLoggerMixin, ABC):
             value = [
                 dimension.start_value + n * dimension.step for n in range(dimension.size)  # type: ignore[operator]
             ]
-        else:
-            if dimension.labels:
-                value = list(dimension.labels)
-            elif dimension.scale:
-                value = self.__generate_full_scale(dimension)
-            else:  # just indexes
-                value = list(range(0, dimension.size, dimension.step))
+
+        elif dimension.labels:
+            value = list(dimension.labels)
+        elif dimension.scale:
+            value = self.__generate_full_scale(dimension)
+        else:  # just indexes
+            value = list(range(0, dimension.size, dimension.step))
         return value
 
     def __describe_slice(self, dimension: Union[TimeDimension, Dimension], bound: slice) -> list:
@@ -240,15 +241,15 @@ class BaseSubset(SelfLoggerMixin, ABC):
             start_value = dimension.start_value + step * start  # type: ignore[operator]
             end = stop - start
             value = [start_value + n * step for n in range(end)]  # type: ignore[operator]
-        else:
-            if dimension.labels:
-                value = list(dimension.labels[bound])
-            elif dimension.scale:
-                value = self.__generate_full_scale(dimension)[bound]
-            else:  # just indexes
-                start_value = start if start is not None else 0
-                end = stop
-                value = list(range(start_value, end, step))  # type: ignore[arg-type]
+
+        elif dimension.labels:
+            value = list(dimension.labels[bound])
+        elif dimension.scale:
+            value = self.__generate_full_scale(dimension)[bound]
+        else:  # just indexes
+            start_value = start if start is not None else 0
+            end = stop
+            value = list(range(start_value, end, step))  # type: ignore[arg-type]
         return value
 
     def describe(self) -> OrderedDict:
@@ -263,7 +264,7 @@ class BaseSubset(SelfLoggerMixin, ABC):
         invocation of any data-managing methods.
 
         But still subset's description is automatically created and inserted to xarray.DataArray
-        on `(V)Subset.read_xarray` call.
+        on `read_xarray()` call.
 
         If your RAM is insufficient for reading data - DekerMemoryError is raised.
         """
@@ -278,13 +279,13 @@ class BaseSubset(SelfLoggerMixin, ABC):
 
                 if isinstance(dimension, TimeDimension):
                     value = [dimension.start_value + dimension.step * bound]  # type: ignore[operator]
-                else:
-                    if dimension.labels:
-                        value = [dimension.labels[bound]]
-                    elif dimension.scale:
-                        value = [dimension.scale.start_value + bound * dimension.scale.step]
-                    else:  # just index
-                        value = [bound]
+
+                elif dimension.labels:
+                    value = [dimension.labels[bound]]
+                elif dimension.scale:
+                    value = [dimension.scale.start_value + bound * dimension.scale.step]
+                else:  # just index
+                    value = [bound]
             description.update({dimension.name: value})
 
         # add full description for dimensions if they were excluded from bounds

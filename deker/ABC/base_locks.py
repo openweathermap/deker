@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from functools import wraps
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Union
 
@@ -50,7 +51,7 @@ class BaseLock(SelfLoggerMixin, ABC):
             self.lock.acquire()
             self.logger.debug(f"Set flock for {path}")
 
-    def release(self, e: Optional[Exception] = None) -> None:
+    def release(self, e: Optional[Exception] = None) -> None:  # noqa[ARG002]
         """Release Flock.
 
         :param e: exception that might have been raised
@@ -92,13 +93,14 @@ class BaseLock(SelfLoggerMixin, ABC):
 
         return result
 
-    def __call__(self, func: Callable) -> Any:  # noqa
+    def __call__(self, func: Callable) -> Any:
         """Create/get file to lock with Flock and lock it.
 
         If there is an existing lock, raise DekerLockError
         :param func: Func that would be decorated
         """
 
+        @wraps(func)
         def inner(*args: Sequence, **kwargs: Dict[str, Any]) -> Any:
             """Inner function of lock decorator.
 

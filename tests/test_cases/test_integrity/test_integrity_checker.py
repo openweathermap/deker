@@ -21,11 +21,7 @@ from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.ctx import CTX
-from deker.errors import (
-    DekerCollectionNotExistsError,
-    DekerIntegrityError,
-    DekerMetaDataError,
-)
+from deker.errors import DekerCollectionNotExistsError, DekerIntegrityError, DekerMetaDataError
 from deker.integrity import (
     ArraysChecker,
     CollectionsChecker,

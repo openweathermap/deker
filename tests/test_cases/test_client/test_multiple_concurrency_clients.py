@@ -48,7 +48,7 @@ class TestMultipleClients:
     def test_multiple_processes_create_collection(
         self, root_path, array_schema: ArraySchema, client: Client
     ):
-        """Tests multiple processes can not create same collection."""
+        """Tests multiple processes cannot create same collection."""
         name = "new_collection_for_processes"
         collection = client.create_collection(name, array_schema)
         try:
@@ -71,7 +71,6 @@ class TestMultipleClients:
             if not collection._is_deleted():
                 collection.delete()
 
-
     def test_multiple_clients_create_collections(self, root_path, array_schema: ArraySchema):
         """Tests multiple clients can create different collections."""
         coros = 10
@@ -90,7 +89,7 @@ class TestMultipleClients:
     def test_multiple_clients_can_not_create_same_collection(
         self, root_path, array_schema: ArraySchema, client: Client
     ):
-        """Tests multiple clients can not create same collection."""
+        """Tests multiple clients cannot create same collection."""
         coros = 10
         name = "new_col"
         with Pool(WORKERS) as pool:

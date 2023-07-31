@@ -4,19 +4,19 @@ from abc import ABC
 from typing import Union
 
 from deker.errors import DekerValidationError
-from deker.types.classes import Serializer
+from deker.types.private.classes import Serializer
 
 
-class BaseDimension(Serializer, ABC):  # noqa: B024
+class BaseDimension(Serializer, ABC):
     """Dimension abstract object providing all its inheritors with common actions and methods."""
 
     __slots__ = ("__name", "__size", "__step")
 
-    def _validate(self, name: str, size: int, **kwargs: dict) -> None:
+    def _validate(self, name: str, size: int, **kwargs: dict) -> None:  # noqa[ARG002]
         if not isinstance(name, str):
             raise DekerValidationError("Name shall be str")
         if not name or name.isspace():
-            raise DekerValidationError("Name can not be empty")
+            raise DekerValidationError("Name cannot be empty")
         if size is None or isinstance(size, bool) or not isinstance(size, int) or size <= 0:
             raise DekerValidationError("Size shall be a positive int")
 

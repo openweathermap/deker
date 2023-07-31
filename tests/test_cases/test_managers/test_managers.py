@@ -4,6 +4,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from deker_tools.time import get_utc
+
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
@@ -15,7 +17,6 @@ from deker.schemas import (
     TimeDimensionSchema,
     VArraySchema,
 )
-from deker.tools import convert_to_utc
 
 
 class TestDataManagerMethods:
@@ -120,7 +121,7 @@ class TestDataManagerMethods:
             primary_attr = {"dt": now}
             array = collection.create(primary_attr)
             assert array.primary_attributes == primary_attr
-            assert convert_to_utc(now).isoformat() in os.listdir(collection.path / "array_symlinks")
+            assert get_utc(now).isoformat() in os.listdir(collection.path / "array_symlinks")
 
             getter = getattr(
                 collection.filter({"dt": now.isoformat()}),
@@ -166,9 +167,7 @@ class TestDataManagerMethods:
             primary_attr = {"dt": now}
             array = collection.create(primary_attr)
             assert array.primary_attributes == primary_attr
-            assert convert_to_utc(now).isoformat() in os.listdir(
-                collection.path / "varray_symlinks"
-            )
+            assert get_utc(now).isoformat() in os.listdir(collection.path / "varray_symlinks")
 
             getter = getattr(
                 collection.filter({"dt": now.isoformat()}),

@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class FilteredManager(SelfLoggerMixin, BaseAbstractManager):
-    """Data manager after being filtered."""
+    """Manager for ``Collection`` contents filtering."""
 
     __slots__ = (
         "__filters",

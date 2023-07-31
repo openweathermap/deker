@@ -8,6 +8,7 @@ import pytest
 
 from tests.parameters.common import random_string
 
+from deker import Scale
 from deker.ABC.base_schemas import BaseDimensionSchema
 from deker.schemas import (
     ArraySchema,
@@ -16,7 +17,6 @@ from deker.schemas import (
     TimeDimensionSchema,
     VArraySchema,
 )
-from deker.types import Scale
 
 
 @pytest.fixture()

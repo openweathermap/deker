@@ -16,7 +16,7 @@ def main():
         # TimeDimensionSchema(
         #     name="forecast_dt",
         #     size=129,
-        #     start_value=datetime.now(timezone.utc),
+        #     start_value=datetime.get_utc(timezone.utc),
         #     step=timedelta(hours=1),
         # ),
     ]

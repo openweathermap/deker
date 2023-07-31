@@ -1,10 +1,10 @@
 from abc import ABC, abstractmethod
 from typing import Any, Optional
 
-from deker.types.classes import Serializer
+from deker.types.private.classes import Serializer
 
 
-class BaseCollectionOptions(Serializer, ABC):  # noqa: B024
+class BaseCollectionOptions(Serializer, ABC):
     """Base interface for collection options.
 
     Options, such as chunks, compression -
@@ -17,7 +17,7 @@ class BaseCollectionOptions(Serializer, ABC):  # noqa: B024
 
     @classmethod
     @abstractmethod
-    def _process_options(cls, storage_options: Optional[dict]) -> dict:  # noqa: C901
+    def _process_options(cls, storage_options: Optional[dict]) -> dict:
         """Validate and convert collection storage options.
 
         :param storage_options: options for storing data by a certain storage adapter,

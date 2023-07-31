@@ -13,7 +13,7 @@ class DekerArrayError(DekerBaseApplicationError):
 
 
 class DekerArrayTypeError(DekerArrayError):
-    """If final (V)Array's values type do not match the dtype, set in Collection schema."""
+    """If final Array's or VArray's values type do not match the dtype, set in Collection schema."""
 
     pass
 
@@ -67,19 +67,13 @@ class DekerIntegrityError(DekerBaseApplicationError):
 
 
 class DekerLockError(DekerBaseApplicationError):
-    """If a Collection or a (V)Array instance is locked."""
+    """If a Collection or a Array or VArray instance is locked."""
 
     pass
 
 
 class DekerInstanceNotExistsError(DekerBaseApplicationError):
     """If instance was deleted, but user is trying to call methods on it."""
-
-    pass
-
-
-class DekerWarning(Warning):
-    """Deker warnings."""
 
     pass
 

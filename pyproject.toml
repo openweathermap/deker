@@ -34,7 +34,7 @@ exclude = [
     '^tmp/',
     '^examples/'
 ]
-disable_error_code="misc,no-redef,override,union-attr,index,assignment"
+disable_error_code = "misc,no-redef,override,union-attr,index,assignment"
 
 [[tool.mypy.overrides]]
 module = "tests/*"
@@ -68,9 +68,60 @@ exclude = "venv/*,.git/*,__pycache__/*,examples/*"
 skips = ["B324"]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py39"
 line-length = 120
-
+select = ["ALL"]
+ignore = [
+    "TRY200",
+    "ISC002",
+    "B904",
+    "EM102",
+    "TRY003",
+    "D100",
+    "ANN101",
+    "D105",
+    "ANN102",
+    "PGH003",
+    "W505",
+    "BLE001",
+    "DTZ004",
+    "FIX002",
+    "C901",    # Too complex, refactor files with this error.
+    "SLF001",
+    "ANN401",
+    "G004",
+    "A003",
+    "TD003",
+    "TD002",
+    "DTZ003",  # .utcnow() is not allowed
+    "DTZ005",  # date time without tz
+    "DTZ006",  # date time without tz
+    "FA100",   # __future__ annotations
+    "TRY301",
+    "PLR0913",  # Number of arguments
+    "PERF401",
+    "RUF012",
+    "PLR0912", # Too many branches,
+    "FBT001",  # Boolean positional arg
+    "FBT002",  # Boolean default value
+    "D401",
+    "COM812",
+    "EM101",
+    "UP006",  # Tuple[..] -> tuple[..]
+    "UP035",  # Tuple[..] -> tuple[..]
+    "UP007",  # X | Y instead of Union
+    "UP037",  # Quotes in annotations
+    "RET504",
+    "PIE790",
+    "ERA001",
+    "C408",
+    "ANN204",
+    "D107",
+    "RET503",
+    "UP004",
+    "UP015",
+    "TRY300"  # move return to else
+]
 exclude = [
     "venv/*",
     ".git/*",
@@ -86,7 +137,25 @@ exclude = [
 
 [tool.ruff.per-file-ignores]
 "__init__.py" = ["D104", "F401", "F403", "F405"]
-"deker/integrity.py" =  ["E501"]
+"deker/integrity.py" = [
+    "E501",
+    "T201",
+    "D107",
+    "PERF203" # Performance overhead
+]
+"deker/locks.py" = [
+    "PERF203",# Performance overhead
+    "PTH123",
+    "SIM115"
+]
+"deker/client.py" = ["T201"]
+"deker/tools/path.py" = ["S324"]
+"deker/validators.py" = ["C901", "PLR0912"]
+"deker/dimensions.py" = ["PLR0915"] # Too many statements
+"deker/types/enums.py" = ["A003","A002"]
+"deker/types/shell.py" = ["D205", "D400"]
+"deker/ABC/base_subset.py" = ["PLW2901"]  #  overwritten by assignment
+"deker/ABC/base_array.py" = ["PLW2901"]  #  overwritten by assignment
 
 [tool.ruff.pydocstyle]
 convention = "pep257"
@@ -96,3 +165,11 @@ max-complexity = 3
 
 [tool.ruff.pycodestyle]
 max-doc-length = 88
+
+[tool.ruff.isort]
+section-order = ['future', 'standard-library', 'third-party', 'first-party', 'local-folder']
+lines-after-imports = 2
+lines-between-types = 1
+known-local-folder = ["deker"]
+known-third-party = ["deker_tools"]
+extra-standard-library = ["zoneinfo"]

@@ -93,7 +93,7 @@ def create_dimensions_schema(dimension_schemas: List[dict]) -> Tuple["BaseDimens
 
     :param dimension_schemas: a list of dimensions' schemas dictionaries
     """
-    from deker.schemas import DimensionSchema, TimeDimensionSchema  # noqa: F811
+    from deker.schemas import DimensionSchema, TimeDimensionSchema
 
     schemas = []
     for dim in dimension_schemas:

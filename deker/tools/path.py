@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 from deker.types import Paths
-from deker.types.enums import LocksExtensions
+from deker.types.private.enums import LocksExtensions
 
 
 if TYPE_CHECKING:
@@ -45,21 +45,21 @@ def get_main_path(array_id: str, data_directory: Path) -> Path:
     :param data_directory: Path to a certain data directory
     """
     main_tree, rest = array_id.split("-", 1)
-    main_tree = os.path.sep.join((s for s in main_tree))
+    main_tree = os.path.sep.join(s for s in main_tree)
     return data_directory / main_tree / rest
 
 
 def get_paths(array: Union["Array", "VArray"], collection_path: Union[Path, str]) -> Paths:
     """Create main and symlink paths for arrays.
 
-    :param array: (V)Array instance
+    :param array: Array or VArray instance
     :param collection_path: path to a certain collection defined by user
     :returns: namedtuple with "main" and "symlink" pathlib.Paths
     """
-    from deker.arrays import Array, VArray  # noqa: F811
+    from deker.arrays import Array, VArray
 
     @singledispatch
-    def get_path(arr: Union["Array", "VArray"], base_path: Path) -> Paths:
+    def get_path(arr: Union["Array", "VArray"], base_path: Path) -> Paths:  # noqa[ARG001]
         """Generate paths by object type.
 
         :param arr: any object
@@ -124,5 +124,5 @@ def get_array_lock_path(array: Union["Array", "VArray"], data_directory_path: Pa
     file = (
         hashlib.md5(str(array.primary_attributes).encode()).hexdigest()
         + LocksExtensions.array_lock.value
-    )  # noqa
+    )
     return data_directory_path / file

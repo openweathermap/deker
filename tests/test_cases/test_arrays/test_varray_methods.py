@@ -24,7 +24,7 @@ from deker.dimensions import TimeDimension
 from deker.errors import DekerMemoryError, DekerValidationError
 from deker.schemas import DimensionSchema, VArraySchema
 from deker.tools import get_paths
-from deker.types.typings import FancySlice, Slice
+from deker.types.private.typings import FancySlice, Slice
 
 
 class TestVArrayMethods:

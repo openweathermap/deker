@@ -7,7 +7,7 @@ import numpy as np
 from deker.client import Client
 from deker.collection import Collection
 from deker.schemas import DimensionSchema, TimeDimensionSchema, VArraySchema
-from deker.tools import now
+from deker.tools import get_utc
 
 
 def main():
@@ -16,7 +16,7 @@ def main():
         DimensionSchema(name="x", size=10),
         DimensionSchema(name="layers", size=10),
         TimeDimensionSchema(
-            name="forecast_dt", size=10, step=timedelta(hours=10), start_value=now()
+            name="forecast_dt", size=10, step=timedelta(hours=10), start_value=get_utc()
         ),
     ]
 

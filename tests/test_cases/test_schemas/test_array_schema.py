@@ -7,7 +7,7 @@ import pytest
 from tests.parameters.schemas_params import ArraySchemaCreationParams
 
 from deker.errors import DekerValidationError
-from deker.schemas import ArraySchema, DimensionSchema, TimeDimensionSchema, AttributeSchema
+from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema
 
 
 @pytest.mark.parametrize("params", ArraySchemaCreationParams.WRONG_params_dataclass_raises())
@@ -60,7 +60,9 @@ def test_dimensions_non_unique_names_error(dims: List[Union[DimensionSchema, Tim
         ],
     ],
 )
-def test_attributes_non_unique_names_error(attrs: List[AttributeSchema], dimensions: List[DimensionSchema]):
+def test_attributes_non_unique_names_error(
+    attrs: List[AttributeSchema], dimensions: List[DimensionSchema]
+):
     with pytest.raises(DekerValidationError):
         assert ArraySchema(dtype=int, dimensions=dimensions, attributes=attrs)  # type: ignore[arg-type]
 

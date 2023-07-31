@@ -15,7 +15,7 @@ from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema
 from deker.tools import create_array_from_meta
-from deker.types.typings import NumericDtypes
+from deker.types.private.typings import NumericDtypes
 
 
 class TestAttributesSchemaNameValidation:

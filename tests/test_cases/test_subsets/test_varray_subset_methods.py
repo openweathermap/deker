@@ -10,14 +10,15 @@ from deker_local_adapters import HDF5CompressionOpts, HDF5Options
 
 from tests.parameters.index_exp_params import valid_index_exp_params
 
+from deker import Scale
 from deker.arrays import VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerSubsetError
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.subset import VSubset
-from deker.types.classes import ArrayPosition, Scale
-from deker.types.typings import Slice
+from deker.types.private.classes import ArrayPosition
+from deker.types.private.typings import Slice
 
 
 class TestVArraySubset:
@@ -601,8 +602,8 @@ class TestVSubsetForXArray:
                 ds = xarray.to_dataset()
                 assert ds
 
-                # can not set assert conversion to pandas.DataFrame as all data is np.NaN
-                # and can not be compared with pandas.DataFrame suggested methods
+                # cannot set assert conversion to pandas.DataFrame as all data is np.NaN
+                # and cannot be compared with pandas.DataFrame suggested methods
                 xarray.to_dataframe()  # so just trying to create it
             except Exception as e:
                 raise AssertionError(e)

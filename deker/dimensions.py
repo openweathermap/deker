@@ -1,118 +1,40 @@
-from __future__ import annotations
-
 import datetime
 
-from typing import Any, Optional, Tuple, Union
+from typing import Any, Optional, Union
 
 from deker.ABC.base_dimension import BaseDimension
 from deker.errors import DekerValidationError
 from deker.log import SelfLoggerMixin
-from deker.types import Labels, Scale
-
-
-class IndexLabels(tuple, SelfLoggerMixin):
-    """A tuple providing a mapping of values labels to their indexes.
-
-    Provides direct and reversed ordered mappings of dimension's values names (labels)
-    to their position in the axis flat array (indexes).
-
-    Labels shall be unique values within the full scope of the passed object.
-    Valid Labels are list or tuple of unique strings, integers or floats:
-            ["name1", "name2", ..., "nameN"] | (0.2, 0.1, 0.4, 0.3)
-    """
-
-    @classmethod
-    def __validate(cls, labels: Optional[Labels]) -> Tuple[Union[str, int, float], ...]:
-        error = DekerValidationError(
-            "Labels shall be a list or tuple of unique values of the same type (strings, integers or floats), "
-            "not None or empty list or tuple"
-        )
-        if (
-            not labels
-            or not isinstance(labels, (list, tuple))
-            or all(
-                (
-                    any(not isinstance(val, str) for val in labels),
-                    any(not isinstance(val, int) for val in labels),
-                    any(not isinstance(val, float) for val in labels),
-                )
-            )
-        ):
-            raise error
-        return labels if isinstance(labels, tuple) else tuple(labels)
-
-    def __new__(cls, labels: Optional[Labels]) -> IndexLabels:
-        """Override tuple new method. Make validation.
-
-        :param labels: labels
-        """
-        return super(IndexLabels, cls).__new__(cls, cls.__validate(labels))  # type: ignore[arg-type]
-
-    def __init__(self, labels: Optional[Labels]) -> None:
-        """IndexLabels constructor.
-        Logs initialization start.
-
-        :param labels: list or tuple of unique strings, integers or floats
-        """
-        self.logger.debug("labels initialized")
-
-    @property
-    def first(self) -> Union[str, int, float]:
-        """Get first label."""
-        return self[0]
-
-    @property
-    def last(self) -> Union[str, int, float]:
-        """Get last label."""
-        return self[-1]
-
-    def name_to_index(self, name: Union[str, int, float]) -> Optional[int]:
-        """Get label index by its name.
-
-        :param name: label name
-        """
-        try:
-            return self.index(name)
-        except ValueError as e:
-            mes = str(e) + f": no name {name}"
-            self.logger.debug(mes)
-            return None
-
-    def index_to_name(self, idx: int) -> Optional[Union[str, int, float]]:
-        """Get label name by its index.
-
-        :param idx: label index
-        """
-        try:
-            return self[idx]
-        except IndexError as e:
-            mes = str(e) + f": no index {idx}"
-            self.logger.debug(mes)
-            return None
-
-    def __str__(self) -> str:
-        return str(tuple(self))
-
-    def __repr__(self) -> str:
-        return f"{self.__class__.__name__}({self.__str__()})"
+from deker.types import IndexLabels, Labels, Scale
 
 
 class Dimension(SelfLoggerMixin, BaseDimension):
-    """Dimension of grid axes or any other series except time (for time series use TimeDimension).
+    """``Dimension`` of a grid axes or any other series except time (for time series use ``TimeDimension``).
 
     May be used for defining the majority of parameters which may be stored in an array.
-    You can use labels parameter to create a mapping of some names to the dimension indexes.
+    You can use ``labels`` or ``scale`` parameter to create a mapping of some names or values to the dimension indexes.
+
+    :param name: dimension unique name (e.g. "length")
+    :param size: dimension cells quantity
+    :param labels: ordered mapping of dimension values names to their indexes
+
+      ::
+
+        ["name1", "name2", ..., "nameN"]
+        ("float1", "float2", ..., "floatN")
+
+    :param scale: a description of dimension regular scale; default None
     """
 
     __slots__ = ("__name", "__size", "__step", "__labels", "__scale")
 
-    def _validate(  # noqa: C901
+    def _validate(  # noqa: C901,RUF100
         self,
         name: str,
         size: int,
         labels: Optional[Labels] = None,
         scale: Optional[Union[dict, Scale]] = None,
-        **kwargs: Any,
+        **kwargs: Any,  # noqa[ARG002]
     ) -> None:
         super()._validate(name, size)
 
@@ -146,9 +68,9 @@ class Dimension(SelfLoggerMixin, BaseDimension):
                         raise DekerValidationError(
                             f"Scale attribute '{attr}' value shall be non-empty string"
                         )
-                else:
-                    if not isinstance(value, float):
-                        raise DekerValidationError(f"Scale attribute '{attr}' value shall be float")
+
+                elif not isinstance(value, float):
+                    raise DekerValidationError(f"Scale attribute '{attr}' value shall be float")
 
             scale_end_non_inclusive = scale.start_value
             scale_end_non_inclusive += scale.step * size
@@ -168,7 +90,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
                 raise DekerValidationError(common_labels_exc)
 
             if isinstance(labels, (list, tuple, dict)) and not labels:
-                raise DekerValidationError("Label can not be empty, use None instead")
+                raise DekerValidationError("Label cannot be empty, use None instead")
 
             if len(labels) != size:
                 raise DekerValidationError("Labels quantity do not match dimension size")
@@ -188,15 +110,14 @@ class Dimension(SelfLoggerMixin, BaseDimension):
                         isinstance(val, int) for val in vals
                     ):
                         raise DekerValidationError(common_labels_exc)
-                else:
-                    if len(set(labels)) < len(labels) or all(
-                        (
-                            all(not isinstance(el, str) for el in labels),
-                            all(not isinstance(el, int) for el in labels),
-                            all(not isinstance(el, float) for el in labels),
-                        )
-                    ):
-                        raise DekerValidationError(common_labels_exc)
+                elif len(set(labels)) < len(labels) or all(
+                    (
+                        all(not isinstance(el, str) for el in labels),
+                        all(not isinstance(el, int) for el in labels),
+                        all(not isinstance(el, float) for el in labels),
+                    )
+                ):
+                    raise DekerValidationError(common_labels_exc)
 
     def __init__(
         self,
@@ -207,6 +128,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         **kwargs: Any,
     ) -> None:
         """Dimension constructor.
+
         Validates parameters, sets them to default and converts labels and scale to a corresponding type.
 
         :param name: dimension name (e.g. "time")
@@ -231,32 +153,32 @@ class Dimension(SelfLoggerMixin, BaseDimension):
 
     @property
     def step(self) -> int:
-        """Name getter."""
+        """Get ``Dimension`` step."""
         return self.__step
 
     @property
     def name(self) -> str:
-        """Name getter."""
+        """Get ``Dimension`` name."""
         return self.__name
 
     @property
     def size(self) -> int:
-        """Dimension size getter."""
+        """Get ``Dimension`` size."""
         return self.__size
 
     @property
     def labels(self) -> Optional[IndexLabels]:
-        """Dimension values labels getter."""
+        """Get ``Dimension`` labels."""
         return self.__labels
 
     @property
     def scale(self) -> Optional[Scale]:
-        """Dimension regular scale getter."""
+        """Get ``Dimension`` regular scale."""
         return self.__scale
 
     @property
     def as_dict(self) -> dict:
-        """Serialize self attributes into dict."""
+        """Serialize ``Dimension`` into dict."""
         dic = {"name": self.name, "size": self.size, "step": self.step}
         if self.labels:
             dic["labels"] = self.labels
@@ -265,6 +187,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         return dic
 
     def __len__(self) -> int:
+        """Get ``Dimension`` size."""
         return self.size
 
     def __repr__(self) -> str:
@@ -286,7 +209,28 @@ class Dimension(SelfLoggerMixin, BaseDimension):
 
 
 class TimeDimension(SelfLoggerMixin, BaseDimension):
-    """Dimension for time series."""
+    """Special dimension for time series.
+
+    :param name: dimension name (e.g. "time")
+    :param size: dimension cells quantity
+
+    :param start_value: time mark of the first cell (index 0) in dimension
+    :param step: a ``datetime.timedelta`` step of ``TimeDimension`` series within the grid
+
+    .. note::
+
+      ``start_value`` shall be:
+        - either ``datetime.datetime`` object with explicit ``timezone``
+        - or ``datetime.isoformat()`` with explicit ``timezone``
+        - or a reference to an array ``attribute`` name which shall start with ``$`` *(attribute name shall be defined
+          without prefix "$")*::
+
+            custom_attributes(
+                {"my_start_value": datetime.datetime(2023, 1, 1, 0, tzinfo=timezone.utc),
+                }
+
+            TimeDimension(start_value: "$my_start_value", ...)
+    """
 
     __slots__ = ("__name", "__size", "__start_value", "__step_label", "__step")
 
@@ -297,22 +241,6 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         start_value: datetime.datetime,
         step: datetime.timedelta,
     ) -> None:
-        """TimeDimension initialization.
-
-        :param name: dimension name (e.g. "time")
-        :param size: dimension cells quantity
-        :param start_value: time mark of the first cell (index 0) in a dimension
-            (may be used for ranges and series building);
-         Shall be:
-          - either datetime.datetime object with explicit timezone
-          - or datetime.isoformat() with explicit timezone
-          - or a reference to an array attribute name
-                Reference shall start with `$`, attribute name shall be without prefix:
-                TimeDimension(start_value: "$my_start_value", ...)
-                custom_attributes({"my_start_value": datetime.datetime(now, tzinfo=timezone.utc)}
-        :param step: step of dimension series within the values grid; default 1
-            (e.g. time_dim[0] = 0 and time_dim[1] = 3 and time_dim[2] = 6 --> step = 3)
-        """
         super().__init__(name, size, **{"start_value": start_value, "step": step})  # type: ignore[arg-type]
         self.__name: str = name
         self.__size: int = size
@@ -326,7 +254,7 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         size: int,
         start_value: Union[datetime.datetime, str],
         step: datetime.timedelta,
-        **kwargs: Any,
+        **kwargs: Any,  # noqa[ARG002]
     ) -> None:
         super()._validate(name, size)
         if not isinstance(step, datetime.timedelta) or not step:
@@ -364,27 +292,27 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
 
     @property
     def name(self) -> str:
-        """Name getter."""
+        """Get ``TimeDimension`` name."""
         return self.__name
 
     @property
     def size(self) -> int:
-        """Dimension size getter."""
+        """Get ``TimeDimension`` size."""
         return self.__size
 
     @property
     def start_value(self) -> Union[datetime.datetime, str]:
-        """Dimension start value getter."""
+        """Get ``TimeDimension`` start value."""
         return self.__start_value
 
     @property
     def step(self) -> datetime.timedelta:
-        """Dimension step getter."""
+        """Get ``TimeDimension`` step."""
         return self.__step
 
     @property
     def as_dict(self) -> dict:
-        """Serialize self attributes into dict."""
+        """Serialize ``TimeDimension`` into dict."""
         return {
             "name": self.name,
             "size": self.size,
@@ -397,6 +325,7 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         }
 
     def __len__(self) -> int:
+        """Get ``TimeDimension`` size."""
         return self.size
 
     def __repr__(self) -> str:
