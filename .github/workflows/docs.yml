@@ -54,6 +54,7 @@ jobs:
           cd docs/_build/html/
           git init
           git add -A
+          git config --global --add safe.directory /github/workspace/docs/_build/html
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git commit -m 'deploy'
