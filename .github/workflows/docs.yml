@@ -53,7 +53,7 @@ jobs:
       - name: Init new repo in dist folder and commit generated files
         run: |
           ls -la
-          cd _build/html/
+          cd docs/_build/html/
           git init
           git add -A
           git config --local user.email "action@github.com"
