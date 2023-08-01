@@ -60,5 +60,4 @@ __all__ = (
     # deker.subset
     "Subset",
     "VSubset",
-    # deker.types.classes
 )
