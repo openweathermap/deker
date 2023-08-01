@@ -210,8 +210,12 @@ jobs:
       id-token: write
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     environment:
-      name: pypi
-      url: https://pypi.org/p/deker
+      # TODO: next is for prod pypi; comment for tests
+#      name: pypi
+#      url: https://pypi.org/p/deker
+      # TODO: next is for test pypi; comment for prod
+      name: testpypi
+      url: https://test.pypi.org/p/deker
 
     steps:
       - uses: actions/download-artifact@v3
@@ -223,3 +227,6 @@ jobs:
 
       - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+        # TODO: next is for test pypi; comment for prod
+        with:
+          repository-url: https://test.pypi.org/legacy/
