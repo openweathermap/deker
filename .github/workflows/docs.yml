@@ -61,8 +61,9 @@ jobs:
           git config --global --add safe.directory /github/workspace/docs/_build/html
           git commit -m 'deploy'
 
-      - name: Force push to destination branch
-        uses: ad-m/github-push-action@v0.5.0
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: gh-pages
