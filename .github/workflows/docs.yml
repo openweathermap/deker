@@ -54,9 +54,10 @@ jobs:
           mv docs/_build docs/build
           cd docs/build/html/
           git init
-          git add -A
+          git config --global --add safe.directory '*'
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
+          git add -A
           git commit -m 'deploy'
 
       - name: Force push to destination branch
