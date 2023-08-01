@@ -173,3 +173,50 @@ lines-between-types = 1
 known-local-folder = ["deker"]
 known-third-party = ["deker_tools"]
 extra-standard-library = ["zoneinfo"]
+
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
+
+[project]
+name = "deker"
+requires-python = ">=3.9"
+dynamic = ["version", "readme", "dependencies"]
+authors = [
+    {name = "OpenWeather", email = "info@openweathermap.org"},
+]
+maintainers = [
+        {name = "OpenWeather", email = "info@openweathermap.org"},
+]
+description = "Multidimensional arrays storage engine"
+license = {text = "GPL-3.0-only"}
+classifiers = [
+        "Development Status :: 4 - Beta",
+        "Intended Audience :: Developers",
+        "Intended Audience :: Information Technology",
+        "Intended Audience :: Science/Research",
+        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+        "Topic :: Software Development :: Libraries :: Python Modules",
+        "Operating System :: Unix",
+        "Operating System :: POSIX :: Linux",
+        "Operating System :: MacOS :: MacOS X",
+        "Programming Language :: Python",
+        "Programming Language :: Python :: 3",
+        "Programming Language :: Python :: 3.9",
+        "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+]
+
+[project.urls]
+'Homepage' = 'https://deker.io/'
+'Documentation' = 'https://docs.deker.io/'
+'Repository' = 'https://github.com/openweathermap/deker'
+
+[tool.setuptools.dynamic]
+readme = {file = ["README.md"], content-type='text/markdown'}
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools]
+packages = ["deker"]
+license-files=["LICENSE"]
+
+[tool.setuptools_scm]

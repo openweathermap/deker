@@ -4,4 +4,4 @@ typing-extensions>=4.4.0
 tqdm>=4.64.1
 psutil>=5.9.5
 
-deker-local-adapters==1.0.0b2
+deker-local-adapters==1.0.0
