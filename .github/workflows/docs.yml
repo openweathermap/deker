@@ -51,6 +51,7 @@ jobs:
 
       - name: Init new repo in dist folder and commit generated files
         run: |
+          sudo su
           chmod -R +777 docs/*
           chown -R root docs/*
           cd docs/_build/html/
