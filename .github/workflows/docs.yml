@@ -51,14 +51,12 @@ jobs:
 
       - name: Init new repo in dist folder and commit generated files
         run: |
-          sudo su
-          chmod -R +777 docs/*
-          chown -R root docs/*
           cd docs/_build/html/
           git init
+          git add -A
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
-          git add -A
+          git config --global --add safe.directory '*'
           git commit -m 'deploy'
 
       - name: Force push to destination branch
