@@ -1,6 +1,16 @@
 # Deker
 ![image](docs/deker/images/logo_50.png)
 
+[![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/)
+[![made-with-sphinx-doc](https://img.shields.io/badge/Made%20with-Sphinx-1f425f.svg)](https://www.sphinx-doc.org/)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](http://makeapullrequest.com)
+
+[![PyPI pyversions](https://img.shields.io/pypi/pyversions/deker.svg)](https://pypi.python.org/pypi/deker/)
+[![PyPI version shields.io](https://img.shields.io/pypi/v/deker.svg)](https://pypi.python.org/pypi/deker/)
+[![GitHub license](https://badgen.net/github/license/openweathermap/deker)](https://github.com/openweathermap/deker/blob/master/LICENSE)  
+[![pipeline](https://github.com/openweathermap/deker/actions/workflows/github-actions.yml/badge.svg)](https://github.com/openweathermap/deker/actions/workflows/github-actions.yml)
+[![docs](https://github.com/openweathermap/deker/actions/workflows/docs.yml/badge.svg)](https://github.com/openweathermap/deker/actions/workflows/docs.yml)
+
 **Deker** - is a pure-Python NoSQL database framework, which provides storing multidimensional spatial raster
 numeric data and its further simple, fast and comfortable accessing and managing.
 
@@ -29,9 +39,7 @@ Deker uses [NumPy](https://numpy.org/doc/stable/) structures and provides an add
 [Xarray](https://docs.xarray.dev/en/stable/), [pandas](https://pandas.pydata.org/docs/) and others.
 
 ## Documentation
-📖 Check out our [documentation]() for more details!
-✍️ Visit the [contribution guide]()
-
+📖 Check out our [documentation](https://docs.deker.io) for more details!
 
 ## Installation
 
