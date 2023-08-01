@@ -51,17 +51,13 @@ jobs:
           cd ./docs 
           make html
           ls -la _build/html
-
-      - name: Init new repo in dist folder and commit generated files
-        run: |
-          cd docs/_build/html/
-          git init
-          git add -A
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
-          git config --global --add safe.directory /github/workspace/docs/_build/html
-          git commit -m 'deploy'
-
+          
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          # Upload entire repository
+          path: '/docs/_build/html'
+          
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v2
         with:
