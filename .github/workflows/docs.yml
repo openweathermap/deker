@@ -51,10 +51,10 @@ jobs:
 
       - name: Init new repo in dist folder and commit generated files
         run: |
-          mv docs/_build docs/build
-          cd docs/build/html/
+          chmod -R +777 docs/*
+          chown -R root docs/*
+          cd docs/_build/html/
           git init
-          git config --global --add safe.directory '*'
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
           git add -A
@@ -66,4 +66,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: gh-pages
           force: true
-          directory: ./docs/build/html
+          directory: ./docs/_build/html
