@@ -22,8 +22,8 @@ permissions:
 concurrency:
   group: "pages"
   cancel-in-progress: false
+  
 jobs:
- 
   build_docs_job:
     runs-on: ubuntu-latest
     env:
@@ -40,6 +40,7 @@ jobs:
  
       - name: Install dependencies
         run: |
+          ls -la
           python -m pip install -r requirements_docs.txt
           pip list
 
