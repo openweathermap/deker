@@ -1,0 +1,152 @@
+# https://pre-commit.com/
+
+default_stages: [ commit, push ]
+default_language_version:
+  python: python3.9
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0  # Possible releases: https://github.com/pre-commit/pre-commit-hooks/releases
+    hooks:
+      - id: no-commit-to-branch
+        always_run: true
+
+      - id: check-ast
+        always_run: true
+
+      - id: check-json
+        always_run: true
+
+      - id: pretty-format-json
+        always_run: true
+        args: [ --autofix, --indent=4 ]
+
+      - id: check-toml
+        always_run: true
+
+      - id: check-yaml
+        always_run: true
+
+      - id: check-xml
+        always_run: true
+
+      - id: fix-encoding-pragma
+        always_run: true
+        args: [ --remove ]
+
+      - id: end-of-file-fixer
+        always_run: true
+
+      - id: check-docstring-first
+        always_run: true
+
+      - id: trailing-whitespace
+        exclude: .md$
+        always_run: true
+
+      - id: check-added-large-files
+        always_run: true
+
+      - id: detect-private-key
+        always_run: true
+
+      - id: detect-aws-credentials
+        always_run: false
+        args: [ --allow-missing-credentials ]
+
+  - repo: https://github.com/bwhmather/ssort
+    rev: v0.11.6  # Possible releases: https://github.com/bwhmather/ssort/releases
+    hooks:
+      - id: ssort
+        entry: ssort
+        files: ^deker/
+        always_run: false
+        stages:
+          - commit
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.12.0  # Possible releases: https://github.com/pycqa/isort/releases
+    hooks:
+      - id: isort
+        always_run: false
+        name: isort (python)
+        entry: isort
+        args: [ --profile=black ]
+        stages:
+          - commit
+
+#  - repo: https://github.com/hadialqattan/pycln
+#    rev: v2.1.1 # Possible releases: https://github.com/hadialqattan/pycln/releases
+#    hooks:
+#      - id: pycln
+#        args: [ --config=pyproject.toml ]
+
+  - repo: https://github.com/psf/black
+    rev: 23.3.0  # Possible releases: https://github.com/psf/black/releases
+    hooks:
+      - id: black
+        always_run: false
+        stages:
+          - commit
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 5.0.4  # Possible releases: https://github.com/PyCQA/flake8/releases
+    hooks:
+      - id: flake8
+        name: flake8
+        files: ^deker/
+        always_run: false
+        args: [ --config, setup.cfg, deker]
+        verbose: true
+        additional_dependencies:
+          - flake8-bugbear
+          - flake8-pytest-style
+          - flake8-docstrings
+          - flake8-import-order
+          - darglint
+        stages:
+          - commit
+
+#  - repo: https://github.com/astral-sh/ruff-pre-commit
+#    # Ruff version.
+#    rev: v0.0.275
+#    hooks:
+#      - id: ruff
+#        files: ^deker/
+#        args: [--fix]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.3.0  # Possible releases: https://github.com/python/mypy/tags
+    hooks:
+      - id: mypy
+        name: mypy
+        files: ^deker/
+        always_run: false
+        args: [
+          --install-types,
+          --non-interactive,
+          --config-file=pyproject.toml
+        ]
+        stages:
+          - commit
+
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.14.11
+    hooks:
+      - id: typos
+        name: typos
+        files: ^deker/
+        stages:
+          - commit
+
+  - repo: local
+    hooks:
+      - id: pytest
+        name: pytest
+        entry: pytest
+        files: ^tests/
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages:
+          - push

@@ -1,0 +1,232 @@
+name: pipeline
+
+on:
+  push:
+  pull_request:
+
+env:
+  PYTHON_IMAGE: 3.9
+  DOCKER_IMAGE: docker:20.10.23
+  PYTHON_PACKAGE_NAME: deker
+  DOCKER_REG_IMAGE: ${{ secrets.CI_REGISTRY_IMAGE }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install virtualenv
+          virtualenv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+          pip install -r requirements_dev.txt
+          pip list
+
+      - name: Cache virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+
+  linters:
+    needs: setup
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Load virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+
+      - name: Run linters and checks
+        run: |
+          source venv/bin/activate
+          isort ./${{ env.PYTHON_PACKAGE_NAME }}
+          black ./${{ env.PYTHON_PACKAGE_NAME }}
+          mypy ./${{ env.PYTHON_PACKAGE_NAME }} --install-types --non-interactive --config-file pyproject.toml
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save linter reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: linter-reports
+          path: report.xml
+
+  tests:
+    needs: setup
+    runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Load virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+
+      - name: Run shuffled tests
+        run: |
+          source venv/bin/activate
+          pytest --random-order --junitxml=tests.xml
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: test-reports
+          path: tests.xml
+
+  coverage:
+    needs: setup
+    runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Load virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+
+      - name: Run coverage
+        run: |
+          source venv/bin/activate
+          coverage run -m pytest --junitxml=report.xml
+          coverage report
+          coverage xml
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save coverage reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: coverage-reports
+          path: coverage.xml
+
+  tox_tests:
+    needs: setup
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    container:
+      image: ghcr.io/openweathermap/deker/deker-embedded/tox:latest
+      env:
+        PACKAGE_VERSION: ${{ github.REF_NAME }}
+      credentials:
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Set python versions
+        run:  pyenv global 3.9 3.10 3.11
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+      - name: Install tox
+        run: |
+          pip install tox
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+      - name: Run tox tests
+        run: tox
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+          PACKAGE_VERSION: ${{ github.REF_NAME }}
+
+  build_wheels:
+    name: Build wheels on ${{ matrix.os }}
+    needs: tox_tests
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build wheels
+        run: |
+          pip wheel -w ./wheelhouse .
+
+
+  build_sdist:
+    needs: tox_tests
+    name: Build source distribution
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build sdist
+        run: pipx run build --sdist
+
+      - uses: actions/upload-artifact@v3
+        with:
+          path: dist/*.tar.gz
+
+  upload_pypi:
+    needs: [build_wheels, build_sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    environment:
+      # TODO: next is for prod pypi; comment for tests
+      name: pypi
+      url: https://pypi.org/p/deker
+      # TODO: next is for test pypi; comment for prod
+      # name: testpypi
+      # url: https://test.pypi.org/p/deker
+
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          # unpacks default artifact into dist/
+          # if `name: artifact` is omitted, the action will create extra parent dir
+          name: artifact
+          path: dist
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # TODO: next is for test pypi; comment for prod
+        # with:
+          # repository-url: https://test.pypi.org/legacy/
