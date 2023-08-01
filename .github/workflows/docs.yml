@@ -41,6 +41,7 @@ jobs:
       - name: Install dependencies
         run: |
           ls -la
+          python -m pip install -r requirements.txt
           python -m pip install -r requirements_doc.txt
           pip list
 
@@ -51,7 +52,8 @@ jobs:
 
       - name: Init new repo in dist folder and commit generated files
         run: |
-          cd docs/_build/html/
+          ls -la
+          cd _build/html/
           git init
           git add -A
           git config --local user.email "action@github.com"
