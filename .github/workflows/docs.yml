@@ -41,7 +41,7 @@ jobs:
       - name: Install dependencies
         run: |
           ls -la
-          python -m pip install -r requirements_docs.txt
+          python -m pip install -r requirements_doc.txt
           pip list
 
       - name: make the sphinx docs
