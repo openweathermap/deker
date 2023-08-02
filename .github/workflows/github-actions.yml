@@ -64,6 +64,7 @@ jobs:
           source venv/bin/activate
           isort ./${{ env.PYTHON_PACKAGE_NAME }}
           black ./${{ env.PYTHON_PACKAGE_NAME }}
+          flake8 ./${{ env.PYTHON_PACKAGE_NAME }}
           mypy ./${{ env.PYTHON_PACKAGE_NAME }} --install-types --non-interactive --config-file pyproject.toml
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
