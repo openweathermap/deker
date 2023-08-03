@@ -11,7 +11,7 @@ from deker_tools.path import is_empty
 from deker.arrays import VArray
 from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerValidationError
-from deker.tools import create_array_from_meta, get_paths
+from deker.tools import get_paths
 
 
 class TestVArrayAdapterMethods:
@@ -136,17 +136,16 @@ class TestVArrayAdapterMethods:
             "custom_attribute": 0.6,
             "time_attr_name": datetime.now(timezone.utc),
         }
-        adapter: LocalVArrayAdapter = varray_with_attributes._adapter
+        adapter: LocalVArrayAdapter = varray_with_attributes._adapter  # type: ignore[attr-defined]
         adapter.create(varray_with_attributes)
         adapter.update_meta_custom_attributes(varray_with_attributes, new_custom_attributes)
         assert varray_with_attributes.custom_attributes == new_custom_attributes
         meta = varray_with_attributes.read_meta()
-        ar = create_array_from_meta(
+        ar = VArray._create_from_meta(
             varray_with_attributes._VArray__collection,  # type: ignore[attr-defined]
             meta,  # type: ignore[arg-type]
             varray_adapter=adapter,
-            array_adapter=varray_with_attributes._VArray__array_adapter,
-            # type: ignore[attr-defined]
+            array_adapter=varray_with_attributes._VArray__array_adapter,  # type: ignore[attr-defined]
         )
         assert ar.custom_attributes == new_custom_attributes
 

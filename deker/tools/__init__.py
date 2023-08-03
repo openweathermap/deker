@@ -19,7 +19,6 @@ from .array import (
     calculate_total_cells_in_array,
     check_memory,
     convert_human_memory_to_bytes,
-    create_array_from_meta,
     get_id,
 )
 from .decorators import not_deleted
