@@ -1,68 +1,74 @@
-***********
-Why Deker?
-***********
+Introduction
+============
 
-Deker was made with the aims:
-   - to easily write and read big amounts of data;
-   - to be thread and process safe;
-   - to be lazy as long as it can be.
+Deker allows you to define separate storage collections for different kinds of arrays that are
+described with own dimensions schemas, stored data type and array level metadata attributes. It
+enables you to find and array in collection using it's metadata and then access any part of it
+using convenient slicing syntax.
 
-It means that Deker can operate the datasets limited only by the size of your available free RAM.
-To some extent it resembles an ORM over a database, but it is still a database.
+Deker was also built with scalability and flexibility in mind, so all data is stored and accessed
+via the separate abstraction level of **storage adapters** which enables flexibility and
+scalability in the future. Currenly there is ``deker-local-adapters_`` package that implements
+local filesystem storage in HDF5_ format.
 
-How it works
-================
-| In contrast with similar decisions Deker's interfaces are quite simple and user-friendly.
-| It has a few high-level objects for data managing:
+.. _HDF5: https://www.h5py.org
+.. _deker-local-adapters: https://github.com/openweathermap/deker-local-adapters
 
-- :class:`Client <deker.client.Client>`
-- :class:`Collection <deker.collection.Collection>`
-- :class:`Array <deker.arrays.Array>` or :class:`VArray <deker.arrays.VArray>`
-- :class:`Subset <deker.subset.Subset>` or :class:`VSubset <deker.subset.VSubset>`
 
-``Client`` is the first object you start with. It is being used for creating and getting ``Collections`` of ``Arrays``
-or ``VArrays`` basing on the collection schema.
+Interface Overview
+==================
 
-The data has a representation of arrays and is stored in files with the help of ``deker-local-adapters`` plugin.
-Deker provides two types of high-level objects for data managing with the same interface: ``Array`` and ``VArray``.
+Accessing Data
+--------------
 
-What is the difference? ``Array`` is an abstract wrapper over final low-level arrays (or files) containing data.
-``VArray`` *(or Virtual Array)* is an "array of ``Arrays``" or an "image of pixels".
-If we consider VArray as an image, it is split by virtual grid into some tiles having the similar shape.
-In this case, each tile is an ordinary ``Array``, and each ``Array`` is a file. But for a user there is no difference
-between ``VArray`` and ``Array`` interfaces.
+Deker APIs are designed to be as simple and user friendly as possible. There are only few
+self-explanotary high-level objects that you would need to interact with:
 
-To access the data you need just to create a slice from your ``Array`` or ``VArray``, thus you'll get a new object
-called ``Subset`` or ``VSubset``.
+   - :class:`Client <deker.client.Client>`
+   - :class:`Collection <deker.collection.Collection>`
+   - :class:`Array <deker.arrays.Array>` or :class:`VArray <deker.arrays.VArray>`
+   - :class:`Subset <deker.subset.Subset>` or :class:`VSubset <deker.subset.VSubset>`
 
-``Subset`` and ``VSubset`` also have the same interface and they are the final lazy objects, which possess methods
-for direct data updating, reading and clearing.
+``Client`` is the first object you start with. It is used for managing and accessing
+``Collection`` of ``Array`` or ``VArray`` objects.
 
-For creating a new ``Сollection`` you will need a few more objects:
+``Array`` is a representation of data array stored in a separate physical file.
 
-- :class:`DimensionSchema <deker.schemas.DimensionSchema>` and/or
-  :class:`TimeDimensionSchema <deker.schemas.TimeDimensionSchema>`
-- :class:`ArraySchema <deker.schemas.ArraySchema>` or :class:`VArraySchema <deker.schemas.VArraySchema>`
-- :class:`AttributeSchema <deker.schemas.AttributeSchema>` (optionally, but highly recommended)
+``VArray`` (or **virtual array**) is an abstraction that represents bigger array that for
+scalability reasons is split into multiple separate physical files. This approach in addition to
+scalable parallel storage access enables concurrent read and update operations to be performed on
+the same logical virtual array object.
+
+You may think about ``VArray`` as of huge image that was split into equally sized tiles using
+some regular grid.
+
+You may decide if you want to store arrays or virtual arrays in your collections based purely on
+performance and storage scalability considerations, as from the developer point of view there is no
+there is no difference between ``VArray`` and ``Array`` interfaces.
+
+Once you have located required array or virtual array in your collection, to access its actual data
+you need just to create a slice from your ``Array`` or ``VArray`` object, thus getting ``Subset``
+or ``VSubset``.
+
+``Subset`` and ``VSubset`` also have the same interface and they are the final lazy objects, which
+expose methods for data update, read and clear.
+
+Creating Collection
+-------------------
+
+To create a new ``Сollection`` you will need a few more objects:
+
+   * :class:`DimensionSchema <deker.schemas.DimensionSchema>`
+     and/or :class:`TimeDimensionSchema <deker.schemas.TimeDimensionSchema>`
+   * :class:`ArraySchema <deker.schemas.ArraySchema>`
+     or :class:`VArraySchema <deker.schemas.VArraySchema>`
+   * :class:`AttributeSchema <deker.schemas.AttributeSchema>`
 
 And optionally you may need:
 
 - :class:`HDF5Options <deker_local_adapters.storage_adapters.hdf5.hdf5_options.HDF5Options>` and :class:`HDF5CompressionOpts <deker_local_adapters.storage_adapters.hdf5.hdf5_options.HDF5CompressionOpts>`
 - :class:`Scale <deker.types.public.classes.Scale>`
 
-Features
-==========
-
-1. ``VArrays``
-2. Own locks
-3. Strong data typing.
-4. FancySlicing: use ``datetime``, ``floats`` and ``strings`` instead of ``integers`` for ``Arrays`` and ``VArrays``
-   slicing (available for ``Dimensions`` described with ``labels`` or ``scale`` parameters and for ``TimeDimensions``)
-5. Reading your data as ``xarray.DataArray`` with further possibility of conversion to different formats
-   (refer to the DataArray_ ``to_...`` methods)
-6. Data compression and chunking (available for ``HDF5``)
-
-.. _DataArray: https://docs.xarray.dev/en/stable/generated/xarray.DataArray.html
 
 Understanding Array and VArray
 ================================

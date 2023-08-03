@@ -1,58 +1,8 @@
-.. image:: deker/images/logo.png
-   :align: right
-   :scale: 50%
-
-Deker documentation
-====================
-**Welcome to Deker!**
-
-Deker - is a pure-Python NoSQL database framework, which provides storing multidimensional spatial raster
-numeric data and its further simple, fast and comfortable accessing and managing.
-
-.. admonition:: What is Deker?
-
-   **Deker** is a short name for a **dekeract** or `10-cube (ten-dimensional hypercube)`_.
-
-.. _10-cube (ten-dimensional hypercube): https://en.wikipedia.org/wiki/10-cube
-
-It perfectly fits for a vast variety of data:
-
-- geospatial data (cartography, geodesy, meteorology, …, even outer space),
-- images,
-- video,
-- audio,
-- biomedicine,
-- genomics,
-- finance,
-- ML,
-- ...
-
-and many others – everything that may be represented and stored as a pack of numbers.
-
-Deker is not really limited by a number of dimensions – it’s up to you to decide how complicated your structures
-shall be and how many dimensions you use `(our current goal is 5, at the moment)`.
-
-| Actually, it is a scalable high-level wrapper over different file formats.
-| At the moment Deker supports just ``HDF5``, but we’ll be glad to accept PRs with new storage adapters:
-  ``TIFF``, ``NetCDF``, ``ZARR``, … Any format you like and need, even ``JSON`` or ``TXT``.
-
-Deker uses NumPy_ structures and provides an additional support for Xarray_, pandas_ and others.
-
-.. _NumPy: https://numpy.org/doc/stable/
-.. _Xarray: https://docs.xarray.dev/en/stable/
-.. _pandas: https://pandas.pydata.org/docs/
-
-Deker open source ecosystem:
-   - deker
-   - deker-local-adapters
-   - deker-shell
-   - deker-tools
-
 .. toctree::
    :hidden:
    :caption: Tutorials
 
-   Why Deker <deker/why_deker>
+   Introduction <deker/intro>
    Installation <deker/installation>
    First steps <deker/first_steps>
    Data management <deker/data_management>
@@ -68,7 +18,65 @@ Deker open source ecosystem:
 
 .. toctree::
    :hidden:
-   :caption: About us
+   :caption: About Us
 
-   GitHub <https://github.com/openweathermap>
-   OpenWeather <https://openweathermap.org/>
+   OpenWeather <https://openweathermap.org>
+   GitHub Projects <https://github.com/openweathermap>
+
+
+What is Deker?
+==============
+
+.. image:: deker/images/logo.png
+   :align: right
+   :scale: 50%
+
+Deker is pure Python implementation of petabyte-scale highly parallel data storage engine for
+multidimensional arrays.
+
+Deker name comes from term *dekeract*, the 10-cube_.
+
+Deker was made with the following major goals in mind:
+   * provide intuitive interface for storing and accessing **huge** data arrays
+   * support arbitrary number of data dimensions
+   * be thread and process safe and as lean on RAM use as possible
+
+Deker empowers users to store and access a wide range of data types, virtually anything that can be
+represented as arrays, like geospacial data, satellite images, machine learning models, sensors data,
+graphs, key-value pairs, tabular data, and more.
+
+Deker does not limit your data complexity and size: it supports virtually unlimited number of data
+dimensions and provides under the hood mechanisms to partition huge amounts of data for scalability.
+
+.. _10-cube: https://en.wikipedia.org/wiki/10-cube
+
+
+Features
+========
+
+* **Open source** under GPL 3.0
+* Scalabale storage of huge virtual arrays via **tiling**
+* **Parallel processing** of virtual array tiles
+* Own **locking** mechanism enabling virtual arrays parallel read and write
+* Array level **metadata attributes**
+* **Fancy data slicing** using timestamps and named labels
+* Support for industry standard **NumPy_**, also for **pandas_** and **Xarray_**
+* Storage level data **compression and chunking** (via HDF5)
+
+.. _NumPy: https://numpy.org/doc/stable/
+.. _pandas: https://pandas.pydata.org/docs/
+.. _Xarray: https://docs.xarray.dev/en/stable/
+
+
+Code and Documentation
+======================
+
+Open source implementation of Deker storage engine is published at
+
+   * https://github.com/openweathermap/deker
+
+API documentation and tutorials for the current release could be found at
+
+   * https://docs.deker.io
+
+
