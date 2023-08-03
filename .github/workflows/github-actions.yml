@@ -171,6 +171,7 @@ jobs:
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
           PACKAGE_VERSION: ${{ github.REF_NAME }}
+          PIP_EXTRA_INDEX_URL: https://test.pypi.org/simple/
 
   build_wheels:
     name: Build wheels on ${{ matrix.os }}
