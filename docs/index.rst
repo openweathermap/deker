@@ -79,4 +79,3 @@ API documentation and tutorials for the current release could be found at
 
    * https://docs.deker.io
 
-

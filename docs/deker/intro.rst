@@ -24,10 +24,10 @@ Accessing Data
 Deker APIs are designed to be as simple and user friendly as possible. There are only few
 self-explanotary high-level objects that you would need to interact with:
 
-   - :class:`Client <deker.client.Client>`
-   - :class:`Collection <deker.collection.Collection>`
-   - :class:`Array <deker.arrays.Array>` or :class:`VArray <deker.arrays.VArray>`
-   - :class:`Subset <deker.subset.Subset>` or :class:`VSubset <deker.subset.VSubset>`
+   * :class:`Client <deker.client.Client>`
+   * :class:`Collection <deker.collection.Collection>`
+   * :class:`Array <deker.arrays.Array>` or :class:`VArray <deker.arrays.VArray>`
+   * :class:`Subset <deker.subset.Subset>` or :class:`VSubset <deker.subset.VSubset>`
 
 ``Client`` is the first object you start with. It is used for managing and accessing
 ``Collection`` of ``Array`` or ``VArray`` objects.
@@ -60,29 +60,40 @@ To create a new ``Сollection`` you will need a few more objects:
 
    * :class:`DimensionSchema <deker.schemas.DimensionSchema>`
      and/or :class:`TimeDimensionSchema <deker.schemas.TimeDimensionSchema>`
+   * :class:`AttributeSchema <deker.schemas.AttributeSchema>`
    * :class:`ArraySchema <deker.schemas.ArraySchema>`
      or :class:`VArraySchema <deker.schemas.VArraySchema>`
-   * :class:`AttributeSchema <deker.schemas.AttributeSchema>`
 
-And optionally you may need:
+``DimensionSchema`` and ``TimeDimensionSchema`` contain information about array and virtual array
+dimensions, such as dimension size, and optional labels or scale linked to dimension indexes.
 
-- :class:`HDF5Options <deker_local_adapters.storage_adapters.hdf5.hdf5_options.HDF5Options>` and :class:`HDF5CompressionOpts <deker_local_adapters.storage_adapters.hdf5.hdf5_options.HDF5CompressionOpts>`
-- :class:`Scale <deker.types.public.classes.Scale>`
+``AttributeSchema`` describes metadata attributes that will be stored with array or virtual array.
+
+``ArraySchema`` and ``VArraySchema`` aggregate information about array dimensions with description
+of stored data type and metadata attributes. For virtual array schema also contains information
+about tiling grid to be applied (``vgrid``).
 
 
-Understanding Array and VArray
-================================
+Understanding Arrays
+====================
+
+``Array`` and ``VArray`` objects represent core concepts of Deker storage. Here we will describe
+structure, differences and commonalities of them and give overview of when either of them should
+be used.
 
 Array
 ------
-As previously mentioned, ``Array`` is an abstract wrapper over files containing data. It does not have a direct access
-to the data, but it knows everything about its properties and options.
+
+As previously mentioned, ``Array`` is a wrapper over physical files containing actual array data.
+This object does not provide direct access to reading data, but it knows everything about its
+properties.
 
 .. |cell| image:: images/cell.png
    :scale: 5%
 
-| An array is made of cells - |cell| - containers for data pieces.
-| Here is an example of a simple 3-dimensional array with some weather data:
+Each array is made of cells |cell| - containers for singular data values.
+
+Here is an example of a simple 3-dimensional array with some current weather data:
 
 .. image:: images/array_0_axes.png
    :scale: 30%
@@ -91,68 +102,66 @@ to the data, but it knows everything about its properties and options.
    :scale: 28%
    :align: right
 
-Let's assume that ``x`` and ``y`` axes represent some geographical grid, and ``z`` axis represents layers
-with weather data, as shown in the legend.
+Let's assume that ``X`` and ``Y`` axes represent some geographical grid, and ``Z`` axis represents
+layers with particular weather parameters, as shown in the legend.
 
-It is a single ``Array`` having 4 cells in each dimension, in other words its shape is ``(4, 4, 4)``.
+It is a single ``Array`` having 4 cells in each dimension, in other words its shape is
+``(4, 4, 4)``.
 
-Deker stores this data in a single file, and when we call this ``Array`` from the correspondent ``Collection``, all the
-operations with its data will affect this file.
-
-So, it is quite simple: one ``Array`` - one file.
-
+Deker stores this data in a single file, and when we retrieve corresponding ``Array`` object from
+the ``Collection``, it will point to this particular file and all operations with its data will 
+affect this file only.
 
 VArray
 -------
-And here comes ``VArray``!
+
+Now lets have a look at the ``VArray`` structure:
 
 .. image:: images/array_0_axes.png
    :scale: 30%
 
-No, it is not a mistake. Both ``Array`` and ``VArray`` have the same interface, so there is no visible
-difference between them for a user.
+No, it is not a mistake. Both ``Array`` and ``VArray`` have the same interface and same properties
+of data stored, so there is no visible difference between them from the developer point of view.
 
-.. attention:: But there is a difference under the hood!
+But there is a significant difference under the hood.
 
-Imagine that you need to create a photo of something really big with a very high resolution, for example a photo
-of the Earth. Suppose the size of the image is 300.000 px * 200.000 px. It is really huge and requires incredibly
-much space on a drive and a lot of RAM to be processed. Obviously, nowadays it is impossible to upload it promptly
-to physical memory. Moreover, it may require several storage drives to be written down, as its final size depends
-on the data type.
+Imagine that you need to store a high-resolution image of something really like whole Earth
+surface. Let's suppose that size of such image would be 300000 X 200000 px. It is really huge and
+will lead to huge size of filesystem objects and significant RAM size to be stored and accessed as
+a single file.
 
-How this problem can be solved? We can make a lot of small shots, place them in separated files and arrange them
-in the correct order. We certainly will not be able to see the full picture, but we will be able to browse it piece
-by piece.
+To enable this type of data storage, Deker uses tiling, i.e. split huge arrays into smaller arrays,
+place them in separate files and transparently join them into for user access as virtual array.
+It probably would still be impossible to access this huge array as a whole. but it enables efficient
+access to digestable parts of it piece by piece.
 
 .. image:: images/vgrid.png
    :scale: 35%
-   :align: center
 
-``VArray`` is a virtual wrapper over such a set of files. You can see how ``vgrid`` cuts it into separated pieces
-in the above image. Each separate piece is an ``Array``, which lays under ``VArray``. And as previously stated, one
-``Array`` is one file. If your ``Collection`` is a collection of ``VArrays``, you don't have to worry about ``Arrays``,
-``VArray`` manages them for you.
+``VArray`` is a wrapper over such a set of files. You can see how ``vgrid`` cuts it into separate
+tiles in the above image. Each separate tile is an ``Array``, which lays under ``VArray``.
 
-When we query some piece of data, ``VArray`` calculates which files to open and what bounds to impose on each
-of these files.
+If ``Collection`` is defined to contain ``VArray`` objects, you don't have to worry about tiling,
+Deker would transparently manage this for you under the hood.
 
-For example, we have the same VArray: its shape is ``(4, 4, 4)``, its dimensions are arranged as ``['x', 'y', 'z']``
-and its *zero-index* is at the front-left-bottom corner.
+When some slice of data is queried from the ``VArray``, it automatically calculates which files
+need to be opened to retrieve it and what part of requested slice data bounds belong to each of
+each file.
+
+For example, let's consider ``VArray`` with dimensions ``['X', 'Y', 'Z']`` and shape ``(4, 4, 4)``,
+with its *zero-index* at the front-left-bottom corner.
 
 .. image:: images/varray.png
    :scale: 30%
 
-Let's query it in the following way: ``VArray[:, 2:4, :]``
+Let's query the following slice of it: ``[:, 2:4, :]``
 
 .. image:: images/varray_request.png
    :scale: 30%
 
-Here you can see, that all of 4 files will be affected, but only the highlighted parts of them will be captured.
-If you use these bounds for **inserting or updating**, ``VArray`` will distribute your input data within the proper
-files and in the correct order. If you use them for **reading**, ``VArray`` will aggregate all the captured parts into
-one ``numpy.ndarray`` of the correspondent shape and in the correct order and return it to you. And, obviously, the
-captured parts will be **cleared**, if you so wish.
+Here you can see, that all 4 tile files will be affected, but only the highlighted pieces of them
+will be actually read. All different files reads will be done in parallel. Deker will then combine
+each read piece into subset with requested shape and return it to you. If you use these bounds to
+write data, Deker will auttomatically split the slice you have provided into pieces and write them
+in parallel to corresponding files.
 
-Pursuing the aim to be fast, ``VArray`` uses its own ``ThreadPoolExecutor`` to cope with all the tasks it needs to do.
-In the interest of thread-safety Deker uses its own file locks for all sorts of file operations: creating, reading,
-writing and deleting.
