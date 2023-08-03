@@ -1,5 +1,6 @@
-Introduction
-============
+********
+Overview
+********
 
 Deker allows you to define separate storage collections for different kinds of arrays that are
 described with own dimensions schemas, stored data type and array level metadata attributes. It
@@ -15,8 +16,8 @@ local filesystem storage in HDF5_ format.
 .. _deker-local-adapters: https://github.com/openweathermap/deker-local-adapters
 
 
-Interface Overview
-==================
+Interfaces
+==========
 
 Accessing Data
 --------------

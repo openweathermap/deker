@@ -2,19 +2,19 @@
    :hidden:
    :caption: Tutorials
 
-   Introduction <deker/intro>
    Installation <deker/installation>
-   First steps <deker/first_steps>
-   Data management <deker/data_management>
-   Fine tuning <deker/fine_tuning>
-   Interactive shell <deker/shell>
+   Overview <deker/overview>
+   First Steps <deker/first_steps>
+   Data Management <deker/data_management>
+   Fine Tuning <deker/fine_tuning>
+   Interactive Shell <deker/shell>
 
 .. toctree::
    :hidden:
    :caption: API Reference
 
    Deker API <deker/api/modules>
-   Deker-tools <deker/api/deker_tools/modules>
+   Deker Tools <deker/api/deker_tools/modules>
 
 .. toctree::
    :hidden:
@@ -24,8 +24,9 @@
    GitHub Projects <https://github.com/openweathermap>
 
 
+**************
 What is Deker?
-==============
+**************
 
 .. image:: deker/images/logo.png
    :align: right
