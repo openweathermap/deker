@@ -322,7 +322,8 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
       If ``None`` - default value for each dtype will be used. Numpy ``nan`` can be used only for floating numpy dtypes.
     """
 
-    vgrid: Union[List[int], Tuple[int, ...]]
+    vgrid: Optional[Union[List[int], Tuple[int, ...]]] = None
+    arrays_shape: Optional[Union[List[int], Tuple[int, ...]]] = None
     fill_value: Union[Numeric, type(np.nan), None] = None  # type: ignore[valid-type]
     attributes: Union[List[AttributeSchema], Tuple[AttributeSchema, ...]] = tuple()
 
@@ -330,28 +331,46 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
         """Validate schema, convert vgrid to tuple and calculate arrays_shape."""
         super().__attrs_post_init__()
         __common_arrays_attributes_post_init__(self)
-        if (
-            not isinstance(self.vgrid, (list, tuple))
-            or not self.vgrid
-            or len(self.vgrid) != len(self.dimensions)
-            or not all(isinstance(g, int) for g in self.vgrid)
-            or any(g < 1 for g in self.vgrid)
-        ):
-            raise DekerValidationError(
-                f"Vgrid shall be a list or tuple of positive integers, with total elements quantity "
-                f"equal to dimensions quantity ({len(self.dimensions)}) "
-            )
-        for n, dim in enumerate(self.dimensions):
-            remainder = dim.size % self.vgrid[n]  # type: ignore[valid-type]
-            if remainder != 0:
+
+        varray_grid_chunk = {
+            attr: getattr(self, attr) for attr in ("vgrid", "arrays_shape") if getattr(self, attr)
+        }
+        if len(varray_grid_chunk) < 1:
+            raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed")
+        if len(varray_grid_chunk) > 1:
+            raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed, not both")
+        attr, attr_val = tuple(varray_grid_chunk.items())[0]
+        if attr_val is not None:
+            if (
+                not isinstance(attr_val, (list, tuple))
+                or not attr_val
+                or len(attr_val) != len(self.dimensions)
+                or not all(isinstance(item, int) for item in attr_val)
+                or any(item < 1 for item in attr_val)
+            ):
                 raise DekerValidationError(
-                    "Dimensions shall be split by vgrid into equal parts without remainder: "
-                    f"{dim.name} size % vgrid element = "
-                    f"{dim.size} % {self.vgrid[n]} = {remainder}"  # type: ignore[valid-type]
+                    f"{attr.capitalize()} shall be a list or tuple of positive integers, with total elements "
+                    f"quantity equal to dimensions quantity ({len(self.dimensions)})"
                 )
-        if isinstance(self.vgrid, list):
-            self.vgrid = tuple(self.vgrid)
-        self.arrays_shape = tuple(int(i) for i in np.asarray(self.shape) // np.asarray(self.vgrid))
+            for n, dim in enumerate(self.dimensions):
+                remainder = dim.size % attr_val[n]  # type: ignore[valid-type]
+                if remainder != 0:
+                    raise DekerValidationError(
+                        f"Dimensions shall be split by {attr} into equal parts without remainder: "
+                        f"{dim.name} size % {attr} element = "
+                        f"{dim.size} % {attr_val[n]} = {remainder}"  # type: ignore[valid-type]
+                    )
+            if isinstance(attr_val, list):
+                setattr(self, attr, tuple(attr_val))
+            if attr == "vgrid":
+                auto_calc_attr_name = "arrays_shape"
+            else:
+                auto_calc_attr_name = "vgrid"
+            setattr(
+                self,
+                auto_calc_attr_name,
+                tuple(int(i) for i in np.asarray(self.shape) // np.asarray(attr_val)),
+            )
         self.logger.debug("instantiated")
 
     @property
