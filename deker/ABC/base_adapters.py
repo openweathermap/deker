@@ -230,7 +230,21 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
         schema_class = ArraySchema
         if collection_data.get("type") == SchemaType.varray.value:
             schema_class = VArraySchema
-            data["vgrid"] = tuple(data["vgrid"])
+            splitters = {
+                splitter: data[splitter]
+                for splitter in ("vgrid", "arrays_shape")
+                if data.get(splitter)
+            }
+
+            if len(splitters) > 1:
+                raise DekerValidationError(
+                    "Either `vgrid` or `arrays_shape` shall be passed, not both"
+                )
+            if len(splitters) < 1:
+                raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed")
+
+            splitter, value = tuple(splitters.items())[0]
+            data[splitter] = tuple(value)
 
         try:
             dtype = DTypeEnum[data["dtype"].lstrip("numpy.")].value

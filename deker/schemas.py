@@ -339,44 +339,44 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
         super().__attrs_post_init__()
         __common_arrays_attributes_post_init__(self)
 
-        varray_grid_chunk = {
+        splitters = {
             attr: getattr(self, attr) for attr in ("vgrid", "arrays_shape") if getattr(self, attr)
         }
-        if len(varray_grid_chunk) < 1:
+        if len(splitters) < 1:
             raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed")
-        if len(varray_grid_chunk) > 1:
+        if len(splitters) > 1:
             raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed, not both")
-        attr, attr_val = tuple(varray_grid_chunk.items())[0]
-        if attr_val is not None:
+        splitter, value = tuple(splitters.items())[0]
+        if value is not None:
             if (
-                not isinstance(attr_val, (list, tuple))
-                or not attr_val
-                or len(attr_val) != len(self.dimensions)
-                or not all(isinstance(item, int) for item in attr_val)
-                or any(item < 1 for item in attr_val)
+                not isinstance(value, (list, tuple))
+                or not value
+                or len(value) != len(self.dimensions)
+                or not all(isinstance(item, int) for item in value)
+                or any(item < 1 for item in value)
             ):
                 raise DekerValidationError(
-                    f"{attr.capitalize()} shall be a list or tuple of positive integers, with total elements "
+                    f"{splitter.capitalize()} shall be a list or tuple of positive integers, with total elements "
                     f"quantity equal to dimensions quantity ({len(self.dimensions)})"
                 )
             for n, dim in enumerate(self.dimensions):
-                remainder = dim.size % attr_val[n]  # type: ignore[valid-type]
+                remainder = dim.size % value[n]  # type: ignore[valid-type]
                 if remainder != 0:
                     raise DekerValidationError(
-                        f"Dimensions shall be split by {attr} into equal parts without remainder: "
-                        f"{dim.name} size % {attr} element = "
-                        f"{dim.size} % {attr_val[n]} = {remainder}"  # type: ignore[valid-type]
+                        f"Dimensions shall be split by {splitter} into equal parts without remainder: "
+                        f"{dim.name} size % {splitter} element = "
+                        f"{dim.size} % {value[n]} = {remainder}"  # type: ignore[valid-type]
                     )
-            if isinstance(attr_val, list):
-                setattr(self, attr, tuple(attr_val))
-            if attr == "vgrid":
-                auto_calc_attr_name = "arrays_shape"
+            if isinstance(value, list):
+                setattr(self, splitter, tuple(value))
+            if splitter == "vgrid":
+                other_splitter = "arrays_shape"
             else:
-                auto_calc_attr_name = "vgrid"
+                other_splitter = "vgrid"
             setattr(
                 self,
-                auto_calc_attr_name,
-                tuple(int(i) for i in np.asarray(self.shape) // np.asarray(attr_val)),
+                other_splitter,
+                tuple(int(i) for i in np.asarray(self.shape) // np.asarray(value)),
             )
         self.logger.debug("instantiated")
 
