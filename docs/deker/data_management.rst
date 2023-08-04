@@ -1,5 +1,3 @@
-.. currentmodule:: deker
-
 ****************
 Data management
 ****************

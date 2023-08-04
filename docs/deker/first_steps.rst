@@ -1,5 +1,3 @@
-.. currentmodule:: deker
-
 *************
 First steps
 *************

@@ -25,10 +25,10 @@ Accessing Data
 Deker APIs are designed to be as simple and user friendly as possible. There are only few
 self-explanotary high-level objects that you would need to interact with:
 
-   * :class:`Client <deker.client.Client>`
-   * :class:`Collection <deker.collection.Collection>`
-   * :class:`Array <deker.arrays.Array>` or :class:`VArray <deker.arrays.VArray>`
-   * :class:`Subset <deker.subset.Subset>` or :class:`VSubset <deker.subset.VSubset>`
+  * :class:`Client <deker.client.Client>`
+  * :class:`Collection <deker.collection.Collection>`
+  * :class:`Array <deker.arrays.Array>` or :class:`VArray <deker.arrays.VArray>`
+  * :class:`Subset <deker.subset.Subset>` or :class:`VSubset <deker.subset.VSubset>`
 
 ``Client`` is the first object you start with. It is used for managing and accessing
 ``Collection`` of ``Array`` or ``VArray`` objects.
@@ -59,11 +59,11 @@ Creating Collection
 
 To create a new ``Сollection`` you will need a few more objects:
 
-   * :class:`DimensionSchema <deker.schemas.DimensionSchema>`
-     and/or :class:`TimeDimensionSchema <deker.schemas.TimeDimensionSchema>`
-   * :class:`AttributeSchema <deker.schemas.AttributeSchema>`
-   * :class:`ArraySchema <deker.schemas.ArraySchema>`
-     or :class:`VArraySchema <deker.schemas.VArraySchema>`
+  * :class:`DimensionSchema <deker.schemas.DimensionSchema>`
+    and/or :class:`TimeDimensionSchema <deker.schemas.TimeDimensionSchema>`
+  * :class:`AttributeSchema <deker.schemas.AttributeSchema>`
+  * :class:`ArraySchema <deker.schemas.ArraySchema>`
+    or :class:`VArraySchema <deker.schemas.VArraySchema>`
 
 ``DimensionSchema`` and ``TimeDimensionSchema`` contain information about array and virtual array
 dimensions, such as dimension size, and optional labels or scale linked to dimension indexes.
