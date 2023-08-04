@@ -74,9 +74,6 @@ Interactive Shell
 in a convenient way. It requires ``deker`` package to be installed manually before use as described
 above.
 
-Interactive shell comes with **code autocompletion**, **syntax highlighting** and session **actions
-history**.
-
 To install interactive shell package::
 
    pip install deker deker-shell
