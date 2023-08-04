@@ -8,6 +8,7 @@
    Data Management <deker/data_management>
    Fine Tuning <deker/fine_tuning>
    Interactive Shell <deker/shell>
+   Deker Tools <deker/tools>
 
 .. toctree::
    :hidden:
@@ -38,16 +39,18 @@ multidimensional arrays.
 Deker name comes from term *dekeract*, the 10-cube_.
 
 Deker was made with the following major goals in mind:
-   * provide intuitive interface for storing and accessing **huge** data arrays
-   * support arbitrary number of data dimensions
-   * be thread and process safe and as lean on RAM use as possible
+
+   * provide intuitive interface for storing and accessing **huge data arrays**
+   * support **arbitrary number of data dimensions**
+   * be **thread and process safe** and as **lean on RAM** use as possible
 
 Deker empowers users to store and access a wide range of data types, virtually anything that can be
-represented as arrays, like geospacial data, satellite images, machine learning models, sensors data,
-graphs, key-value pairs, tabular data, and more.
+represented as arrays, like **geospacial data**, **satellite images**, **machine learning models**,
+**sensors data**, graphs, key-value pairs, tabular data, and more.
 
 Deker does not limit your data complexity and size: it supports virtually unlimited number of data
-dimensions and provides under the hood mechanisms to partition huge amounts of data for scalability.
+dimensions and provides under the hood mechanisms to **partition** huge amounts of data for
+**scalability**.
 
 .. _10-cube: https://en.wikipedia.org/wiki/10-cube
 
@@ -61,7 +64,7 @@ Features
 * Own **locking** mechanism enabling virtual arrays parallel read and write
 * Array level **metadata attributes**
 * **Fancy data slicing** using timestamps and named labels
-* Support for industry standard **NumPy_**, also for **pandas_** and **Xarray_**
+* Support for industry standard **NumPy_**, **pandas_** and **Xarray_**
 * Storage level data **compression and chunking** (via HDF5)
 
 .. _NumPy: https://numpy.org/doc/stable/
@@ -74,9 +77,9 @@ Code and Documentation
 
 Open source implementation of Deker storage engine is published at
 
-   * https://github.com/openweathermap/deker
+  * https://github.com/openweathermap/deker
 
 API documentation and tutorials for the current release could be found at
 
-   * https://docs.deker.io
+  * https://docs.deker.io
 

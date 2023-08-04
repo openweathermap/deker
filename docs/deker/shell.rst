@@ -5,6 +5,19 @@ Interactive shell
 Deker-shell provides Python REPL interface for Deker, offering features like autocompletion, preset variables,
 and enhanced REPL functionality through Ptpython.
 
+Once installed, open your terminal and run the shell providing path to Deker storage via command
+line parameter (in this case it would be ``/tmp/deker-data``)::
+
+   deker file:///tmp/deker-data
+
+You will be brought to the running Python REPL with:
+
+    * The following packages imported: ``numpy`` as ``np``, ``datetime`` and ``deker`` public
+      classes
+    * Initialized variables ``client`` and ``collections``
+    * Running ``asyncio`` loop (thus, enabling you to use ``async`` and ``await``)
+
+
 Start
 =========
 You need Deker and python>=3.9 installed.
