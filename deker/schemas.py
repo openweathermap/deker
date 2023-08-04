@@ -314,9 +314,16 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
 
     :param vgrid: an ordered sequence of positive integers; used for splitting ``VArray`` into ordinary ``Arrays``.
 
+      Each VArray dimension "size" shall be divided by the correspondent integer without remainders, thus an
+      ``Array's`` shape is created. If there is no need to split any dimension, its vgrid positional integer
+      shall be ``1``.
+
+    :param arrays_shape: an ordered sequence of positive integers; used for setting the shape of ordinary ``Arrays``
+      laying under a ``VArray``.
+
       Each integer in the sequence represents the total quantity of cells in the correspondent dimension
-      of each ordinary array. Each varray dimension "size" shall be divided by the correspondent integer
-      without remainders. If there is no need to split any dimension, its vgrid positional integer shall be ``1``.
+      of each ordinary ``Array``. Each ``VArray`` dimension "size" shall be divided by the correspondent integer
+      without remainders, thus a ``VArray's`` vgrid is created.
 
     :param fill_value: an optional value for filling in empty cells;
       If ``None`` - default value for each dtype will be used. Numpy ``nan`` can be used only for floating numpy dtypes.

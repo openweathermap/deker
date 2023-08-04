@@ -7,7 +7,7 @@
 
 [![PyPI pyversions](https://img.shields.io/pypi/pyversions/deker.svg)](https://pypi.python.org/pypi/deker/)
 [![PyPI version shields.io](https://img.shields.io/pypi/v/deker.svg)](https://pypi.python.org/pypi/deker/)
-[![GitHub license](https://badgen.net/github/license/openweathermap/deker)](https://github.com/openweathermap/deker/blob/master/LICENSE)  
+[![GitHub license](https://badgen.net/github/license/openweathermap/deker)](https://github.com/openweathermap/deker/blob/main/LICENSE)  
 [![pipeline](https://github.com/openweathermap/deker/actions/workflows/github-actions.yml/badge.svg)](https://github.com/openweathermap/deker/actions/workflows/github-actions.yml)
 [![docs](https://github.com/openweathermap/deker/actions/workflows/docs.yml/badge.svg)](https://github.com/openweathermap/deker/actions/workflows/docs.yml)
 
