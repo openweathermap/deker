@@ -38,10 +38,10 @@ from deker.errors import (
     DekerValidationError,
 )
 from deker.log import SelfLoggerMixin
-from deker.schemas import ArraySchema, VArraySchema
+from deker.schemas import SchemaTypeEnum
 from deker.tools import create_attributes_schema, create_dimensions_schema
 from deker.tools.decorators import check_ctx_state
-from deker.types import DTypeEnum, SchemaType
+from deker.types import DTypeEnum
 from deker.types.private.classes import ArrayMeta
 from deker.types.private.typings import Data, EllipsisType, Numeric, Slice
 
@@ -227,24 +227,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
         data: dict = collection_data["schema"]
 
         # Check schema type
-        schema_class = ArraySchema
-        if collection_data.get("type") == SchemaType.varray.value:
-            schema_class = VArraySchema
-            splitters = {
-                splitter: data[splitter]
-                for splitter in ("vgrid", "arrays_shape")
-                if data.get(splitter)
-            }
-
-            if len(splitters) > 1:
-                raise DekerValidationError(
-                    "Either `vgrid` or `arrays_shape` shall be passed, not both"
-                )
-            if len(splitters) < 1:
-                raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed")
-
-            splitter, value = tuple(splitters.items())[0]
-            data[splitter] = tuple(value)
+        schema_class = SchemaTypeEnum[collection_data.get("type")].value
 
         try:
             dtype = DTypeEnum[data["dtype"].lstrip("numpy.")].value

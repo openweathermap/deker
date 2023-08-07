@@ -20,7 +20,7 @@ from enum import Enum
 import numpy as np
 
 
-__all__ = ("DTypeEnum", "SchemaType", "DimensionType", "LocksExtensions", "LocksTypes")
+__all__ = ("DTypeEnum", "DimensionType", "LocksExtensions", "LocksTypes")
 
 
 class DTypeEnum(Enum):
@@ -59,13 +59,6 @@ class DTypeEnum(Enum):
         if object.value in (int, float, complex, str, tuple, datetime):
             return str(object.name)
         return f"numpy.{object.name}"
-
-
-class SchemaType(Enum):
-    """Mapping of schema types to strings."""
-
-    varray = "varray"
-    array = "array"
 
 
 class DimensionType(Enum):

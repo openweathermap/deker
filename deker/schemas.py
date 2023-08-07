@@ -16,6 +16,7 @@
 
 import datetime
 
+from enum import Enum
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -335,18 +336,25 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
     attributes: Union[List[AttributeSchema], Tuple[AttributeSchema, ...]] = tuple()
 
     def __attrs_post_init__(self) -> None:
-        """Validate schema, convert vgrid to tuple and calculate arrays_shape."""
+        """Validate schema, convert `vgrid` or `arrays_shape` to tuple and calculate the other grid splitter."""
         super().__attrs_post_init__()
         __common_arrays_attributes_post_init__(self)
 
+        # get all grid splitters, passed by user
         splitters = {
             attr: getattr(self, attr) for attr in ("vgrid", "arrays_shape") if getattr(self, attr)
         }
+
+        # validate found splitters; should be just one parameter
         if len(splitters) < 1:
             raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed")
         if len(splitters) > 1:
             raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed, not both")
+
+        # extract grid splitter and its value
         splitter, value = tuple(splitters.items())[0]
+
+        # validate splitter value
         if value is not None:
             if (
                 not isinstance(value, (list, tuple))
@@ -367,8 +375,12 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
                         f"{dim.name} size % {splitter} element = "
                         f"{dim.size} % {value[n]} = {remainder}"  # type: ignore[valid-type]
                     )
+
+            # convert splitter value to tuple
             if isinstance(value, list):
                 setattr(self, splitter, tuple(value))
+
+            # calculate second splitter name and value; set its value as tuple
             if splitter == "vgrid":
                 other_splitter = "arrays_shape"
             else:
@@ -408,7 +420,6 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
     :param fill_value: an optional value for filling in empty cells;
       If ``None`` - default value for each dtype will be used.
       Numpy ``nan`` can be used only for floating numpy dtypes.
-
     """
 
     fill_value: Union[Numeric, type(np.nan), None] = None  # type: ignore[valid-type]
@@ -419,3 +430,11 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
         super().__attrs_post_init__()
         __common_arrays_attributes_post_init__(self)
         self.logger.debug("instantiated")
+
+
+# moved here from deker.types.private.enums because of circular import
+class SchemaTypeEnum(Enum):
+    """Mapping of schema types to strings."""
+
+    varray = VArraySchema
+    array = ArraySchema
