@@ -152,6 +152,7 @@ jobs:
       image: ghcr.io/openweathermap/deker/deker-embedded/tox:latest
       env:
         PACKAGE_VERSION: ${{ github.REF_NAME }}
+        PIP_EXTRA_INDEX_URL: https://test.pypi.org/simple/
       credentials:
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
@@ -163,11 +164,15 @@ jobs:
         uses: actions/checkout@v2
       - name: Install tox
         run: |
+          env
           pip install tox
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
+          PIP_EXTRA_INDEX_URL: https://test.pypi.org/simple/
       - name: Run tox tests
-        run: tox
+        run: |
+          env
+          tox
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
           PACKAGE_VERSION: ${{ github.REF_NAME }}

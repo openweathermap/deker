@@ -33,12 +33,12 @@ from deker.schemas import (
     ArraySchema,
     AttributeSchema,
     DimensionSchema,
+    SchemaTypeEnum,
     TimeDimensionSchema,
     VArraySchema,
 )
 from deker.tools import check_memory, not_deleted
 from deker.types import Serializer
-from deker.types.private.enums import SchemaType
 
 
 if TYPE_CHECKING:
@@ -234,7 +234,9 @@ class Collection(SelfLoggerMixin, Serializer):
         """Serialize ``Collection`` to dictionary."""
         dic: dict = {
             "name": self.name,
-            "type": SchemaType.varray.value if self.__varray_schema else SchemaType.array.value,
+            "type": SchemaTypeEnum.varray.name
+            if self.__varray_schema
+            else SchemaTypeEnum.array.name,
             "schema": self.varray_schema.as_dict
             if self.__varray_schema
             else self.array_schema.as_dict,

@@ -558,6 +558,7 @@ class VArraySchemaCreationParams(SchemaParams, TypedSchemaParams):
         """Returns wrong params for array_schema."""
         dimensions, dtype = cls._get_dims_dtype()
         vgrid = (1, 1, 1)
+        arrays_shape = (10, 10, 10)
 
         return [
             # wrong dtype
@@ -576,6 +577,19 @@ class VArraySchemaCreationParams(SchemaParams, TypedSchemaParams):
                 key="vgrid",
                 exception_types=[tuple, list],
             ),
+            # wrong arrays_shape
+            *cls._generate_types(
+                base_dict={"dtype": dtype, "dimensions": dimensions},
+                key="arrays_shape",
+                exception_types=[tuple, list],
+            ),
+            # vgrid and arrays_shape at the same time
+            {
+                "dtype": dtype,
+                "dimensions": dimensions,
+                "vgrid": vgrid,
+                "arrays_shape": arrays_shape,
+            },
         ]
 
 
