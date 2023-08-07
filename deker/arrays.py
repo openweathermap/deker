@@ -252,7 +252,7 @@ class VArray(BaseArray):
     @property
     def arrays_shape(self) -> Tuple[int, ...]:
         """Get the shape of inner ``Arrays``."""
-        return self.schema.arrays_shape
+        return self.schema.arrays_shape  # type: ignore[return-value]
 
     @property
     def as_dict(self) -> dict:

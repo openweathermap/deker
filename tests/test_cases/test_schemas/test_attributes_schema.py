@@ -14,7 +14,6 @@ from deker.collection import Collection
 from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema
-from deker.tools import create_array_from_meta
 from deker.types.private.typings import NumericDtypes
 
 
@@ -196,7 +195,7 @@ def test_schema_conversion(
     assert isinstance(meta[key]["units"], list)
     assert isinstance(meta[key]["dt"], str)
 
-    array = create_array_from_meta(col, meta, local_array_adapter)
+    array = Array._create_from_meta(col, meta, local_array_adapter)
     assert isinstance(getattr(array, key)["units"], tuple)
     assert isinstance(getattr(array, key)["dt"], datetime)
 

@@ -78,7 +78,7 @@ def root_path(tmp_path_factory: pytest.TempPathFactory) -> Path:
 
     :param tmp_path_factory:  Temporary directory factory
     """
-    if path := os.getenv('ROOT_PATH'):
+    if path := os.getenv("ROOT_PATH"):
         directory = Path(path)
     else:
         directory = tmp_path_factory.mktemp("test", numbered=False)

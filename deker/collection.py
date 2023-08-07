@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING, Generator, Optional, Type, Union
 
 from deker.ABC.base_adapters import BaseCollectionAdapter, BaseStorageAdapter
 from deker.ABC.base_collection import BaseCollectionOptions
+from deker.arrays import Array, VArray
 from deker.errors import (
     DekerInstanceNotExistsError,
     DekerInvalidManagerCallError,
@@ -32,17 +33,16 @@ from deker.schemas import (
     ArraySchema,
     AttributeSchema,
     DimensionSchema,
+    SchemaTypeEnum,
     TimeDimensionSchema,
     VArraySchema,
 )
-from deker.tools import check_memory, create_array_from_meta, not_deleted
+from deker.tools import check_memory, not_deleted
 from deker.types import Serializer
-from deker.types.private.enums import SchemaType
 
 
 if TYPE_CHECKING:
     from deker.ABC.base_factory import BaseAdaptersFactory
-    from deker.arrays import Array, VArray
 
 
 class Collection(SelfLoggerMixin, Serializer):
@@ -234,7 +234,9 @@ class Collection(SelfLoggerMixin, Serializer):
         """Serialize ``Collection`` to dictionary."""
         dic: dict = {
             "name": self.name,
-            "type": SchemaType.varray.value if self.__varray_schema else SchemaType.array.value,
+            "type": SchemaTypeEnum.varray.name
+            if self.__varray_schema
+            else SchemaTypeEnum.array.name,
             "schema": self.varray_schema.as_dict
             if self.__varray_schema
             else self.array_schema.as_dict,
@@ -262,7 +264,7 @@ class Collection(SelfLoggerMixin, Serializer):
     @not_deleted
     def create(
         self, primary_attributes: Optional[dict] = None, custom_attributes: Optional[dict] = None
-    ) -> Union["Array", "VArray"]:
+    ) -> Union[Array, VArray]:
         """Create ``Array`` or ``VArray`` according to collection main schema.
 
         If ``VArraySchema`` is passed to ``Collection``, all data management will go through ``VArrays``
@@ -317,7 +319,7 @@ class Collection(SelfLoggerMixin, Serializer):
     def __next__(self) -> None:
         pass
 
-    def __iter__(self) -> Generator[Union["Array", "VArray"], None, None]:
+    def __iter__(self) -> Generator[Union[Array, VArray], None, None]:
         """Yield ``VArrays`` or ``VArrays`` from the ``Collection``."""
         if self._is_deleted():
             raise DekerInstanceNotExistsError(
@@ -336,7 +338,12 @@ class Collection(SelfLoggerMixin, Serializer):
 
         self.logger.debug(f"Iterating over collection {self.name}")
         for meta in adapter:
-            array = create_array_from_meta(self, meta, array_adapter, varray_adapter=varray_adapter)
+            if varray_adapter:
+                array: VArray = VArray._create_from_meta(
+                    self, meta, array_adapter, varray_adapter=varray_adapter
+                )
+            else:
+                array: Array = Array._create_from_meta(self, meta, array_adapter)
             yield array
 
     def __repr__(self) -> str:

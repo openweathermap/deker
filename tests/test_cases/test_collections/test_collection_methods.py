@@ -24,11 +24,11 @@ from deker.schemas import (
     ArraySchema,
     AttributeSchema,
     DimensionSchema,
+    SchemaTypeEnum,
     TimeDimensionSchema,
     VArraySchema,
 )
 from deker.tools import get_paths
-from deker.types.private.enums import SchemaType
 
 
 class TestCollectionMethods:
@@ -367,7 +367,7 @@ class TestCollectionMethods:
         data = collection.as_dict
 
         assert isinstance(data, dict)
-        assert data["type"] == SchemaType.varray.value
+        assert data["type"] == SchemaTypeEnum.varray.name
         assert data["schema"] == collection.varray_schema.as_dict
 
     def test_collection_repr(

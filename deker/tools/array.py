@@ -16,9 +16,8 @@
 
 import uuid
 
-from datetime import datetime
 from functools import singledispatch
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 
@@ -26,14 +25,7 @@ from deker_tools.data import convert_size_to_human
 from deker_tools.time import get_utc
 from psutil import swap_memory, virtual_memory
 
-from deker.errors import DekerMemoryError, DekerMetaDataError, DekerValidationError
-
-
-if TYPE_CHECKING:
-    from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
-    from deker.arrays import Array, VArray
-    from deker.collection import Collection
-    from deker.types import ArrayMeta
+from deker.errors import DekerMemoryError, DekerValidationError
 
 
 def calculate_total_cells_in_array(seq: Union[Tuple[int, ...], List[int]]) -> int:
@@ -93,62 +85,6 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
             f"Current Deker limit per array/subset is {limit_human}. Value in config: {mem_limit_from_settings}"
             f"Reduce shape or dtype of your array/subset or increase Deker RAM limit."
         )
-
-
-def create_array_from_meta(
-    collection: "Collection",
-    meta: "ArrayMeta",
-    array_adapter: "BaseArrayAdapter",
-    varray_adapter: Optional["BaseVArrayAdapter"] = None,
-) -> Union["Array", "VArray"]:
-    """Create Array or VArray from metadata.
-
-    :param collection: Collection instance
-    :param meta: array metadata
-    :param array_adapter: Array adapter instance
-    :param varray_adapter: VArray adapter instance
-    """
-    from deker.arrays import Array, VArray
-
-    # instantiates "start_value" in attributes as a `datetime.datetime` from metadata iso-string
-    if varray_adapter:
-        array_type = VArray
-        attrs_schema = collection.varray_schema.attributes
-    else:
-        array_type = Array
-        attrs_schema = collection.array_schema.attributes
-    try:
-        for attr in attrs_schema:
-            attributes = meta["primary_attributes"] if attr.primary else meta["custom_attributes"]
-
-            value = attributes[attr.name]
-
-            if attr.dtype == datetime:
-                attributes[attr.name] = get_utc(value)
-            if attr.dtype == tuple:
-                if (attr.primary or (not attr.primary and value is not None)) and not isinstance(
-                    value, list
-                ):
-                    raise DekerMetaDataError(
-                        f"Collection '{collection.name}' metadata is corrupted: "
-                        f"attribute '{attr.name}' has invalid type '{type(value)}'; '{attr.dtype}' expected"
-                    )
-
-                if attr.primary or (not attr.primary and value is not None):
-                    attributes[attr.name] = tuple(value)
-
-        arr_params = {
-            "collection": collection,
-            "adapter": array_adapter,
-            "id_": meta["id"],
-            "primary_attributes": meta.get("primary_attributes"),
-            "custom_attributes": meta.get("custom_attributes"),
-        }
-        if varray_adapter:
-            arr_params.update({"adapter": varray_adapter, "array_adapter": array_adapter})
-        return array_type(**arr_params)  # type: ignore[arg-type]
-    except (KeyError, ValueError) as e:
-        raise DekerMetaDataError(f"{array_type} metadata invalid/corrupted: {e}")
 
 
 def get_id(array: Any) -> str:
