@@ -16,8 +16,8 @@ tune. All of them shall be explicitly passed as keyword parameters, none of them
 ------------
 
 Deker creates its own ``ThreadPoolExecutor`` instance for working with ``VArray``. By default, this
-parameter is ``None``. You may want to use your own ``ThreadPoolExecutor`` (or some custom executor,
-based on ``ThreadPoolExecutor``) instance. In this case Deker will use the passed one::
+parameter is ``None``. You may want to use your own ``ThreadPoolExecutor`` (or some custom
+executor, based on ``ThreadPoolExecutor``) instance. In this case Deker will use the passed one::
 
    from deker import Client
 

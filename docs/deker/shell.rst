@@ -74,7 +74,8 @@ Collection schema related:
 Physical storage (HDF5) level options:
 
 * :class:`HDF5Options <deker_local_adapters.storage_adapters.hdf5.hdf5_options.HDF5Options>`
-* :class:`HDF5CompressionOpts <deker_local_adapters.storage_adapters.hdf5.hdf5_options.HDF5CompressionOpts>`
+* :class:`HDF5CompressionOpts
+  <deker_local_adapters.storage_adapters.hdf5.hdf5_options.HDF5CompressionOpts>`
 
 Preset Variables
 ----------------

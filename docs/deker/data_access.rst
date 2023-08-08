@@ -259,9 +259,9 @@ to ``None`` in each ``Array``. Let's check it and update them everywhere::
 
          print(array.custom_attributes)
 
-If there are many custom attributes and you want to update just one or several of them - no problem.
-Just pass a dictionary with values for the attributes you need to update. All the others will not
-be harmed and will keep their values.
+If there are many custom attributes and you want to update just one or several of them - no
+problem. Just pass a dictionary with values for the attributes you need to update. All the others
+will not be harmed and will keep their values.
 
 
 Fancy Slicing

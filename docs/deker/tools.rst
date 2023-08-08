@@ -60,7 +60,8 @@ Serialize ``slices`` to ``string`` and vice versa with ``slice_converter``::
 ``time``
 ========
 
-This module provides ``get_utc`` function which returns timezone with UTC or current time by default::
+This module provides ``get_utc`` function which returns timezone with UTC or current time by
+default::
 
     >>> get_utc()
     2023-07-26 15:42:05.539317+00:00

@@ -15,8 +15,8 @@ the *schema* associated with the *collection* where it is stored.
 
 Collection *schema* consists from several components:
 
-    * *Dimensions* schema defining number of array dimensions, their size, step and labels or scales
-      that simplify addressing particular dimension
+    * *Dimensions* schema defining number of array dimensions, their size, step and labels or
+      scales that simplify addressing particular dimension
     * *Primary attributes* schema defines mandatory attributes that constitute unique identifier
       of particular *array* that could be used to locate it inside the collection
     * *Custom attributes* schema defines optional attributes that could be stored along the
@@ -30,9 +30,9 @@ Collection *schema* consists from several components:
 Understanding Arrays
 ====================
 
-Two flavor of *arrays* supported by Deker are ``Array`` and ``VArray``. Those objects represent core
-concept of Deker storage. Hereafter we will describe their structure, differences and commonalities
-and give overview of when either of them should be used.
+Two flavor of *arrays* supported by Deker are ``Array`` and ``VArray``. Those objects represent
+core concept of Deker storage. Hereafter we will describe their structure, differences and
+commonalities and give overview of when either of them should be used.
 
 
 Array
@@ -54,11 +54,11 @@ Let's consider a simple 3D array containing current weather data bound to some g
    :scale: 28%
    :align: right
 
-Let's assume that ``X`` and ``Y`` axes represent geographical grid, and ``Z`` axis represents layers
-with particular weather characteristic values, as shown in the legend.
+Let's assume that ``X`` and ``Y`` axes represent geographical grid, and ``Z`` axis represents
+layers with particular weather characteristic values, as shown in the legend.
 
-In the illustration above single ``Array`` has 4 cells in each dimension, in other words its *shape*
-is ``(4, 4, 4)``.
+In the illustration above single ``Array`` has 4 cells in each dimension, in other words its
+*shape* is ``(4, 4, 4)``.
 
 Deker will store each ``Array`` data in a separate file, and when we retrieve this ``Array`` object
 from ``Collection`` and acess its data, all operations will affect this file only.
@@ -81,9 +81,9 @@ require significant amount of RAM for processing and have limitations for concur
 access.
 
 To optimize this type of data storage, Deker uses tiling, i.e. it splits large ``VArray`` objects
-into series of smaller ``Array`` objects and transparently join them into for user access as virtual
-array. It probably would still be impossible to access this huge array as a whole, but it enables
-efficient access to digestable parts of it piece by piece.
+into series of smaller ``Array`` objects and transparently join them into for user access as
+virtual array. It probably would still be impossible to access this huge array as a whole, but it
+enables efficient access to digestable parts of it piece by piece.
 
 .. image:: images/vgrid.png
    :scale: 35%
@@ -671,7 +671,7 @@ some world-wide weather data::
 
     from datetime import datetime, timedelta
 
-    from deker import ( 
+    from deker import (
         TimeDimensionSchema,
         DimensionSchema,
         Scale,
