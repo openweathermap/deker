@@ -235,8 +235,7 @@ same pattern will be much faster as it will be captured not from the storage, bu
 
 A HDF5-file may have *no chunks* options or be chunked either *manually* or *automatically*.
 
-.. admonition:: Hint
-
+.. hint::
    Study `HDF5 chunking manual`_ to understand **chunks** better.
 
 .. _HDF5 chunking manual: https://portal.hdfgroup.org/display/HDF5/Chunking+in+HDF5
@@ -287,12 +286,11 @@ remainders::
    )
 
 Here we chunked our data into pieces, each of which will contain 1 hour, 181 ``y`` points (because
-181 is a natural number and is divisible only by itself or 1)*, 36 ``x`` points and the full scope
+181 is a natural number and is divisible only by itself or 1), 36 ``x`` points and the full scope
 of weather layers. If you need to read some data, which is kept in one or several chunks, the file
 will not affect other chunks, but it will open and cache the correspondent ones.
 
-.. admonition:: Hint
-
+.. hint::
    The best way to decide on chunk size is your the most frequently used reading pattern.
 
 
@@ -351,9 +349,9 @@ The custom filters shall be instantiated and passed to ``HDF5CompressionOpts`` a
           collection_options=options
       )
 
-.. admonition:: Hint
-
-   Dive into **compression options** at `h5py filter pipeline`_, `hdf5plugin docs`_ and `HDF5 compression manual`_.
+.. hint::
+   Dive into **compression options** at `h5py filter pipeline`_, `hdf5plugin docs`_ and
+   `HDF5 compression manual`_.
 
 .. _h5py filter pipeline: https://docs.h5py.org/en/stable/high/dataset.html#filter-pipeline
 .. _hdf5plugin docs: http://www.silx.org/doc/hdf5plugin/latest/

@@ -362,7 +362,7 @@ shall be described as a ``datetime.timedelta`` object. You may certainly set any
 starting with microseconds, ending with weeks, it will become a mapping for the dimension scalar
 indexes onto a certain datetime, which will let you slice it in a fancy way.
 
-.. admonition:: Hint
+.. note::
 
    **Why are integers inapplicable to timestamps and to scale and labels values?**
 
