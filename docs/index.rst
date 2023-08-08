@@ -3,9 +3,8 @@
    :caption: Tutorials
 
    Installation <deker/installation>
-   Overview <deker/overview>
-   First Steps <deker/first_steps>
-   Data Management <deker/data_management>
+   Collection Schema <deker/collection_schema>
+   Data Access <deker/data_access>
    Fine Tuning <deker/fine_tuning>
    Interactive Shell <deker/shell>
    Deker Tools <deker/tools>
