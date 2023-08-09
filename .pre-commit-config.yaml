@@ -150,3 +150,14 @@ repos:
         always_run: true
         stages:
           - push
+
+      - id: doc8
+        name: doc8
+        description: This hook runs doc8 for linting docs
+        entry: doc8 docs/deker
+        language: python
+        files: \.rst$
+        require_serial: true
+        args: [--config pyproject.toml]
+        stages:
+          - commit
