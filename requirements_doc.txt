@@ -1,5 +1,5 @@
-m2r2==0.3.2
-sphinx-rtd-theme==1.2.2
-enum_tools==0.10.0
-sphinx_toolbox==3.5.0
-doc8==1.1.1
+m2r2
+sphinx-rtd-theme
+enum_tools
+sphinx_toolbox
+doc8
