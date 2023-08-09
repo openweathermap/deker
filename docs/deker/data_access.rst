@@ -1,6 +1,6 @@
-***************
-Data Management
-***************
+***********
+Data Access
+***********
 
 
 Collections
@@ -103,7 +103,7 @@ Yes, we do. If you list it with::
 
    ls -lh /tmp/deker/collections/weather
 
-you will find out that there are two directories named ``array_data`` and ``array_symlinks`` and a
+You will find out that there are two directories named ``array_data`` and ``array_symlinks`` and a
 file with the ``Collection`` metadata ``weather.json``.
 
 Listing these inner directories will tell you that you have an ``.hdf5`` file with the ``Array``
@@ -150,8 +150,8 @@ right one.
 
 So you have two options how to filter an ``Array`` or ``VArray`` in a ``Collection``:
 
-   1. by ``id``
-   2. by ``primary`` attributes
+   1. By ``id``
+   2. By primary attributes
 
 For example, we saved an ``id`` of some ``Array`` to a variable, let's create a filter::
 
@@ -177,7 +177,7 @@ The ``FilteredManager`` provides final methods for invocation of the filtered ob
    * ``last()``
 
 Since only strict matching is available, both of them will return the same. They are stubs for
-the query language developmenti.
+the query language development.
 
 Now let's filter some ``Array`` by the primary attribute::
 
@@ -271,7 +271,7 @@ It is our privilege and pleasure to introduce the **fancy slicing** of your data
 
 We consider the ``__getitem__()`` method to be one of our pearls.
 
-Usually, you use integers for native Python and Numpy indexing and ``start``, ``stop`` and ``step``
+Usually, you use integers for native Python and NumPy indexing and ``start``, ``stop`` and ``step``
 slicing parameters::
 
    import numpy as np
@@ -300,7 +300,7 @@ Since a ``VArray`` is split in separate files, and each file can contain an ``Ar
 than one dimension, the calculation of their inner bounds is a non-trivial problem.
 
 That's why the ``step`` parameter **is limited** to ``1`` for both ``Array`` and ``VArray``
-dimensions. This constraint is introduced to keep consistent behaviour, although that there is no
+dimensions. This constraint is introduced to keep consistent behavior, although that there is no
 such a problem for ``Array``.
 
 Workaround for ``VArray`` would be to read your data and slice it again with steps, if you need,
@@ -479,7 +479,7 @@ Clear
 -----
 
 Method ``clear()`` inserts the ``fill_value`` into the affected bounds. If all your ``Array`` or
-``VArray`` values are ``fill_value``, it will be concerned empty and the dataset will be deleted
+``VArray`` values are ``fill_value``, it will be concerned empty and the data set will be deleted
 from the file. But the file still exists and retains ``Array`` or ``VArray`` metadata::
 
    import numpy as np

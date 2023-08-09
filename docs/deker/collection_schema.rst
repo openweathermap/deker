@@ -1,6 +1,6 @@
-***********
-First Steps
-***********
+*****************
+Collection Schema
+*****************
 
 
 Introduction
@@ -10,8 +10,8 @@ In some aspects Deker is similar to other database management systems. It has *c
 are equivalent to tables in relational databases or collections in MongoDB.
 
 Collection stores one of two flavors of *arrays* supported by Deker. We would look into difference
-between them later in this tutorial, but for now it is important to understand that *array* is by
-the *schema* associated with the *collection* where it is stored.
+between them later in this tutorial, but for now it is important to understand that *array* is
+defined by the *schema* associated with the *collection* where it is stored.
 
 Collection *schema* consists from several components:
 
@@ -23,12 +23,13 @@ Collection *schema* consists from several components:
       particular *array* but could not be used to locate it
 
 .. attention::
-   *Dimensions* and *primary attributes* schemas are **immutable**. Once you have created collection,
-   you will only be able to modify *custom attributes* schema.
+   *Dimensions* and both *primary* and *custom attributes* schemas are **immutable**. Once you
+   have created collection, you will only be able manage *arrays* in it and modify their *custom
+   attributes* value.
 
 
-Understanding Arrays
-====================
+Understanding Array Flavors
+===========================
 
 Two flavor of *arrays* supported by Deker are ``Array`` and ``VArray``. Those objects represent
 core concept of Deker storage. Hereafter we will describe their structure, differences and
@@ -61,7 +62,7 @@ In the illustration above single ``Array`` has 4 cells in each dimension, in oth
 *shape* is ``(4, 4, 4)``.
 
 Deker will store each ``Array`` data in a separate file, and when we retrieve this ``Array`` object
-from ``Collection`` and acess its data, all operations will affect this file only.
+from ``Collection`` and access its data, all operations will affect this file only.
 
 
 VArray
@@ -76,14 +77,13 @@ But there is a significant difference in its implementation.
 
 Imagine that instead of data bound to 4x4 grid you need to store a high-resolution image of
 something really huge like whole Earth surface satellite image. Let's say that size of such image
-would be 300000x200000 px. If stored in single file it will produce filesystem objects, will
-require significant amount of RAM for processing and have limitations for concurrent read-write
-access.
+would be 300000x200000 px. If stored in single file it will produce large filesystem objects
+that will impose limitations on concurrent read-write access thus impending storage scalability.
 
 To optimize this type of data storage, Deker uses tiling, i.e. it splits large ``VArray`` objects
 into series of smaller ``Array`` objects and transparently join them into for user access as
 virtual array. It probably would still be impossible to access this huge array as a whole, but it
-enables efficient access to digestable parts of it piece by piece.
+enables efficient access to digestible parts of it piece by piece.
 
 .. image:: images/vgrid.png
    :scale: 35%
@@ -110,10 +110,11 @@ Let's query the following slice of it: ``[:, 2:4, :]``
    :scale: 30%
 
 Here you can see, that all 4 tile files will be affected, but only the highlighted pieces of them
-will be actually read. All different files reads will be done in parallel. Deker will then combine
-each read piece into subset with requested shape and return it to you. If you use these bounds to
-write data, Deker will auttomatically split the slice you have provided into pieces and write them
-in parallel to corresponding files.
+will be actually read or written. All different files reads or writes could be done in parallel.
+In case you are retrieving data, Deker will transparently combine each read piece into subset with
+requested shape and return it to you. If you use these bounds to write data, Deker will
+automatically split the slice you have provided into pieces and write them in parallel to
+corresponding files.
 
 
 Dimensions Order
@@ -149,8 +150,8 @@ are arranged as ``['X', 'Y', 'Z']``:
 
 It means that when we query our data, in the first place we capture ``X`` dimension, then ``Y``
 dimension and only after that we can get to our weather data. As long as weather layers are under
-the geo-grid, such a sequence perfectly fits for querying a pack of weather data for some
-geo-point(s).
+the geo grid, such a sequence perfectly fits for querying a pack of weather data for some
+geo points.
 
 But what if we place these dimensions in a different manner?
 
@@ -161,7 +162,7 @@ But what if we place these dimensions in a different manner?
    :scale: 30%
    :align: right
 
-Now each geo-point contains only one sort of information. Moreover, you can place these dimensions
+Now each geo point contains only one sort of information. Moreover, you can place these dimensions
 in such a way, when weather layers will become the first dimension, for example like
 ``['Z', 'Y', 'X']``.
 
@@ -237,7 +238,7 @@ As you can see, regular scale can be defined either with Python ``dict`` or with
 named tuple. The keyword ``name`` is optional. Scale values shall be always defined as ``floats``.
 
 The parameters ``step`` and ``start_value`` may be negative as well. For example, ``era5`` weather
-model has a geo-grid shaped ``(ys=721, xs=1440)`` with step ``0.25`` degrees per cell. The
+model has a geo grid shaped ``(ys=721, xs=1440)`` with step ``0.25`` degrees per cell. The
 zero-point of the ``map`` is north-west or left-upper corner. In other words ``era5`` grid point
 ``(0, 0)`` is set to coordinates ``(lat=90.0, lon=-180.0)``.
 
@@ -599,7 +600,7 @@ If we do not want to divide any dimension into pieces and want to keep it in ful
 Thus, the first dimension will retain its initial size for all the arrays, and their shape will be
 ``(100, 10)``.
 
-Ok! Now we are finally ready to create our first database and we need ``Client``.
+OK! Now we are finally ready to create our first database and we need ``Client``.
 
 
 Creating Collection
@@ -616,7 +617,7 @@ URI
 
 There is a universal way to provide paths and connection options: an URI.
 
-The scheme of URI-string for embedded Deker databases, stored on your local drive, is ``file://``.
+The scheme of URI string for embedded Deker databases, stored on your local drive, is ``file://``.
 It shall be followed by a path to the directory where the storage will be located. If this
 directory (or even full path to it) does not exist, Deker will create it at ``Client``
 initialization.

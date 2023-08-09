@@ -58,12 +58,12 @@ Features
 ========
 
 * **Open source** under GPL 3.0
-* Scalabale storage of huge virtual arrays via **tiling**
+* Scalable storage of huge virtual arrays via **tiling**
 * **Parallel processing** of virtual array tiles
-* Own **locking** mechanism enabling virtual arrays parallel read and write
+* Own **locking** mechanism enabling arrays parallel read and write
 * Array level **metadata attributes**
 * **Fancy data slicing** using timestamps and named labels
-* Support for industry standard **NumPy_**, **pandas_** and **Xarray_**
+* Support for industry standard NumPy_, pandas_ and Xarray_
 * Storage level data **compression and chunking** (via HDF5)
 
 .. _NumPy: https://numpy.org/doc/stable/

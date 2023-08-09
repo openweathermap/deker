@@ -75,8 +75,8 @@ checks the state of the lock. You can adjust its sleeping time in seconds::
 The default is ``1`` second. The units are immutable and only ``int`` is accepted.
 
 
-loglevel
---------
+``loglevel``
+------------
 
 All the Deker objects (including private ones) have their own loggers. They are bound by the common
 logging level, which defaults to ``"ERROR"``. If you need, you may change it at ``Client`` init::
@@ -92,10 +92,10 @@ If you need to change it on the fly, you may use the following function::
    set_logging_level("INFO")  # now Deker logs starting from "INFO" level
 
 
-memory_limit
-------------
+``memory_limit``
+----------------
 
-This parameter is used for the early runtime break in case of potential memory overflow.
+This parameter is used for the early run time break in case of potential memory overflow.
 
 Deker operates big amounts of data, and you may be unaware that your machine will probably run out
 of memory. For example, NumPy shall raise ``_ArrayMemoryError`` if you do something like this::
@@ -114,8 +114,8 @@ checks the memory limits when it is creating:
    * ``xarray.DataArray`` from a ``Subset`` or a ``VSubset``
 
 By default Deker is limited to your **total virtual memory size** (i.e. total amount of RAM plus
-swap size). For example, you have 16 GB of RAM and 2 GB of swap. Thus, Deker is limited to 18 Gb of
-memory by default. But usually a machine is already using some parts of these memoriy for other
+swap size). For example, you have 16 GB of RAM and 2 GB of swap. Thus, Deker is limited to 18 GB of
+memory by default. But usually a machine is already using some parts of these memory for other
 processes. So your current available free memory is always lower than the total one.
 
 Deker compares its limits with your current available free memory (RAM + swap) and chooses the
@@ -133,7 +133,7 @@ readable representation of kilobytes, megabytes or gigabytes, for example: ``"10
    client = Client(uri, memory_limit=4096)  # 4096 bytes
 
 Only integers are acceptable for both of bytes and human representation. Capitalization of units
-postfix is ignored: ``"1024k"``, ``"512m"``, ``"8g"`` will work.
+suffix is ignored: ``"1024k"``, ``"512m"``, ``"8g"`` will work.
 
 .. note::
    You definitely may want to use it in **Docker**.
@@ -145,14 +145,13 @@ postfix is ignored: ``"1024k"``, ``"512m"``, ``"8g"`` will work.
 HDF5 Options
 ============
 
-
 .. attention::
    If you are new to ``HDF5``, please, refer to the `HDF5 official documentation`_
 
 .. _`HDF5 official documentation`: https://portal.hdfgroup.org/display/HDF5/HDF5
 
 Very briefly, ``HDF5`` is a data model, library, and file format for storing and managing data. It
-supports an unlimited variety of datatypes, and is designed for flexible and efficient I/O and for
+supports an unlimited variety of data types, and is designed for flexible and efficient I/O and for
 high volume and complex data. This format offers a big number of special tuning options. We will
 talk about ``chunks`` and data ``compression``.
 
@@ -254,7 +253,7 @@ Chunks options are set to ``None`` by default.
 When you create an ``Array``, its file is one big chunk.
 
 If you set chunks to ``True``, HDF5-file will automatically determine a chunk size with its own
-algorythm, basing on the shape of your ``Array``::
+algorithm, basing on the shape of your ``Array``::
 
    from deker import Client, HDF5Options
 

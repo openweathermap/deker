@@ -6,13 +6,22 @@ Installation
 Deker
 =====
 
-Deker was developed and tested on x86_64 Linux and both x86_64 and Apple silicon MacOS, and known
+Deker was developed and tested on x86_64 Linux and both x86_64 and Apple silicon macOS, and known
 to be running in production environments on x86_64 Linux servers.
 
-.. note:: Minimal Python version for Deker is ``3.9``.
+.. note::
+   Minimal Python version for Deker is ``3.9``.
 
-.. attention:: If you run MacOS on Apple silicon (M series CPU), please, refer to the `Running on
-               Apple Silicon`_ section first.
+.. attention::
+   Deker uses NumPy, and some NumPy types are unsupported on current NumPy arm64 version. So if you
+   want to use Deker library on Apple silicon (M series CPU), you have to install x86_64 version of
+   Python using Rosetta_ x86_64 to arm64 dynamic binary translator.
+
+   You may use the following guide_ to install x86_64 version of Python an then switch to that
+   version in your Deker project using ``pyenv`` and install Deker package as usual.
+
+.. _Rosetta: https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment
+.. _guide: https://sixty-north.com/blog/pyenv-apple-silicon.html
 
 
 Dependencies
@@ -27,11 +36,11 @@ Deker depends on the following third-party packages:
     * ``h5py`` >= 3.8.0
     * ``hdf5plugin`` >= 4.0.1
 
-Also please not that for future flexibility few internal Deker components are published as separate
+Also please not that for flexibility few internal Deker components are published as separate
 packages:
 
-    * ``deker-tools``
     * ``deker-local-adapters``
+    * ``deker-tools``
 
 To install Deker with all the previously mentioned dependencies, run::
 
@@ -51,20 +60,6 @@ To install it with ``xarray`` optional dependency::
 
 .. _Xarray: https://docs.xarray.dev/en/stable/getting-started-guide/installing.html
 .. _pandas: https://pandas.pydata.org/getting_started.html
-
-
-Running on Apple Silicon
-------------------------
-
-Deker uses NumPy, and some NumPy types are unsupported on current NumPy arm64 version. So if you
-want to use Deker library on Apple silicon (M series CPU), you have to install x86_64 version of
-Python using Rosetta_ x86_64 to arm64 dynamic binary translator.
-
-You may use the following guide_ to install x86_64 version of Python an then switch to that version
-in your Deker project using ``pyenv`` and install Deker package as usual.
-
-.. _Rosetta: https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment
-.. _guide: https://sixty-north.com/blog/pyenv-apple-silicon.html
 
 
 Interactive Shell
