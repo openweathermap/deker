@@ -2,13 +2,9 @@ name: pipeline
 
 on:
   push:
-  pull_request:
 
 env:
   PYTHON_IMAGE: 3.9
-  DOCKER_IMAGE: docker:20.10.23
-  PYTHON_PACKAGE_NAME: deker
-  DOCKER_REG_IMAGE: ${{ secrets.CI_REGISTRY_IMAGE }}
 
 jobs:
   setup:
@@ -43,6 +39,7 @@ jobs:
   linters:
     needs: setup
     runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
 
     steps:
       - name: Checkout code

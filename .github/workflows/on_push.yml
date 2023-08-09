@@ -1,0 +1,143 @@
+name: push-pipeline
+
+on:
+  push:
+
+env:
+  PYTHON_IMAGE: 3.9
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install virtualenv
+          virtualenv venv
+          source venv/bin/activate
+          pip install -r requirements.txt
+          pip install -r requirements_dev.txt
+          pip list
+
+      - name: Cache virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+
+  linters:
+    needs: setup
+    runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Load virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+
+      - name: Run linters and checks
+        run: |
+          source venv/bin/activate
+          isort ./${{ env.PYTHON_PACKAGE_NAME }}
+          black ./${{ env.PYTHON_PACKAGE_NAME }}
+          flake8 ./${{ env.PYTHON_PACKAGE_NAME }}
+          mypy ./${{ env.PYTHON_PACKAGE_NAME }} --install-types --non-interactive --config-file pyproject.toml
+          doc8 --config pyproject.toml ./docs/deker
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save linter reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: linter-reports
+          path: report.xml
+
+  tests:
+    needs: setup
+    runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Load virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+
+      - name: Run shuffled tests
+        run: |
+          source venv/bin/activate
+          pytest --random-order --junitxml=tests.xml
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save test reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: test-reports
+          path: tests.xml
+
+  coverage:
+    needs: setup
+    runs-on: ubuntu-latest
+    if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ env.PYTHON_IMAGE }}
+
+      - name: Load virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+
+      - name: Run coverage
+        run: |
+          source venv/bin/activate
+          coverage run -m pytest --junitxml=report.xml
+          coverage report
+          coverage xml
+        env:
+          PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Save coverage reports
+        if: always()
+        uses: actions/upload-artifact@v2
+        with:
+          name: coverage-reports
+          path: coverage.xml

@@ -4,4 +4,5 @@ typing-extensions>=4.4.0
 tqdm>=4.64.1
 psutil>=5.9.5
 
+--extra-index-url https://test.pypi.org/simple/
 deker-local-adapters==1.0.1b
