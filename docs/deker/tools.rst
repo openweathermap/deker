@@ -6,7 +6,7 @@ Deker Tools is a collection of utility functions and classes designed to assist 
 processing tasks. It consists of modules that handle data conversion, path validation, and slice
 manipulation.
 
-.. attention:: This package is not considered to be part of Deker public API nad could significantly
+.. attention:: This package is not considered to be part of Deker public API and can be significantly
                changed in future versions.
 
 For details please refer to the `Deker Tools`_ API documentation.
@@ -68,4 +68,3 @@ default::
 
     >>> get_utc(datetime.now())
     2023-07-26 15:42:05.539317+00:00
-

@@ -66,7 +66,7 @@ jobs:
           black ./${{ env.PYTHON_PACKAGE_NAME }}
           flake8 ./${{ env.PYTHON_PACKAGE_NAME }}
           mypy ./${{ env.PYTHON_PACKAGE_NAME }} --install-types --non-interactive --config-file pyproject.toml
-          doc8 ./docs
+          doc8 ./docs/deker --config pyproject.toml
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
 
@@ -224,14 +224,14 @@ jobs:
       - name: Make Sphinx docs
         run: |
           source venv/bin/activate
-          cd ./docs 
+          cd ./docs
           make html
           ls -la _build/html
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v2
         with:
           path: docs/_build/html
- 
+
   publish_docs:
     needs: build_docs
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
