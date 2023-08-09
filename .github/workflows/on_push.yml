@@ -2,6 +2,8 @@ name: push-pipeline
 
 on:
   push:
+    tags-ignore:
+      - '**'
 
 env:
   PYTHON_IMAGE: 3.9
