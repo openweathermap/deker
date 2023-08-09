@@ -154,10 +154,10 @@ repos:
       - id: doc8
         name: doc8
         description: This hook runs doc8 for linting docs
-        entry: doc8 docs/deker
+        entry: doc8 docs/deker --config pyproject.toml
         language: python
         files: \.rst$
         require_serial: true
-        args: [--config pyproject.toml]
+        always_run: true
         stages:
           - commit
