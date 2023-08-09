@@ -153,7 +153,7 @@ repos:
 
       - id: doc8
         name: doc8
-        entry: doc8 --config=pyproject.toml
+        entry: doc8 --config=pyproject.toml docs/deker
         language: python
         always_run: true
         stages:
