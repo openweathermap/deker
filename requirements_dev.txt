@@ -22,3 +22,8 @@ pytest-mock==3.10.0
 xarray>=2023.5.0
 bandit==1.7.5
 tox==4.6.3
+m2r2
+sphinx-rtd-theme
+enum_tools
+sphinx_toolbox
+doc8

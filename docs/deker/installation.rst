@@ -1,202 +1,87 @@
-.. currentmodule:: deker
-
-*************
+************
 Installation
-*************
+************
 
-Deker installation
-====================
 
-Deker was developed and tested on Linux (``Ubuntu 20.04``, ``Centos 8.7``) and MacOS (``12.6.3``, ``13.14.1`` ),
-so these platforms are perfectly suitable for using Deker.
+Deker
+=====
 
-.. note:: Minimal python version for Deker is ``3.9``.
+Deker was developed and tested on x86_64 Linux and both x86_64 and Apple silicon macOS, and known
+to be running in production environments on x86_64 Linux servers.
 
-.. attention:: If you are a user of M1+ chip, please, refer to the `ARM architecture family`_ section first.
+.. note::
+   Minimal Python version for Deker is ``3.9``.
 
-Required dependencies
----------------------
-Deker dependencies are external:
+.. attention::
+   Deker uses NumPy, and some NumPy types are unsupported on current NumPy arm64 version. So if you
+   want to use Deker library on Apple silicon (M series CPU), you have to install x86_64 version of
+   Python using Rosetta_ x86_64 to arm64 dynamic binary translator.
 
-- numpy>=1.18
-- attrs>=23.1.0
-- tqdm>=4.64.1
-- psutil>=5.9.5
+   You may use the following guide_ to install x86_64 version of Python an then switch to that
+   version in your Deker project using ``pyenv`` and install Deker package as usual.
 
-and internal:
+.. _Rosetta: https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment
+.. _guide: https://sixty-north.com/blog/pyenv-apple-silicon.html
 
-- deker-tools
-- deker-local-adapters
-   * h5py>=3.8.0
-   * hdf5plugin>=4.0.1
 
-Deker comes with the previously mentioned dependencies included::
+Dependencies
+------------
+
+Deker depends on the following third-party packages:
+
+    * ``numpy`` >= 1.18
+    * ``attrs`` >= 23.1.0
+    * ``tqdm`` >= 4.64.1
+    * ``psutil`` >= 5.9.5
+    * ``h5py`` >= 3.8.0
+    * ``hdf5plugin`` >= 4.0.1
+
+Also please not that for flexibility few internal Deker components are published as separate
+packages:
+
+    * ``deker-local-adapters``
+    * ``deker-tools``
+
+To install Deker with all the previously mentioned dependencies, run::
 
     pip install deker
 
-or::
 
-    python -m pip install deker
+Optional Packages
+-----------------
 
-Extra dependencies
-------------------
-- xarray>=2023.5.0
+Deker also supports output of its data as pandas_ or Xarray_ via the following package:
+
+    * ``xarray`` >= 2023.5.0
+
+To install it with ``xarray`` optional dependency::
+
+    pip install deker[xarray]
 
 .. _Xarray: https://docs.xarray.dev/en/stable/getting-started-guide/installing.html
 .. _pandas: https://pandas.pydata.org/getting_started.html
 
-If you wish to convert your data into Xarray_ or pandas_ *(or even some other)* objects::
 
-    pip install deker[xarray]
+Interactive Shell
+=================
 
-or ::
+``deker-shell`` is an interactive environment that enables you to manage and access Deker storage
+in a convenient way. It requires ``deker`` package to be installed manually before use as described
+above.
 
-    python -m pip install deker[xarray]
-
-Or you can install them separately::
-
-    pip install deker
-    pip install xarray
-
-or ::
-
-    python -m pip install deker
-    python -m pip install xarray
-
-ARM architecture family
-----------------------------
-| Deker uses NumPy, and some NumPy types are unsupported on current NumPy ARM version.
-| If you want to run Deker library on your Mac with M1+ chip inside, you need to install ``python x86_64`` with Rosetta_.
-
-.. _Rosetta: https://support.apple.com/en-us/HT211861
-
-Use this guide_ or follow next steps:
-
-.. _guide: https://towardsdatascience.com/how-to-use-manage-multiple-python-versions-on-an-apple-silicon-m1-mac-d69ee6ed0250
-
-1. Install Rosetta (ARM -> x86_64 translator)::
-
-    softwareupdate --install-rosetta
-
-2. Create a Rosetta terminal:
-
-   | 2.1. duplicate your terminal ``apps -> utilities -> right click -> duplicate`` or ``install new``
-   | 2.2. click ``Get info`` on new terminal and set ``Open using Rosetta``
-
-3. Install homebrew::
-
-    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-4. Add an alias to your ``zsh`` config file::
-
-    alias rbrew="arch -x86_64 /usr/local/bin/brew"
-
-5. Install python::
-
-    rbrew install python@3.10
-
-**Hooray! Now you can install Deker with pip!**
-
-Interactive shell
-===================
-``Deker-shell`` is a MVP built on ``ptpython`` which provides a minimalistic interactive shell interface,
-where you can manage your Deker database in real time. Requires ``deker`` package to be installed alongside manually.
-
-It comes with **code autocompletion**, **syntax highlighting** and session **actions history**.
-
-Installation
---------------
-Deker-shell is not included as an out-of-box battery for Deker, so it should be installed manually::
+To install interactive shell package::
 
    pip install deker deker-shell
 
-or ::
 
-   python -m pip install deker deker-shell
+Deker Tools
+===========
 
-Usage
---------------
-Once installed, open your terminal and make ::
+``deker-tools`` is an out-of-box battery which provides several useful tools and utilities to work
+with Deker data. You may find this package useful in projects, even if they are not related to
+Deker.
 
-   deker file://<path-to-your-deker-storage>
-
-You will be brought to the running Python REPL with:
-   - imported NumPy as ``np``, ``datetime`` library and Deker public classes
-   - predefined variables ``client`` and ``collections``
-   - a running asyncio loop; thus, you can use ``async/await`` right in it
-
-Deker tools
-================
-``Deker-tools`` is an out-of-box battery and provides several tools and utilities. You may find this package useful
-in projects, even those not related to Deker.
-
-Installation
---------------
-::
+To install Deker tools package::
 
    pip install deker-tools
 
-or ::
-
-   python -m pip install deker-tools
-
-
-Usage
---------------
-You will get a collection of utility functions and classes designed to assist in common data processing tasks.
-It consists of modules that handle data conversion, path validation, and slice manipulation.
-
-data
-+++++++++
-
-This module provides ``convert_size_to_human`` method for converting bytes size into human readable representation::
-
-    >>> convert_size_to_human(1052810)
-    "1.0 MB"
-
-path
-+++++++++
-This module provides functions to validate and handle filesystem ``paths``::
-
-    is_empty(path)
-    is_path_valid(path)
-
-slices
-+++++++++
-Calculate ``shape`` of a subset from the index expression::
-
-    >>> shape = (361, 720, 4)
-    >>> index_exp = (slice(None, None, None), slice(None, None, None), 0)
-    >>> create_shape_from_slice(shape, index_exp)
-    (361, 720)
-
-Convert ``slice`` into a sequence and get its length::
-
-    >>> match_slice_size(10, slice(10))
-    (0, 10, 1)
-
-Serialize ``slices`` to ``string`` and vice versa with ``slice_converter``::
-
-    >>> slice_converter[5]
-    '[5]'
-
-    >>> slice_converter[datetime.datetime(2023,1,1):datetime.datetime(2023,2,1), 0.1:0.9:0.05]
-    '[`2023-01-01T00:00:00`:`2023-02-01T00:00:00`, 0.1:0.9:0.05]'
-
-time
-+++++++++
-
-This module provides ``get_utc`` function which returns timezone with UTC or current time by default::
-
-    >>> get_utc()
-    2023-07-26 15:42:05.539317+00:00
-
-    >>> get_utc(datetime.now())
-    2023-07-26 15:42:05.539317+00:00
-
-The contents of this package may be changed anytime. For details refer to the `deker-tools API`_
-
-.. _deker-tools API: api/deker_tools/modules.html
-
-
-.. note:: Please, don't hesitate to inform us about any installation or usage issues.

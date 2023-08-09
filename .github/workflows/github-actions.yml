@@ -66,6 +66,7 @@ jobs:
           black ./${{ env.PYTHON_PACKAGE_NAME }}
           flake8 ./${{ env.PYTHON_PACKAGE_NAME }}
           mypy ./${{ env.PYTHON_PACKAGE_NAME }} --install-types --non-interactive --config-file pyproject.toml
+          doc8 ./docs
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
 
@@ -209,6 +210,50 @@ jobs:
       - uses: actions/upload-artifact@v3
         with:
           path: dist/*.tar.gz
+
+  build_docs:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Load virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+      - name: Make Sphinx docs
+        run: |
+          source venv/bin/activate
+          cd ./docs 
+          make html
+          ls -la _build/html
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v2
+        with:
+          path: docs/_build/html
+ 
+  publish_docs:
+    needs: build_docs
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    concurrency:
+      group: "pages"
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: gh-pages
+          force: true
+          directory: docs/_build/html
 
   upload_pypi:
     needs: [build_wheels, build_sdist]
