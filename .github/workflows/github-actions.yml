@@ -210,6 +210,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+      - name: Load virtual environment
+        uses: actions/cache@v2
+        with:
+          path: venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
       - name: Make Sphinx docs
         run: |
           source venv/bin/activate
