@@ -212,6 +212,7 @@ jobs:
       - uses: actions/checkout@v3
       - name: Make Sphinx docs
         run: |
+          source venv/bin/activate
           cd ./docs 
           make html
           ls -la _build/html
