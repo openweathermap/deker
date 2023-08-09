@@ -580,17 +580,38 @@ VArray Grid
 
 Perhaps it is one of the most obscure issues. ``VArray`` shall be split into files, but it cannot
 decide itself how it shall be done. It's up to you, how you are going to split your data.
+There are two ways: ``vgrid`` and ``arrays_shape`` parameters. You can choose any of them,
+but not both. Any of these parameters shall be defined as a tuple of integers which quantity
+shall be exactly similar to the quantity of the dimensions and its values shall divide ``VArray``
+shape without remainders.
 
-``vgrid`` parameter shall be defined as a tuple of integers which quantity shall be exactly similar
-to the quantity of the dimensions. Its values shall divide ``VArray`` shape without remainders.
+Our schema has two dimensions with sizes ``100`` and ``200`` correspondingly, what tells us
+that the ``VArray`` shape will be ``(100, 200)``. We shall split it either by ``vgrid`` or
+with ``arrays_shape``.
 
-Our schema has two dimensions with sizes ``100`` and ``200`` correspondingly, what tells us that
-the ``VArray`` shape will be ``(100, 200)``. And we set ``vgrid`` as ``(50, 20)``. What shall
-happen? No magic, just a simple math::
+``vgrid``
++++++++++
+
+Let's set ``vgrid`` as ``(50, 20)``.
+
+.. code-block:: python
+
+   from deker import VArraySchema
+
+   varray_schema = VArraySchema(
+       dimensions=dimensions,
+       dtype=np.int64,
+       fill_value=-99999,
+       vgrid=(50, 20)
+       # attributes are not passed as they are optional
+   )
+
+What shall happen? No magic, just a simple math::
 
     (100, 200) / (50, 20) = (2.0, 10.0)
 
-``(2, 10)`` - that will be the shape of all the ``Array``, produced by the ``VArray``.
+``(2, 10)`` - that will be the shape of all the ``Array``, produced by the ``VArray``, or the
+``arrays_shape``.
 
 If we do not want to divide any dimension into pieces and want to keep it in full size in all the
 ``Array``, we shall pass ``1`` in ``vgrid`` for that dimension::
@@ -600,8 +621,41 @@ If we do not want to divide any dimension into pieces and want to keep it in ful
 Thus, the first dimension will retain its initial size for all the arrays, and their shape will be
 ``(100, 10)``.
 
-OK! Now we are finally ready to create our first database and we need ``Client``.
+If the ``vgrid`` setting is correct, it will be saved to the collection metadata and applied every
+time to all new ``VArrays``.
 
+``arrays_shape``
++++++++++++++++++
+
+Sometimes it is easier to decide on the shape of the final ``Arrays`` than on a ``vgrid``.
+In this case you can use ``arrays_shape`` parameter.
+
+.. code-block:: python
+
+   from deker import VArraySchema
+
+   varray_schema = VArraySchema(
+       dimensions=dimensions,
+       dtype=np.int64,
+       fill_value=-99999,
+       arrays_shape=(2, 10)
+       # attributes are not passed as they are optional
+   )
+
+By providing this parameter you manually set the shape of each inner ``Array`` to the
+passed value and produce the ``vgrid`` of your ``VArrays``.
+
+The ``VArray's`` shape will be divided by this setting::
+
+    (100, 200) / (2, 10) = (50.0, 20.0)
+
+``(50, 20)`` - that will be the ``vgrid`` of the ``VArray``.
+
+If you use ``arrays_shape`` for defining a ``VArraySchema``, not the passed setting, but the
+calculated ``vgrid`` will be saved to the collection metadata. On each collection
+invocation ``arrays_shape`` is calculated from the ``vgrid`` value restored from the metadata.
+
+OK! Now we are finally ready to create our first database and we need ``Client``.
 
 Creating Collection
 ===================
@@ -733,4 +787,3 @@ Now there is a new path ``/tmp/deker/collections/weather`` on your local drive w
 store the data relative to the ``Collection`` named ``weather``. Each ``Array`` will contain a pack
 of daily 24-hours weather data for each entire latitude and longitude degree: ``temperature``,
 ``humidity``, ``pressure`` and ``wind_speed``.
-
