@@ -175,7 +175,6 @@ known-third-party = ["deker_tools"]
 extra-standard-library = ["zoneinfo"]
 
 [tool.doc8]
-path = "docs/deker"
 max-line-length = 99
 
 
