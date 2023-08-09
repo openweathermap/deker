@@ -32,7 +32,6 @@ jobs:
           source venv/bin/activate
           pip install -r requirements.txt
           pip install -r requirements_dev.txt
-          pip install -r requirements_doc.txt
           pip list
 
       - name: Cache virtual environment
