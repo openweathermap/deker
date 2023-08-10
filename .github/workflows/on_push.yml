@@ -22,12 +22,12 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_IMAGE }}
 
-      - name: Install dependencies
-        run: |
-          pipx install poetry
-          poetry config virtualenvs.in-project true
-          poetry install
-          mv .venv venv
+      - name: Install poetry
+        uses: snok/install-poetry@v1.3.4
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
       - name: Cache virtual environment
         uses: actions/cache@v2
         with:
