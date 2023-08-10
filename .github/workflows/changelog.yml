@@ -11,7 +11,7 @@ jobs:
     steps:
       # Checks-out your repository
       - uses: actions/checkout@v2
-      
+
       - name: check
         run: ls
 
@@ -29,13 +29,13 @@ jobs:
           config_file: .github/workflows/configs/changelog-ci-config.json
           # Optional, This will be used to configure git
           # defaults to `github-actions[bot]` if not provided.
-          committer_username: 'OpenWeather'
-          committer_email: 'info@openweathermap.org'
+#          committer_username: 'OpenWeather'
+#          committer_email: 'info@openweathermap.org'
           # Optional, only required when you want to run Changelog CI
           # on an event other than `pull_request` event.
           # In this example `release_version` is fetched from `workflow_dispatch` events input.
           # You can use any other method to fetch the release version
           # such as environment variable or from output of another action
-          release_version: ${{ github.event.inputs.release_version }}
+#          release_version: ${{ github.event.inputs.release_version }}
           # Optional
           github_token: ${{ secrets.GITHUB_TOKEN }}
