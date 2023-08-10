@@ -26,12 +26,13 @@ jobs:
         run: |
           pipx install poetry
           poetry config virtualenvs.in-project true
+          poetry config virtualenvs.path venv
           poetry install
 
       - name: Cache virtual environment
         uses: actions/cache@v2
         with:
-          path: .venv
+          path: venv
           key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
 
   linters:
@@ -49,12 +50,12 @@ jobs:
       - name: Load virtual environment
         uses: actions/cache@v2
         with:
-          path: .venv
+          path: venv
           key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
 
       - name: Run linters and checks
         run: |
-          source .venv/bin/activate
+          source venv/bin/activate
           isort ./${{ env.PYTHON_PACKAGE_NAME }}
           black ./${{ env.PYTHON_PACKAGE_NAME }}
           flake8 ./${{ env.PYTHON_PACKAGE_NAME }}
@@ -85,12 +86,12 @@ jobs:
       - name: Load virtual environment
         uses: actions/cache@v2
         with:
-          path: .venv
+          path: venv
           key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
 
       - name: Run shuffled tests
         run: |
-          source .venv/bin/activate
+          source venv/bin/activate
           pytest --random-order --junitxml=tests.xml
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
@@ -117,12 +118,12 @@ jobs:
       - name: Load virtual environment
         uses: actions/cache@v2
         with:
-          path: .venv
+          path: venv
           key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
 
       - name: Run coverage
         run: |
-          source .venv/bin/activate
+          source venv/bin/activate
           coverage run -m pytest --junitxml=report.xml
           coverage report
           coverage xml

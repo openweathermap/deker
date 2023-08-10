@@ -54,7 +54,7 @@ jobs:
           key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
       - name: Make Sphinx docs
         run: |
-          source .venv/bin/activate
+          source venv/bin/activate
           doc8 --config pyproject.toml docs/deker
           cd ./docs
           make html
