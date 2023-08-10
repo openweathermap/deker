@@ -1,9 +1,11 @@
 name: changelog
 
 on:
+  push:
   workflow_dispatch:
+
 jobs:
-  build:
+  changelog:
     runs-on: ubuntu-latest
 
     steps:
