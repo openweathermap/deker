@@ -28,11 +28,11 @@ jobs:
           poetry config virtualenvs.path venv
           poetry config virtualenvs.in-project true
           poetry install
-          ls
+          ls -la
       - name: Cache virtual environment
         uses: actions/cache@v2
         with:
-          path: venv
+          path: .venv
           key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
 
   linters:
