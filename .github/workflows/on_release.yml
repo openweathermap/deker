@@ -9,36 +9,7 @@ env:
   PYTHON_IMAGE: 3.9
 
 jobs:
-  setup:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v2
-
-      - name: Set up Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: ${{ env.PYTHON_IMAGE }}
-
-      - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install virtualenv
-          virtualenv venv
-          source venv/bin/activate
-          pip install -r requirements_dev.txt
-          pip list
-
-      - name: Cache virtual environment
-        uses: actions/cache@v2
-        with:
-          path: venv
-          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
-
   tox_tests:
-    needs: setup
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/openweathermap/deker/deker-embedded/tox:latest
@@ -52,15 +23,21 @@ jobs:
         run:  pyenv global 3.9 3.10 3.11
 
       - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Install tox
+        uses: actions/checkout@v3
+
+      - name: Install tools
         run: |
           env
-          pip install tox
+          pip install tox poetry
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
+
+      - name: Make requirements file
+        run: poetry export --without-hashes > requirements.txt
+
       - name: Run tox tests
         run: |
+          export PIP_EXTRA_INDEX_URL=https://test.pypi.org/simple
           env
           tox
         env:
@@ -72,21 +49,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+
       - name: Load virtual environment
         uses: actions/cache@v2
         with:
-          path: venv
-          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
+
       - name: Make Sphinx docs
         run: |
-          source venv/bin/activate
+          source .venv/bin/activate
           doc8 --config pyproject.toml docs/deker
           cd ./docs
           make html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v2
         with:
           path: docs/_build/html
+
 
   publish_docs:
     needs: build_docs
@@ -110,30 +91,20 @@ jobs:
           force: true
           directory: docs/_build/html
 
-  build_wheels:
-    name: Build wheels on ${{ matrix.os }}
-    needs: tox_tests
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        os: [ubuntu-22.04]
-
-    steps:
-      - uses: actions/checkout@v3
-      - name: Build wheels
-        run: |
-          pip wheel -w ./wheelhouse .
-
   build_sdist:
-    needs: tox_tests
+    needs: build_docs
     name: Build source distribution
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Build sdist
         run: |
+          pip install poetry-dynamic-versioning
           pip install poetry
+          poetry dynamic-versioning enable
           poetry build -f sdist
 
       - uses: actions/upload-artifact@v3
@@ -141,7 +112,7 @@ jobs:
           path: dist/*.tar.gz
 
   upload_pypi:
-    needs: [build_sdist]
+    needs: [build_sdist, publish_docs]
     runs-on: ubuntu-latest
     permissions:
       id-token: write

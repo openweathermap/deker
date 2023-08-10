@@ -10,56 +10,25 @@ env:
   PYTHON_IMAGE: 3.9
 
 jobs:
-  tox_tests:
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/openweathermap/deker/deker-embedded/tox:latest
-      env:
-        PACKAGE_VERSION: ${{ github.REF_NAME }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - name: Set python versions
-        run:  pyenv global 3.9 3.10 3.11
-
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Install tools
-        run: |
-          env
-          pip install tox poetry
-        env:
-          PIP_DISABLE_PIP_VERSION_CHECK: 1
-
-      - name: Make requirements file
-        run: poetry export --without-hashes > requirements.txt
-
-      - name: Run tox tests
-        run: |
-          export PIP_EXTRA_INDEX_URL=https://test.pypi.org/simple
-          env
-          tox
-        env:
-          PIP_DISABLE_PIP_VERSION_CHECK: 1
-          PACKAGE_VERSION: ${{ github.REF_NAME }}
-
   build_docs:
-    needs: tox_tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
 
-      - name: Load virtual environment
-        uses: actions/cache@v2
+      - name: Set up Python
+        uses: actions/setup-python@v3
         with:
-          path: .venv
-          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
+          python-version: ${{ env.PYTHON_IMAGE }}
 
-      - name: Make Sphinx docs
+      - name: Install poetry
+        uses: snok/install-poetry@v1.3.4
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
         run: |
-          source .venv/bin/activate
+          poetry install
           doc8 --config pyproject.toml docs/deker
           cd ./docs
           make html
@@ -68,7 +37,6 @@ jobs:
         uses: actions/upload-pages-artifact@v2
         with:
           path: docs/_build/html
-
 
   build_sdist:
     name: Build source distribution
