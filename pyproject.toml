@@ -10,8 +10,7 @@ packages = [{ include = "deker" }]
 description = "Multidimensional arrays storage engine"
 authors = ["OpenWeather <info@openweathermap.org>"]
 license = "GPL-3.0-only"
-license-files=["LICENSE"]
-readme = {file = ["README.md"], content-type='text/markdown'}
+readme = "README.md"
 documentation = 'https://docs.deker.io/'
 homepage = 'https://deker.io/'
 repository = 'https://github.com/openweathermap/deker'
