@@ -28,7 +28,10 @@ jobs:
       - name: Install tools
         run: |
           env
-          pipx install tox poetry
+          pip install tox poetry
+          poetry self add "poetry-dynamic-versioning[plugin]"
+          poetry source add pypi
+          poetry dynamic-versioning enable
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
       - name: Make requirements file

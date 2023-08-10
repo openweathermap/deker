@@ -1,10 +1,28 @@
+### PROJECT ###
+[build-system]
+requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2", "poetry-core>=1.0.0", "poetry-dynamic-versioning"]
+build-backend = "poetry_dynamic_versioning.backend"
+
+[tool.setuptools.dynamic]
+readme = {file = ["README.md"], content-type='text/markdown'}
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools]
+packages = ["deker"]
+license-files=["LICENSE"]
+
+[tool.setuptools_scm]
+
 [tool.poetry]
+version = "0.0.0"
 name = "deker"
-version = "0.1.0"
 description = "Multidimensional arrays storage engine"
 authors = ["OpenWeather <info@openweathermap.org>"]
 license = "GPL-3.0-only"
 readme = "README.md"
+documentation = 'https://docs.deker.io/'
+homepage = 'https://deker.io/'
+repository = 'https://github.com/openweathermap/deker'
 classifiers = [
     "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
@@ -21,9 +39,23 @@ classifiers = [
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
 ]
-documentation = 'https://docs.deker.io/'
-homepage = 'https://deker.io/'
-repository = 'https://github.com/openweathermap/deker'
+
+[tool.poetry.extras]
+xarray = ["xarray"]
+
+[tool.poetry-dynamic-versioning]
+enable = true
+
+[[tool.poetry.source]]
+name = "PyPI"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"
+
+### DEPENDENCIES ###
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -32,13 +64,15 @@ attrs = "^23.1.0"
 typing-extensions = "^4.4.0"
 tqdm = "^4.64.1"
 psutil = "^5.9.5"
+xarray = {version = "^2023.5.0", optional = true}
+#deker-local-adapters = "1.0.1"
 deker-local-adapters = { version = "1.0.1b", source = "testpypi" }
-
 
 [tool.poetry.group.dev.dependencies]
 black = "23.1.0"
 coverage = "7.1.0"
 darglint = "1.8.1"
+Flake8-pyproject = "1.2.3"
 flake8 = "5.0.4"
 flake8-bugbear = "23.1.20"
 flake8-docstrings = "1.7.0"
@@ -69,33 +103,15 @@ enum_tools = "0.10.0"
 sphinx_toolbox = "3.5.0"
 doc8 = "0.11.2"
 
-
-[[tool.poetry.source]]
-name = "testpypi"
-url = "https://test.pypi.org/simple/"
-priority = "supplemental"
-
-[build-system]
-requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning"]
-build-backend = "poetry_dynamic_versioning.backend"
-
-[tool.poetry-dynamic-versioning]
-enable = true
+### TOOLS ###
 
 [tool.black]
-line-length = 100
 target-version = ['py39']
-include = '\.pyi?$'
-extend-exclude = '''
-# A regex preceded with ^/ will apply only to files and ctx
-# in the root of the project.
-^/foo.py  # exclude a file named foo.py in the root of the project (in addition to the defaults)
-examples/
-'''
+line-length = 100
 
+[tool.mypy]
 # https://mypy.readthedocs.io/en/stable/
 # https://pypi.org/project/mypy-extensions/
-[tool.mypy]
 python_version = "3.9"
 ignore_missing_imports = true
 scripts_are_modules = true
@@ -112,6 +128,7 @@ exclude = [
     '^setup\.py$',
     '^tmp\.py$',
     '^venv/',
+    '^.venv/',
     '^test+\.py$',
     '^conftest\.py$',
     '^tmp/',
@@ -123,8 +140,8 @@ disable_error_code = "misc,no-redef,override,union-attr,index,assignment"
 module = "tests/*"
 disallow_untyped_defs = false
 
-# https://pycqa.github.io/isort/
 [tool.isort]
+# https://pycqa.github.io/isort/
 py_version = 39
 sections = ['FUTURE', 'STDLIB', 'THIRDPARTY', 'FIRSTPARTY', 'LOCALFOLDER']
 profile = "black"
@@ -140,17 +157,18 @@ known_third_party = ["deker_tools"]
 extra_standard_library = ["zoneinfo"]
 use_parentheses = true
 
-# https://hadialqattan.github.io/pycln/#/README
 [tool.pycln]
+# https://hadialqattan.github.io/pycln/#/README
 all = true
 diff = true
-exclude = "venv/*,.git/*,__pycache__/*,examples/*"
-
+exclude = "venv/*,.venv/*,.git/*,__pycache__/*,examples/*"
 
 [tool.bandit]
+# https://github.com/PyCQA/bandit
 skips = ["B324"]
 
 [tool.ruff]
+# https://github.com/astral-sh/ruff
 target-version = "py39"
 line-length = 120
 select = ["ALL"]
@@ -207,6 +225,7 @@ ignore = [
 ]
 exclude = [
     "venv/*",
+    ".venv/*",
     ".git/*",
     "__pycache__/*",
     ".mypy_cache/*",
@@ -258,5 +277,144 @@ known-third-party = ["deker_tools"]
 extra-standard-library = ["zoneinfo"]
 
 [tool.doc8]
+# https://github.com/PyCQA/doc8
 max-line-length = 99
 
+[tool.pytest.ini_options]
+# https://docs.pytest.org
+# https://pypi.org/project/pytest-asyncio/
+# https://pytest-cov.readthedocs.io/en/latest/
+# https://pypi.org/project/pytest-pythonpath/
+# https://pypi.org/project/pytest-sugar/
+minversion = 7.0
+asyncio_mode = "auto"
+addopts = ["--ignore=tmp.py"]
+norecursedirs = "data"
+testpaths = "./tests"
+
+#log_cli = true
+#log_cli_level = "DEBUG"
+
+pythonpath = ["./deker", "./.venv", "./venv"]
+filterwarnings = ["ignore::UserWarning", 'ignore::DeprecationWarning', "ignore::ResourceWarning"]
+
+[tool.flake8]
+# https://flake8.pycqa.org/en/latest/
+# https://pypi.org/project/flake8-bugbear
+# https://pypi.org/project/flake8-docstrings/
+# https://pypi.org/project/flake8-import-order/
+# https://pypi.org/project/flake8-pytest-style/
+# https://pypi.org/project/pep8-naming/
+min_python_version = 3.9
+max-complexity = 15
+max-doc-length = 120
+max-line-length = 120
+strictness = "full"
+docstring_style = "sphinx"
+docstring-convention = "pep257"
+application_import_names = "deker"
+import-order-style = "pycharm"
+exclude = [
+    "venv/*",
+    ".venv/*",
+    ".git/*",
+    "__pycache__/*",
+    ".mypy_cache/*",
+    ".pytest_cache/*",
+    ".idea/*",
+    "examples/*",
+    "tmp/*",
+    "tests/*",
+    "tmp.py"
+]
+
+extend-select = ["D417"]
+per-file-ignores = [
+    "__init__.py: D104, F401, F403, F405, I100",
+    "deker/integrity.py: E501",
+    "deker/private/types/shell.py: D205, D400",
+    "deker/collection.py: D401",
+    "deker/subset.py: DAR101, E203",
+]
+ignore = [
+    "B012",
+    "B019",
+    "D100",
+    "D104",
+    "D105",
+    "D106",
+    "D107",
+    "D203",
+    "D401",
+    "D403",
+    "D404",
+    "DAR002",
+    "DAR003",
+    "DAR104",
+    "DAR105",
+    "DAR201",
+    "DAR301",
+    "DAR401",
+    "DAR501",
+    "I101",
+    "I201",
+    "I202",
+    "N807",
+    "N813",
+    "W503",
+    "W504",
+]
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+requires =
+    tox>=4
+env_list = {py39,py310,py311}-lint, py{39,310,311}-test
+
+[testenv:{py39,py310,py311}-test]
+description = run unit tests
+deps =
+    deepdiff==6.3.0
+    coverage==7.1.0
+    pytest>=7
+    pytest-sugar
+    pytest-mock==3.10.0
+    xarray>=2023.5.0
+
+commands =
+    pytest {posargs:tests}
+
+set_env =
+    PIP_EXTRA_INDEX_URL = {env:PIP_EXTRA_INDEX_URL}
+
+[testenv:{py39,py310,py311}-lint]
+ignore_base_python_conflict = true
+description = run linters
+deps = black==23.1.0
+       Flake8-pyproject==1.2.3
+       darglint==1.8.1
+       flake8==5.0.4
+       flake8-bugbear==23.1.20
+       flake8-docstrings==1.7.0
+       flake8-import-order==0.18.2
+       flake8-pytest-style==1.7.0
+       isort==5.12.0
+       mypy==1.0.0
+       mypy-extensions==1.0.0
+       pep8-naming==0.13.3
+       bandit==1.7.5
+       ssort==0.11.6
+       deepdiff==6.3.0
+       xarray>=2023.5.0
+
+commands = ssort  {posargs:deker}
+           isort {posargs:deker}
+           black {posargs:deker}
+           flake8 {posargs:deker}
+           bandit -r {posargs:deker} -c pyproject.toml
+           mypy {posargs:deker}  --install-types --non-interactive --config-file pyproject.toml
+
+set_env =
+    PIP_EXTRA_INDEX_URL = {env:PIP_EXTRA_INDEX_URL}
+"""
