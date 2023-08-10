@@ -25,7 +25,8 @@ jobs:
       - name: Install dependencies
         run: |
           pipx install poetry
-          poetry install --without docs
+          poetry config virtualenvs.in-project true
+          poetry install
 
       - name: Cache virtual environment
         uses: actions/cache@v2
