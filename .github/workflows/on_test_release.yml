@@ -6,39 +6,7 @@ on:
       - 'v*'
       - '!v[1-9]+.[0-9]+.[0-9]+'
 
-env:
-  PYTHON_IMAGE: 3.9
-
 jobs:
-  build_docs:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: ${{ env.PYTHON_IMAGE }}
-
-      - name: Install poetry
-        uses: snok/install-poetry@v1.3.4
-        with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Install dependencies
-        run: |
-          poetry install
-          source .venv/bin/activate
-          doc8 --config pyproject.toml docs/deker
-          cd ./docs
-          make html
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
-        with:
-          path: docs/_build/html
-
   build_sdist:
     name: Build source distribution
     runs-on: ubuntu-latest

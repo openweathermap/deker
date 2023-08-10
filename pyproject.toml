@@ -287,6 +287,33 @@ testpaths = "./tests"
 pythonpath = ["./deker", "./.venv", "./venv"]
 filterwarnings = ["ignore::UserWarning", 'ignore::DeprecationWarning', "ignore::ResourceWarning"]
 
+[tool.coverage.run]
+branch = true
+omit = [
+    "tests/*",
+    "tmp.py",
+    "setup.py",
+    "deker/types/private/shell.py",
+]
+
+[tool.coverage.html]
+directory = "tests/code_coverage"
+
+[tool.coverage.report]
+fail_under=96
+exclude_lines = [
+    "no cov",
+    "pragma: no cover",
+    "if typing.TYPE_CHECKING:",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "pass",
+    "raise NotImplementedError",
+    "except ImportError",
+    "except ModuleNotFoundError",
+    "except Exception"
+]
+
 [tool.flake8]
 # https://flake8.pycqa.org/en/latest/
 # https://pypi.org/project/flake8-bugbear
@@ -366,13 +393,15 @@ description = run unit tests
 deps =
     deepdiff==6.3.0
     coverage==7.1.0
-    pytest>=7
-    pytest-sugar
+    pytest==7.2.1
+    pytest-sugar==0.9.6
     pytest-mock==3.10.0
+    pytest-random-order==1.1.0
     xarray>=2023.5.0
 
 commands =
-    pytest {posargs:tests}
+    coverage run -m pytest {posargs:tests} --random-order
+    coverage report
 
 set_env =
     PIP_EXTRA_INDEX_URL = {env:PIP_EXTRA_INDEX_URL}
@@ -383,6 +412,7 @@ description = run linters
 deps = black==23.1.0
        Flake8-pyproject==1.2.3
        darglint==1.8.1
+       doc8==0.11.2
        flake8==5.0.4
        flake8-bugbear==23.1.20
        flake8-docstrings==1.7.0
@@ -403,6 +433,7 @@ commands = ssort  {posargs:deker}
            flake8 {posargs:deker}
            bandit -r {posargs:deker} -c pyproject.toml
            mypy {posargs:deker}  --install-types --non-interactive --config-file pyproject.toml
+           doc8 {posargs:docs/deker} --config=pyproject.toml
 
 set_env =
     PIP_EXTRA_INDEX_URL = {env:PIP_EXTRA_INDEX_URL}

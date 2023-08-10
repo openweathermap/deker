@@ -50,14 +50,20 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Load virtual environment
-        uses: actions/cache@v2
+      - name: Set up Python
+        uses: actions/setup-python@v3
         with:
-          path: .venv
-          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
+          python-version: ${{ env.PYTHON_IMAGE }}
 
-      - name: Make Sphinx docs
+      - name: Install poetry
+        uses: snok/install-poetry@v1.3.4
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Install dependencies
         run: |
+          poetry install
           source .venv/bin/activate
           doc8 --config pyproject.toml docs/deker
           cd ./docs
@@ -67,7 +73,6 @@ jobs:
         uses: actions/upload-pages-artifact@v2
         with:
           path: docs/_build/html
-
 
   publish_docs:
     needs: build_docs
