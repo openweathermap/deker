@@ -25,10 +25,10 @@ jobs:
       - name: Install dependencies
         run: |
           pipx install poetry
-          poetry config virtualenvs.in-project true
           poetry config virtualenvs.path venv
+          poetry config virtualenvs.in-project true
           poetry install
-
+          ls
       - name: Cache virtual environment
         uses: actions/cache@v2
         with:
