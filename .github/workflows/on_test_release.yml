@@ -10,6 +10,14 @@ env:
   PYTHON_IMAGE: 3.9
 
 jobs:
+  changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run Changelog CI
+        uses: saadmk11/changelog-ci@v1.1.2
+
+
   tox_tests:
     runs-on: ubuntu-latest
     container:
