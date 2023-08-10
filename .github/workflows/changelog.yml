@@ -1,7 +1,6 @@
 name: changelog
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       release_version:
