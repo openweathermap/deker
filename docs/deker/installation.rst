@@ -84,4 +84,3 @@ Deker.
 To install Deker tools package::
 
    pip install deker-tools
-

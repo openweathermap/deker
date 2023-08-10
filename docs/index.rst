@@ -81,4 +81,3 @@ Open source implementation of Deker storage engine is published at
 API documentation and tutorials for the current release could be found at
 
   * https://docs.deker.io
-
