@@ -1,11 +1,10 @@
 name: changelog
 
 on:
-  workflow_dispatch:
-    inputs:
-      release_version:
-        description: 'Set Release Version'
-        required: true
+  push:
+    tags:
+      - 'v*'
+      - '!v[1-9]+.[0-9]+.[0-9]+'
 jobs:
   changelog:
     runs-on: ubuntu-latest
