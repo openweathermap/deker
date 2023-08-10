@@ -86,31 +86,31 @@ ignore = [
     "BLE001",
     "DTZ004",
     "FIX002",
-    "C901",    # Too complex, refactor files with this error.
+    "C901", # Too complex, refactor files with this error.
     "SLF001",
     "ANN401",
     "G004",
     "A003",
     "TD003",
     "TD002",
-    "DTZ003",  # .utcnow() is not allowed
-    "DTZ005",  # date time without tz
-    "DTZ006",  # date time without tz
-    "FA100",   # __future__ annotations
+    "DTZ003", # .utcnow() is not allowed
+    "DTZ005", # date time without tz
+    "DTZ006", # date time without tz
+    "FA100", # __future__ annotations
     "TRY301",
-    "PLR0913",  # Number of arguments
+    "PLR0913", # Number of arguments
     "PERF401",
     "RUF012",
     "PLR0912", # Too many branches,
-    "FBT001",  # Boolean positional arg
-    "FBT002",  # Boolean default value
+    "FBT001", # Boolean positional arg
+    "FBT002", # Boolean default value
     "D401",
     "COM812",
     "EM101",
-    "UP006",  # Tuple[..] -> tuple[..]
-    "UP035",  # Tuple[..] -> tuple[..]
-    "UP007",  # X | Y instead of Union
-    "UP037",  # Quotes in annotations
+    "UP006", # Tuple[..] -> tuple[..]
+    "UP035", # Tuple[..] -> tuple[..]
+    "UP007", # X | Y instead of Union
+    "UP037", # Quotes in annotations
     "RET504",
     "PIE790",
     "ERA001",
@@ -144,7 +144,7 @@ exclude = [
     "PERF203" # Performance overhead
 ]
 "deker/locks.py" = [
-    "PERF203",# Performance overhead
+    "PERF203", # Performance overhead
     "PTH123",
     "SIM115"
 ]
@@ -152,7 +152,7 @@ exclude = [
 "deker/tools/path.py" = ["S324"]
 "deker/validators.py" = ["C901", "PLR0912"]
 "deker/dimensions.py" = ["PLR0915"] # Too many statements
-"deker/types/enums.py" = ["A003","A002"]
+"deker/types/enums.py" = ["A003", "A002"]
 "deker/types/shell.py" = ["D205", "D400"]
 "deker/ABC/base_subset.py" = ["PLW2901"]  #  overwritten by assignment
 "deker/ABC/base_array.py" = ["PLW2901"]  #  overwritten by assignment
@@ -181,34 +181,34 @@ max-line-length = 99
 [build-system]
 requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
 
-[project]
-name = "deker"
-requires-python = ">=3.9"
-dynamic = ["version", "readme", "dependencies"]
-authors = [
-    {name = "OpenWeather", email = "info@openweathermap.org"},
-]
-maintainers = [
-        {name = "OpenWeather", email = "info@openweathermap.org"},
-]
-description = "Multidimensional arrays storage engine"
-license = {text = "GPL-3.0-only"}
-classifiers = [
-        "Development Status :: 4 - Beta",
-        "Intended Audience :: Developers",
-        "Intended Audience :: Information Technology",
-        "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-        "Topic :: Software Development :: Libraries :: Python Modules",
-        "Operating System :: Unix",
-        "Operating System :: POSIX :: Linux",
-        "Operating System :: MacOS :: MacOS X",
-        "Programming Language :: Python",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-]
+#[project]
+#name = "deker"
+#requires-python = ">=3.9"
+#dynamic = ["version", "readme", "dependencies"]
+#authors = [
+#    { name = "OpenWeather", email = "info@openweathermap.org" },
+#]
+#maintainers = [
+#    { name = "OpenWeather", email = "info@openweathermap.org" },
+#]
+#description = "Multidimensional arrays storage engine"
+#license = { text = "GPL-3.0-only" }
+#classifiers = [
+#    "Development Status :: 4 - Beta",
+#    "Intended Audience :: Developers",
+#    "Intended Audience :: Information Technology",
+#    "Intended Audience :: Science/Research",
+#    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+#    "Topic :: Software Development :: Libraries :: Python Modules",
+#    "Operating System :: Unix",
+#    "Operating System :: POSIX :: Linux",
+#    "Operating System :: MacOS :: MacOS X",
+#    "Programming Language :: Python",
+#    "Programming Language :: Python :: 3",
+#    "Programming Language :: Python :: 3.9",
+#    "Programming Language :: Python :: 3.10",
+#    "Programming Language :: Python :: 3.11",
+#]
 [project.optional-dependencies]
 xarray = ["xarray>=2023.5.0"]
 
@@ -218,11 +218,56 @@ xarray = ["xarray>=2023.5.0"]
 'Repository' = 'https://github.com/openweathermap/deker'
 
 [tool.setuptools.dynamic]
-readme = {file = ["README.md"], content-type='text/markdown'}
-dependencies = {file = ["requirements.txt"]}
+readme = { file = ["README.md"], content-type = 'text/markdown' }
+dependencies = { file = ["requirements.txt"] }
 
 [tool.setuptools]
 packages = ["deker"]
-license-files=["LICENSE"]
+license-files = ["LICENSE"]
 
 [tool.setuptools_scm]
+
+[tool.poetry.dependencies]
+numpy = "^1.18"
+attrs = "^23.1.0"
+typing-extensions = "^4.4.0"
+tqdm = "^4.64.1"
+psutil = "^5.9.5"
+deker-local-adapters = { version = "1.0.1b", source = "test" }
+
+[tool.poetry.group.dev.dependencies]
+black = "23.1.0"
+coverage = "7.1.0"
+darglint = "1.8.1"
+flake8 = "5.0.4"
+flake8-bugbear = "23.1.20"
+flake8-docstrings = "1.7.0"
+flake8-import-order = "0.18.2"
+flake8-pytest-style = "1.7.0"
+isort = "5.12.0"
+mypy = "1.0.0"
+mypy-extensions = "1.0.0"
+pep8-naming = "0.13.3"
+pre-commit = "3.0.4"
+pycln = "2.1.3"
+pytest = "7.2.1"
+pytest-cov = "4.0.0"
+pytest-sugar = "0.9.6"
+pytest-random-order = "1.1.0"
+ssort = "0.11.6"
+deepdiff = "6.3.0"
+pytest-mock = "3.10.0"
+xarray = "^2023.5.0"
+bandit = "1.7.5"
+tox = "4.6.3"
+
+[tool.poetry.group.docs.dependencies]
+docutils = "0.17"
+m2r2 = "0.3.2"
+sphinx-rtd-theme = "1.2.2"
+enum_tools = "0.10.0"
+sphinx_toolbox = "3.5.0"
+doc8 = "0.11.2"
+
+[too.poetry]
+name = "deker"
