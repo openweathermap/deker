@@ -24,17 +24,20 @@ jobs:
         run:  pyenv global 3.9 3.10 3.11
 
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
       - name: Install tools
         run: |
           env
           pip install tox poetry
-          poetry self add "poetry-dynamic-versioning[plugin]"
-          poetry dynamic-versioning enable
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
+
       - name: Make requirements file
         run: poetry export --without-hashes > requirements.txt
+
       - name: Run tox tests
         run: |
           export PIP_EXTRA_INDEX_URL=https://test.pypi.org/simple
@@ -49,17 +52,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
       - name: Load virtual environment
         uses: actions/cache@v2
         with:
           path: .venv
           key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
+
       - name: Make Sphinx docs
         run: |
           source .venv/bin/activate
           doc8 --config pyproject.toml docs/deker
           cd ./docs
           make html
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v2
         with:
@@ -71,11 +79,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Build sdist
         run: |
           pip install poetry
           poetry self add "poetry-dynamic-versioning[plugin]"
+          poetry dynamic-versioning enable
           poetry build -f sdist
 
       - uses: actions/upload-artifact@v3
