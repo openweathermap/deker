@@ -1,25 +1,17 @@
 ### PROJECT ###
 [build-system]
-requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2", "poetry-core>=1.0.0", "poetry-dynamic-versioning"]
-build-backend = "poetry_dynamic_versioning.backend"
-
-[tool.setuptools.dynamic]
-readme = {file = ["README.md"], content-type='text/markdown'}
-dependencies = {file = ["requirements.txt"]}
-
-[tool.setuptools]
-packages = ["deker"]
-license-files=["LICENSE"]
-
-[tool.setuptools_scm]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 version = "0.0.0"
 name = "deker"
+packages = [{ include = "deker" }]
 description = "Multidimensional arrays storage engine"
 authors = ["OpenWeather <info@openweathermap.org>"]
 license = "GPL-3.0-only"
-readme = "README.md"
+license-files=["LICENSE"]
+readme = {file = ["README.md"], content-type='text/markdown'}
 documentation = 'https://docs.deker.io/'
 homepage = 'https://deker.io/'
 repository = 'https://github.com/openweathermap/deker'
@@ -44,7 +36,9 @@ classifiers = [
 xarray = ["xarray"]
 
 [tool.poetry-dynamic-versioning]
-enable = true
+vcs = "git"
+style = "semver"
+metadata = false
 
 [[tool.poetry.source]]
 name = "testpypi"
