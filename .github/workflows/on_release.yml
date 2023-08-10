@@ -133,7 +133,7 @@ jobs:
 
       - name: Build sdist
         run: |
-          pipx install poetry
+          pip install poetry
           poetry build -f sdist
 
       - uses: actions/upload-artifact@v3
