@@ -1,4 +1,87 @@
-# https://black.readthedocs.io/en/stable/
+[tool.poetry]
+name = "deker"
+version = "0.1.0"
+description = "Multidimensional arrays storage engine"
+authors = ["OpenWeather <info@openweathermap.org>"]
+license = "GPL-3.0-only"
+readme = "README.md"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: Unix",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+documentation = 'https://docs.deker.io/'
+homepage = 'https://deker.io/'
+repository = 'https://github.com/openweathermap/deker'
+
+[tool.poetry.dependencies]
+python = "^3.9"
+numpy = "^1.18"
+attrs = "^23.1.0"
+typing-extensions = "^4.4.0"
+tqdm = "^4.64.1"
+psutil = "^5.9.5"
+deker-local-adapters = { version = "1.0.1b", source = "testpypi" }
+
+
+[tool.poetry.group.dev.dependencies]
+black = "23.1.0"
+coverage = "7.1.0"
+darglint = "1.8.1"
+flake8 = "5.0.4"
+flake8-bugbear = "23.1.20"
+flake8-docstrings = "1.7.0"
+flake8-import-order = "0.18.2"
+flake8-pytest-style = "1.7.0"
+isort = "5.12.0"
+mypy = "1.0.0"
+mypy-extensions = "1.0.0"
+pep8-naming = "0.13.3"
+pre-commit = "3.0.4"
+pycln = "2.1.3"
+pytest = "7.2.1"
+pytest-cov = "4.0.0"
+pytest-sugar = "0.9.6"
+pytest-random-order = "1.1.0"
+ssort = "0.11.6"
+deepdiff = "6.3.0"
+pytest-mock = "3.10.0"
+xarray = "^2023.5.0"
+bandit = "1.7.5"
+tox = "4.6.3"
+
+[tool.poetry.group.docs.dependencies]
+docutils = "0.17"
+m2r2 = "0.3.2"
+sphinx-rtd-theme = "1.2.2"
+enum_tools = "0.10.0"
+sphinx_toolbox = "3.5.0"
+doc8 = "0.11.2"
+
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"
+
+[build-system]
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning"]
+build-backend = "poetry_dynamic_versioning.backend"
+
+[tool.poetry-dynamic-versioning]
+enable = true
+
 [tool.black]
 line-length = 100
 target-version = ['py39']
@@ -177,97 +260,3 @@ extra-standard-library = ["zoneinfo"]
 [tool.doc8]
 max-line-length = 99
 
-
-[build-system]
-requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
-
-#[project]
-#name = "deker"
-#requires-python = ">=3.9"
-#dynamic = ["version", "readme", "dependencies"]
-#authors = [
-#    { name = "OpenWeather", email = "info@openweathermap.org" },
-#]
-#maintainers = [
-#    { name = "OpenWeather", email = "info@openweathermap.org" },
-#]
-#description = "Multidimensional arrays storage engine"
-#license = { text = "GPL-3.0-only" }
-#classifiers = [
-#    "Development Status :: 4 - Beta",
-#    "Intended Audience :: Developers",
-#    "Intended Audience :: Information Technology",
-#    "Intended Audience :: Science/Research",
-#    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-#    "Topic :: Software Development :: Libraries :: Python Modules",
-#    "Operating System :: Unix",
-#    "Operating System :: POSIX :: Linux",
-#    "Operating System :: MacOS :: MacOS X",
-#    "Programming Language :: Python",
-#    "Programming Language :: Python :: 3",
-#    "Programming Language :: Python :: 3.9",
-#    "Programming Language :: Python :: 3.10",
-#    "Programming Language :: Python :: 3.11",
-#]
-[project.optional-dependencies]
-xarray = ["xarray>=2023.5.0"]
-
-[project.urls]
-'Homepage' = 'https://deker.io/'
-'Documentation' = 'https://docs.deker.io/'
-'Repository' = 'https://github.com/openweathermap/deker'
-
-[tool.setuptools.dynamic]
-readme = { file = ["README.md"], content-type = 'text/markdown' }
-dependencies = { file = ["requirements.txt"] }
-
-[tool.setuptools]
-packages = ["deker"]
-license-files = ["LICENSE"]
-
-[tool.setuptools_scm]
-
-[tool.poetry.dependencies]
-numpy = "^1.18"
-attrs = "^23.1.0"
-typing-extensions = "^4.4.0"
-tqdm = "^4.64.1"
-psutil = "^5.9.5"
-deker-local-adapters = { version = "1.0.1b", source = "test" }
-
-[tool.poetry.group.dev.dependencies]
-black = "23.1.0"
-coverage = "7.1.0"
-darglint = "1.8.1"
-flake8 = "5.0.4"
-flake8-bugbear = "23.1.20"
-flake8-docstrings = "1.7.0"
-flake8-import-order = "0.18.2"
-flake8-pytest-style = "1.7.0"
-isort = "5.12.0"
-mypy = "1.0.0"
-mypy-extensions = "1.0.0"
-pep8-naming = "0.13.3"
-pre-commit = "3.0.4"
-pycln = "2.1.3"
-pytest = "7.2.1"
-pytest-cov = "4.0.0"
-pytest-sugar = "0.9.6"
-pytest-random-order = "1.1.0"
-ssort = "0.11.6"
-deepdiff = "6.3.0"
-pytest-mock = "3.10.0"
-xarray = "^2023.5.0"
-bandit = "1.7.5"
-tox = "4.6.3"
-
-[tool.poetry.group.docs.dependencies]
-docutils = "0.17"
-m2r2 = "0.3.2"
-sphinx-rtd-theme = "1.2.2"
-enum_tools = "0.10.0"
-sphinx_toolbox = "3.5.0"
-doc8 = "0.11.2"
-
-[too.poetry]
-name = "deker"
