@@ -578,6 +578,8 @@ And schema of ``Collection`` of ``VArray``::
 VArray Grid
 ~~~~~~~~~~~
 
+.. note:: ``arrays_shape`` parameter added in v1.1.0
+
 Perhaps it is one of the most obscure issues. ``VArray`` shall be split into files, but it cannot
 decide itself how it shall be done. It's up to you, how you are going to split your data.
 There are two ways: ``vgrid`` and ``arrays_shape`` parameters. You can choose any of them,
@@ -626,6 +628,7 @@ time to all new ``VArrays``.
 
 ``arrays_shape``
 +++++++++++++++++
+`(added in v1.1.0)`
 
 Sometimes it is easier to decide on the shape of the final ``Arrays`` than on a ``vgrid``.
 In this case you can use ``arrays_shape`` parameter.
