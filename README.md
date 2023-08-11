@@ -65,7 +65,6 @@ Python using
 [Rosetta](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 
 x86_64 to arm64 dynamic binary translator.
 
-
 You may use the following [guide](https://sixty-north.com/blog/pyenv-apple-silicon.html) to install
 x86_64 version of Python an then switch to that version in your Deker project using ``pyenv`` and
 install Deker package as usual.
