@@ -128,7 +128,7 @@ jobs:
         run: |
           source .venv/bin/activate
           coverage run -m pytest --junitxml=report.xml
-          coverage report
+          coverage report --fail-under=96
           coverage xml
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
