@@ -56,19 +56,18 @@ API documentation and tutorials for the current release could be found at
 
 ## Installation
 
----
-**Apple Silicon (M series CPU)**
+> **Apple Silicon (M series CPU)**  
+> 
+> Deker uses NumPy, and some NumPy types are unsupported on current NumPy arm64 version. So if you
+> want to use Deker library on Apple Silicon (M series CPU), you have to install x86_64 version of
+> Python using 
+> [Rosetta](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 
+> x86_64 to arm64 dynamic binary translator.  
+> 
+> You may use the following [guide](https://sixty-north.com/blog/pyenv-apple-silicon.html) to install
+> x86_64 version of Python an then switch to that version in your Deker project using ``pyenv`` and
+> install Deker package as usual.
 
-Deker uses NumPy, and some NumPy types are unsupported on current NumPy arm64 version. So if you
-want to use Deker library on Apple Silicon (M series CPU), you have to install x86_64 version of
-Python using 
-[Rosetta](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 
-x86_64 to arm64 dynamic binary translator.
-
-You may use the following [guide](https://sixty-north.com/blog/pyenv-apple-silicon.html) to install
-x86_64 version of Python an then switch to that version in your Deker project using ``pyenv`` and
-install Deker package as usual.
----
 
 ### Deker
 ```
