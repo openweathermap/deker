@@ -8,85 +8,80 @@
 [![PyPI pyversions](https://img.shields.io/pypi/pyversions/deker.svg)](https://pypi.python.org/pypi/deker/)
 [![PyPI version shields.io](https://img.shields.io/pypi/v/deker.svg)](https://pypi.python.org/pypi/deker/)
 [![GitHub license](https://badgen.net/github/license/openweathermap/deker)](https://github.com/openweathermap/deker/blob/main/LICENSE)  
-[![pipeline](https://github.com/openweathermap/deker/actions/workflows/github-actions.yml/badge.svg)](https://github.com/openweathermap/deker/actions/workflows/github-actions.yml)
-[![docs](https://github.com/openweathermap/deker/actions/workflows/docs.yml/badge.svg)](https://github.com/openweathermap/deker/actions/workflows/docs.yml)
+[![pipeline](https://github.com/openweathermap/deker/actions/workflows/on_release.yml/badge.svg)](https://github.com/openweathermap/deker/actions/workflows/on_release.yml)
+[![docs](https://github.com/openweathermap/deker/actions/workflows/on_release.yml/badge.svg)](https://github.com/openweathermap/deker/actions/workflows/on_release.yml)
 
-**Deker** - is a pure-Python NoSQL database framework, which provides storing multidimensional spatial raster
-numeric data and its further simple, fast and comfortable accessing and managing.
+**Deker** is pure Python implementation of petabyte-scale highly parallel data storage engine for
+multidimensional arrays.
 
-It perfectly fits for a vast variety of data:
+Deker name comes from term *dekeract*, the [10-cube](https://en.wikipedia.org/wiki/10-cube).
 
-- geospatial data (cartography, geodesy, meteorology, …, even outer space),
-- images,
-- video,
-- audio,
-- biomedicine,
-- genomics,
-- finance,
-- ML,
-- ...
+Deker was made with the following major goals in mind:
 
-and many others – everything that may be represented and stored as a pack of numbers.
+   * provide intuitive interface for storing and accessing **huge data arrays**
+   * support **arbitrary number of data dimensions**
+   * be **thread and process safe** and as **lean on RAM** use as possible
 
-Deker is not really limited by a number of dimensions – it’s up to you to decide how complicated your structures
-shall be and how many dimensions you use _(our current goal is 5, at the moment)_.
+Deker empowers users to store and access a wide range of data types, virtually anything that can be
+represented as arrays, like **geospacial data**, **satellite images**, **machine learning models**,
+**sensors data**, graphs, key-value pairs, tabular data, and more.
 
-Actually, it is a scalable high-level wrapper over different file formats.  
-At the moment Deker supports just ``HDF5``, but we’ll be glad to accept PRs with new storage adapters:
-  ``TIFF``, ``NetCDF``, ``ZARR``, … Any format you like and need, even ``JSON`` or ``TXT``.
+Deker does not limit your data complexity and size: it supports virtually unlimited number of data
+dimensions and provides under the hood mechanisms to **partition** huge amounts of data for
+**scalability**.
 
-Deker uses [NumPy](https://numpy.org/doc/stable/) structures and provides an additional support for 
-[Xarray](https://docs.xarray.dev/en/stable/), [pandas](https://pandas.pydata.org/docs/) and others.
+## Features
 
-## Documentation
-📖 Check out our [documentation](https://docs.deker.io) for more details!
+* **Open source** under GPL 3.0
+* Scalable storage of huge virtual arrays via **tiling**
+* **Parallel processing** of virtual array tiles
+* Own **locking** mechanism enabling arrays parallel read and write
+* Array level **metadata attributes**
+* **Fancy data slicing** using timestamps and named labels
+* Support for industry standard [NumPy](https://numpy.org/doc/stable/), [pandas](https://pandas.pydata.org/docs/) and 
+[Xarray](https://docs.xarray.dev/en/stable/)
+* Storage level data **compression and chunking** (via HDF5)
+
+
+## Code and Documentation
+
+Open source implementation of Deker storage engine is published at
+
+  * https://github.com/openweathermap/deker
+
+API documentation and tutorials for the current release could be found at
+
+  * https://docs.deker.io
+
 
 ## Installation
 
-### Required dependencies
+---
+**Apple Silicon (M series CPU)**
 
-    python >= 3.9
+Deker uses NumPy, and some NumPy types are unsupported on current NumPy arm64 version. So if you
+want to use Deker library on Apple Silicon (M series CPU), you have to install x86_64 version of
+Python using 
+[Rosetta](https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment) 
+x86_64 to arm64 dynamic binary translator.
 
-Deker dependencies are external:
 
-- numpy>=1.18
-- attrs>=23.1.0
-- tqdm>=4.64.1
-- psutil>=5.9.5
+You may use the following [guide](https://sixty-north.com/blog/pyenv-apple-silicon.html) to install
+x86_64 version of Python an then switch to that version in your Deker project using ``pyenv`` and
+install Deker package as usual.
+---
 
-and internal:
-
-- deker-tools
-- deker-local-adapters
-   * h5py>=3.8.0
-   * hdf5plugin>=4.0.1
-
-Deker comes with the above mentioned dependencies out of the box:
-   ```bash
-   pip install deker
-   ```
-
-or:
-   ```bash
-   python -m pip install deker
-   ```
-
-Extra dependencies
-------------------
-- xarray>=2023.5.0
-
-If you wish to convert your data into Xarray 
-([xarray installation options](https://docs.xarray.dev/en/stable/getting-started-guide/installing.html)) or pandas 
-*(or even some other)* objects:
-
-```bash
-pip install deker[xarray]
+### Deker
+```
+pip install deker
 ```
 
-or
 
-```bash
-python -m pip install deker[xarray]
+If you wish to convert your data into [Xarray](https://docs.xarray.dev/en/stable/getting-started-guide/installing.html) 
+or pandas *(or even some other)* objects:
+
+```
+pip install deker[xarray]
 ```
 
 Or you can install them separately::
@@ -94,41 +89,29 @@ Or you can install them separately::
 pip install deker
 pip install xarray
 ```
-or 
-```bash
-python -m pip install deker
-python -m pip install xarray
+
+### Interactive Shell
+
+``deker-shell`` is an interactive environment that enables you to manage and access Deker storage
+in a convenient way. It requires ``deker`` package to be installed manually before use as described
+above.
+
+To install interactive shell package
 ```
-### ARM architecture family
-Deker uses NumPy, and some NumPy types are unsupported on current NumPy ARM version.  
-If you want to run Deker library on your Mac with M1+ chip inside, you need to install **python x86_64** with 
-[Rosetta](https://support.apple.com/en-us/HT211861).
+pip install deker deker-shell
+```
 
-Use this [guide](https://towardsdatascience.com/how-to-use-manage-multiple-python-versions-on-an-apple-silicon-m1-mac-d69ee6ed0250) 
-or follow next steps:
+### Deker Tools
 
-1. Install Rosetta (ARM -> x86_64 translator): 
-   ```bash
-   softwareupdate --install-rosetta
-   ```
-2. Create a Rosetta terminal:  
-   2.1. Duplicate your terminal (`apps -> utilities -> right click -> duplicate`) or `install new`.   
-   2.2. Click `Get info` on new terminal and set `Open using Rosetta`  
+``deker-tools`` is an out-of-box battery which provides several useful tools and utilities to work
+with Deker data. You may find this package useful in projects, even if they are not related to
+Deker.
 
-3. Install homebrew: 
-   ```bash
-   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-   ```  
-4. Add alias to your `zsh` config file: 
-   ```bash
-   alias rbrew="arch -x86_64 /usr/local/bin/brew"
-   ```  
-5. Install python: 
-   ```bash
-   rbrew install python@3.10
-   ```  
+To install Deker tools package:
+```
+pip install deker-tools
+```
 
-After that you can install Deker run `pip install deker`
 
 ## Usage
 ```python

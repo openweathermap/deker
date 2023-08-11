@@ -1,4 +1,4 @@
-name: push-pipeline
+name: push
 
 on:
   push:
@@ -7,6 +7,7 @@ on:
 
 env:
   PYTHON_IMAGE: 3.9
+  PYTHON_PACKAGE_NAME: deker
 
 jobs:
   setup:
@@ -15,35 +16,34 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v3
         with:
           python-version: ${{ env.PYTHON_IMAGE }}
 
+      - name: Install poetry
+        uses: snok/install-poetry@v1.3.4
+        with:
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
       - name: Install dependencies
-        run: |
-          pip install --upgrade pip
-          pip install virtualenv
-          virtualenv venv
-          source venv/bin/activate
-          pip install -r requirements.txt
-          pip install -r requirements_dev.txt
-          pip list
+        run: poetry install
 
       - name: Cache virtual environment
         uses: actions/cache@v2
         with:
-          path: venv
-          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
 
   linters:
     needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v3
@@ -53,12 +53,12 @@ jobs:
       - name: Load virtual environment
         uses: actions/cache@v2
         with:
-          path: venv
-          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
 
       - name: Run linters and checks
         run: |
-          source venv/bin/activate
+          source .venv/bin/activate
           isort ./${{ env.PYTHON_PACKAGE_NAME }}
           black ./${{ env.PYTHON_PACKAGE_NAME }}
           flake8 ./${{ env.PYTHON_PACKAGE_NAME }}
@@ -79,7 +79,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -89,12 +89,12 @@ jobs:
       - name: Load virtual environment
         uses: actions/cache@v2
         with:
-          path: venv
-          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
 
       - name: Run shuffled tests
         run: |
-          source venv/bin/activate
+          source .venv/bin/activate
           pytest --random-order --junitxml=tests.xml
         env:
           PIP_DISABLE_PIP_VERSION_CHECK: 1
@@ -111,7 +111,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -121,12 +121,12 @@ jobs:
       - name: Load virtual environment
         uses: actions/cache@v2
         with:
-          path: venv
-          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
+          path: .venv
+          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('pyproject.toml', 'poetry.lock') }}
 
       - name: Run coverage
         run: |
-          source venv/bin/activate
+          source .venv/bin/activate
           coverage run -m pytest --junitxml=report.xml
           coverage report
           coverage xml

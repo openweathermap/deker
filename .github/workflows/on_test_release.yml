@@ -1,82 +1,25 @@
-name: test-build-pipeline
+name: test-build
 
 on:
   push:
-    tags:
-      - 'v*'
-      - '!v[1-9]+.[0-9]+.[0-9]+'
-
-env:
-  PYTHON_IMAGE: 3.9
+    tags-ignore:
+      - 'v[1-9]+.[0-9]+.[0-9]+'
 
 jobs:
-  changelog:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - name: Run Changelog CI
-        uses: saadmk11/changelog-ci@v1.1.2
-
-
-  tox_tests:
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/openweathermap/deker/deker-embedded/tox:latest
-      env:
-        PACKAGE_VERSION: ${{ github.REF_NAME }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - name: Set python versions
-        run:  pyenv global 3.9 3.10 3.11
-
-      - name: Checkout code
-        uses: actions/checkout@v2
-      - name: Install tox
-        run: |
-          env
-          pip install tox
-        env:
-          PIP_DISABLE_PIP_VERSION_CHECK: 1
-      - name: Run tox tests
-        run: |
-          env
-          tox
-        env:
-          PIP_DISABLE_PIP_VERSION_CHECK: 1
-          PACKAGE_VERSION: ${{ github.REF_NAME }}
-
-  build_docs:
-    needs: tox_tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Load virtual environment
-        uses: actions/cache@v2
-        with:
-          path: venv
-          key: ${{ runner.os }}-venv-${{ env.PYTHON_IMAGE }}-${{ hashFiles('requirements.txt', 'requirements_dev.txt') }}
-      - name: Make Sphinx docs
-        run: |
-          source venv/bin/activate
-          doc8 --config pyproject.toml docs/deker
-          cd ./docs
-          make html
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
-        with:
-          path: docs/_build/html
-
-
   build_sdist:
     name: Build source distribution
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Build sdist
-        run: pipx run build --sdist
+        run: |
+          pip install poetry-dynamic-versioning
+          pip install poetry
+          poetry dynamic-versioning enable
+          poetry build -f sdist
 
       - uses: actions/upload-artifact@v3
         with:

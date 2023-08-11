@@ -96,9 +96,10 @@ repos:
         name: flake8
         files: ^deker/
         always_run: false
-        args: [ --config, setup.cfg, deker]
+        args: [ deker]
         verbose: true
         additional_dependencies:
+          - Flake8-pyproject
           - flake8-bugbear
           - flake8-pytest-style
           - flake8-docstrings
