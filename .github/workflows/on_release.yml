@@ -19,18 +19,18 @@ jobs:
     needs: tox_tests
     uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
 
-  publish_docs:
-    needs: build_docs
-    uses: openweathermap/deker-actions/.github/workflows/docs_publish.yml@master
-
   build_sdist:
     needs: [tox_tests, build_docs]
     name: Build source distribution
     uses: openweathermap/deker-actions/.github/workflows/build.yml@master
 
+  publish_docs:
+    needs: [build_docs, build_sdist]
+    uses: openweathermap/deker-actions/.github/workflows/docs_publish.yml@master
+
   upload_pypi:
     name: Publish source distribution
-    needs: build_sdist
+    needs: [build_docs, build_sdist]
     runs-on: ubuntu-latest
     permissions:
       id-token: write
