@@ -5,34 +5,23 @@ on:
     tags-ignore:
       - 'v[1-9]+.[0-9]+.[0-9]+'
 
+env:
+  PACKAGE_NAME: deker
+
 jobs:
   build_sdist:
-    name: Build source distribution
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Build sdist
-        run: |
-          pip install poetry-dynamic-versioning
-          pip install poetry
-          poetry dynamic-versioning enable
-          poetry build -f sdist
-
-      - uses: actions/upload-artifact@v3
-        with:
-          path: dist/*.tar.gz
+    name: Build test source distribution
+    uses: openweathermap/deker-actions/.github/workflows/build.yml@master
 
   upload_test_pypi:
+    name: Upload test source distribution
     needs: build_sdist
     runs-on: ubuntu-latest
     permissions:
       id-token: write
     environment:
       name: testpypi
-      url: https://test.pypi.org/p/deker
+      url: https://test.pypi.org/p/$PACKAGE_NAME
 
     steps:
       - uses: actions/download-artifact@v3
@@ -42,7 +31,7 @@ jobs:
           name: artifact
           path: dist
 
-      - name: Publish package distributions to PyPI
+      - name: Publish test source distributions to Test-PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/

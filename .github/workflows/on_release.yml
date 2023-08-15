@@ -6,125 +6,36 @@ on:
       - 'v[1-9]+.[0-9]+.[0-9]+'
 
 env:
-  PYTHON_IMAGE: 3.9
+  PACKAGE_NAME: deker
 
 jobs:
   tox_tests:
-    runs-on: ubuntu-latest
-    container:
-      image: ghcr.io/openweathermap/deker/deker-embedded/tox:latest
-      env:
-        PACKAGE_VERSION: ${{ github.REF_NAME }}
-      credentials:
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    steps:
-      - name: Set python versions
-        run:  pyenv global 3.9 3.10 3.11
-
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Install tools
-        run: |
-          env
-          pip install tox poetry
-        env:
-          PIP_DISABLE_PIP_VERSION_CHECK: 1
-
-      - name: Make requirements file
-        run: poetry export --without-hashes > requirements.txt
-
-      - name: Run tox tests
-        run: |
-          export PIP_EXTRA_INDEX_URL=https://test.pypi.org/simple
-          env
-          tox
-        env:
-          PIP_DISABLE_PIP_VERSION_CHECK: 1
-          PACKAGE_VERSION: ${{ github.REF_NAME }}
+    uses: openweathermap/deker-actions/.github/workflows/tox.yml@master
+    with:
+      package-name: $PACKAGE_NAME
 
   build_docs:
     needs: tox_tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v3
-        with:
-          python-version: ${{ env.PYTHON_IMAGE }}
-
-      - name: Install poetry
-        uses: snok/install-poetry@v1.3.4
-        with:
-          virtualenvs-create: true
-          virtualenvs-in-project: true
-
-      - name: Install dependencies
-        run: |
-          poetry install
-          source .venv/bin/activate
-          doc8 --config pyproject.toml docs/deker
-          cd ./docs
-          make html
-          awk 'NR >= 35 && NR <= 40' _build/html/index.html
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v2
-        with:
-          path: docs/_build/html
+    uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
 
   publish_docs:
     needs: build_docs
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pages: write
-      id-token: write
-    concurrency:
-      group: "pages"
-      cancel-in-progress: false
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v2
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: gh-pages
-          force: true
-          directory: docs/_build/html
+    uses: openweathermap/deker-actions/.github/workflows/docs_publish.yml@master
 
   build_sdist:
-    needs: build_docs
+    needs: [tox_tests, build_docs]
     name: Build source distribution
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Build sdist
-        run: |
-          pip install poetry-dynamic-versioning
-          pip install poetry
-          poetry dynamic-versioning enable
-          poetry build -f sdist
-
-      - uses: actions/upload-artifact@v3
-        with:
-          path: dist/*.tar.gz
+    uses: openweathermap/deker-actions/.github/workflows/build.yml@master
 
   upload_pypi:
-    needs: [build_sdist, publish_docs]
+    name: Publish source distribution
+    needs: build_sdist
     runs-on: ubuntu-latest
     permissions:
       id-token: write
     environment:
       name: pypi
-      url: https://pypi.org/p/deker
+      url: https://pypi.org/p/$PACKAGE_NAME
 
     steps:
       - uses: actions/download-artifact@v3

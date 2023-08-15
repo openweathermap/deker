@@ -88,7 +88,6 @@ deepdiff = "6.3.0"
 pytest-mock = "3.10.0"
 xarray = "^2023.5.0"
 bandit = "1.7.5"
-tox = "4.6.3"
 
 [tool.poetry.group.docs.dependencies]
 docutils = "0.17"
@@ -400,61 +399,3 @@ exclude_lines = [
     "except ModuleNotFoundError",
     "except Exception"
 ]
-
-[tool.tox]  # tox
-legacy_tox_ini = """
-[tox]
-requires =
-    tox>=4
-env_list = {py39,py310,py311}-lint, py{39,310,311}-test
-
-[testenv:{py39,py310,py311}-test]
-description = run unit tests
-deps =
-    deepdiff==6.3.0
-    coverage==7.1.0
-    pytest==7.2.1
-    pytest-sugar==0.9.6
-    pytest-mock==3.10.0
-    pytest-random-order==1.1.0
-    xarray>=2023.5.0
-
-commands =
-    coverage run -m pytest {posargs:tests} --random-order
-    coverage report --fail-under=96
-
-set_env =
-    PIP_EXTRA_INDEX_URL = {env:PIP_EXTRA_INDEX_URL}
-
-[testenv:{py39,py310,py311}-lint]
-ignore_base_python_conflict = true
-description = run linters
-deps = black==23.1.0
-       Flake8-pyproject==1.2.3
-       darglint==1.8.1
-       doc8==0.11.2
-       flake8==5.0.4
-       flake8-bugbear==23.1.20
-       flake8-docstrings==1.7.0
-       flake8-import-order==0.18.2
-       flake8-pytest-style==1.7.0
-       isort==5.12.0
-       mypy==1.0.0
-       mypy-extensions==1.0.0
-       pep8-naming==0.13.3
-       bandit==1.7.5
-       ssort==0.11.6
-       deepdiff==6.3.0
-       xarray>=2023.5.0
-
-commands = ssort  {posargs:deker}
-           isort {posargs:deker}
-           black {posargs:deker}
-           flake8 {posargs:deker}
-           bandit -r {posargs:deker} -c pyproject.toml
-           mypy {posargs:deker}  --install-types --non-interactive --config-file pyproject.toml
-           doc8 {posargs:docs/deker} --config=pyproject.toml
-
-set_env =
-    PIP_EXTRA_INDEX_URL = {env:PIP_EXTRA_INDEX_URL}
-"""
