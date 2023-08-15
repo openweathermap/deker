@@ -13,6 +13,7 @@ jobs:
     uses: openweathermap/deker-actions/.github/workflows/tox.yml@master
     with:
       package-name: $PACKAGE_NAME
+      min-coverage: 96
 
   build_docs:
     needs: tox_tests

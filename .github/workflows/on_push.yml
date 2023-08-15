@@ -11,3 +11,4 @@ jobs:
     with:
       package-name: deker
       python-version: '3.9'
+      min-coverage: 96
