@@ -5,17 +5,8 @@
 [![PyPI version shields.io](https://img.shields.io/pypi/v/deker.svg?color=0)](https://pypi.python.org/pypi/deker/)
 [![PyPI pyversions](https://img.shields.io/pypi/pyversions/deker.svg)](https://pypi.python.org/pypi/deker/) 
 [![GitHub license](https://badgen.net/github/license/openweathermap/deker)](https://github.com/openweathermap/deker/blob/main/LICENSE)
-[![Coverage Status](./docs/coverage-badge.svg?dummy=8484744)](https://smarie.github.io/python-genbadge/#generating-the-badge)
-
-
-
-|          |                                                                                                                                                                                                                                                                                                                                                                                                                  |
-|----------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Flavor   | [![made-with-python](https://img.shields.io/badge/Made%20with-Python-1f425f.svg)](https://www.python.org/) [![made-with-sphinx-doc](https://img.shields.io/badge/Made%20with-Sphinx-1f425f.svg)](https://www.sphinx-doc.org/) [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-1f425f.svg?style=flat-square)](http://makeapullrequest.com)                                                               |
-| Project  | [![PyPI version shields.io](https://img.shields.io/pypi/v/deker.svg?color=0)](https://pypi.python.org/pypi/deker/) [![PyPI pyversions](https://img.shields.io/pypi/pyversions/deker.svg?color=orange)](https://pypi.python.org/pypi/deker/) [![GitHub license](https://badgen.net/github/license/openweathermap/deker)](https://github.com/openweathermap/deker/blob/main/LICENSE)                               |
-| Code     | [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black) [![Checked with mypy](http://www.mypy-lang.org/static/mypy_badge.svg?style=color8484744)](http://mypy-lang.org/) ![Coverage Status](./docs/coverage-badge.svg?dummy=8484744) [![pre-commit](https://img.shields.io/badge/pre--commit-enabled-yellow)](https://github.com/pre-commit/pre-commit) |
-| Pipeline | [![build](https://github.com/openweathermap/deker/actions/workflows/on_release.yml/badge.svg)](https://github.com/openweathermap/deker/actions/workflows/on_release.yml)                                                                                                                                                                                                                                         |
-
+[![codecov](https://codecov.io/gh/openweathermap/deker/branch/main/graph/badge.svg?token=Z5PA8JKSXW)](https://codecov.io/gh/openweathermap/deker)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
 
 Deker is pure Python implementation of petabyte-scale highly parallel data storage engine for
