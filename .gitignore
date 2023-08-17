@@ -151,7 +151,6 @@ deker/tmp.py
 tmp.py
 tmp/
 .DS_Store
-.python-version
 build
 .ruff_cache/
 dist/
