@@ -65,8 +65,8 @@ psutil = "^5.9.5"
 xarray = {version = "^2023.5.0", optional = true}
 #deker-local-adapters = "1.0.1"
 deker-local-adapters = {version = "^1.0.1b2", source = "TestPyPI"}
-#deker-server-adapters = "^1.0.0"
-deker-server-adapters = {version = "^1.0.0rc0", source = "TestPyPI"}
+#deker-server-adapters = {version = "^1.0.0r", optional = true}
+deker-server-adapters = {version = "^1.0.0rc0", optional = true, source = "TestPyPI"}
 deker-shell = { version = "^1.0.0", optional = true }
 
 [tool.poetry.group.dev.dependencies]
