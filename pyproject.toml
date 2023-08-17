@@ -36,6 +36,9 @@ classifiers = [
 
 [tool.poetry.extras]
 xarray = ["xarray"]
+server-adapters = ["deker-server-adapters"]
+shell = ["deker-shell"]
+all = ["deker-shell", "deker-server-adapters", "xarray"]
 
 [tool.poetry-dynamic-versioning]
 vcs = "git"
@@ -43,14 +46,14 @@ style = "semver"
 metadata = false
 
 [[tool.poetry.source]]
-name = "testpypi"
+name = "PyPI"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "TestPyPI"
 url = "https://test.pypi.org/simple/"
 priority = "supplemental"
 
-
-                                ####################
-                                ### DEPENDENCIES ###
-                                ####################
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -61,7 +64,10 @@ tqdm = "^4.64.1"
 psutil = "^5.9.5"
 xarray = {version = "^2023.5.0", optional = true}
 #deker-local-adapters = "1.0.1"
-deker-local-adapters = { version = "1.0.1b", source = "testpypi" }
+deker-local-adapters = {version = "^1.0.1b2", source = "TestPyPI"}
+#deker-server-adapters = "^1.0.0"
+deker-server-adapters = {version = "^1.0.0rc0", source = "TestPyPI"}
+deker-shell = { version = "^1.0.0", optional = true }
 
 [tool.poetry.group.dev.dependencies]
 black = "23.1.0"
@@ -86,8 +92,9 @@ pytest-random-order = "1.1.0"
 ssort = "0.11.6"
 deepdiff = "6.3.0"
 pytest-mock = "3.10.0"
-xarray = "^2023.5.0"
 bandit = "1.7.5"
+xarray = "^2023.5.0"
+
 
 [tool.poetry.group.docs.dependencies]
 docutils = "0.17"
