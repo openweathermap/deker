@@ -84,3 +84,22 @@ Deker.
 To install Deker tools package::
 
    pip install deker-tools
+
+Server Adapters
+===============
+
+It is an original OpenWeather plugin, based on `httpx <https://www.python-httpx.org/>`_
+with HTTP 2.0 support that allows to your local client communicate with remote server instances of Deker.
+
+If you don't have Deker yet
+
+.. code-block:: bash
+
+    pip install deker[server-adapters]
+
+If you already have installed Deker, you can simply install plugin to use it.
+
+.. code-block:: bash
+
+    pip install deker-server-adapters
+

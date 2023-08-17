@@ -8,6 +8,8 @@
    Fine Tuning <deker/fine_tuning>
    Interactive Shell <deker/shell>
    Deker Tools <deker/tools>
+   Connecting to Server <deker/connecting_to_server>
+
 
 .. toctree::
    :hidden:
