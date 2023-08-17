@@ -35,8 +35,7 @@ dimensions and provides under the hood mechanisms to **partition** huge amounts 
 * Own **locking** mechanism enabling virtual arrays parallel read and write
 * Array level **metadata attributes**
 * **Fancy data slicing** using timestamps and named labels
-* Support for industry standard [NumPy](https://numpy.org/doc/stable/),
-  [pandas](https://pandas.pydata.org/docs/) and [Xarray](https://docs.xarray.dev/en/stable/)
+* Support for industry standard [NumPy](https://numpy.org/doc/stable/), [Xarray](https://docs.xarray.dev/en/stable/)
 * Storage level data **compression and chunking** (via HDF5)
 
 ## Code and Documentation
