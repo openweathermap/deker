@@ -68,6 +68,7 @@ Also please not that for flexibility few internal Deker components are published
 packages:
 
 * [`deker-local-adapters`](https://github.com/openweathermap/deker-local-adapters)
+* [`deker-server-adapters`](https://github.com/openweathermap/deker-server-adapters)
 * [`deker-tools`](https://github.com/openweathermap/deker-tools)
 
 ### Install
