@@ -5,9 +5,8 @@
 [![PyPI version shields.io](https://img.shields.io/pypi/v/deker.svg?color=0)](https://pypi.python.org/pypi/deker/)
 [![PyPI pyversions](https://img.shields.io/pypi/pyversions/deker.svg)](https://pypi.python.org/pypi/deker/) 
 [![GitHub license](https://badgen.net/github/license/openweathermap/deker)](https://github.com/openweathermap/deker/blob/main/LICENSE)
-[![codecov](https://codecov.io/gh/openweathermap/deker/branch/main/graph/badge.svg?token=Z5PA8JKSXW)](https://codecov.io/gh/openweathermap/deker)
+[![codecov](https://codecov.io/gh/openweathermap/deker/branch/main/graph/badge.svg?token=Z040BQWIOR)](https://codecov.io/gh/openweathermap/deker)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
-
 
 Deker is pure Python implementation of petabyte-scale highly parallel data storage engine for
 multidimensional arrays.
