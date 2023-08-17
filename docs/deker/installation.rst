@@ -83,8 +83,8 @@ Interactive Shell
 =================
 
 ``deker-shell`` is an interactive environment that enables you to manage and access Deker storage
-in a convenient way. It requires ``deker`` package to be installed **manually** before use as described
-above.
+in a convenient way. It requires ``deker`` package to be installed **manually** before use as
+described above.
 
 To install interactive shell package, run:
 
