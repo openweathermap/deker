@@ -6,20 +6,9 @@ on:
       - 'refs/tags/v'
 
 jobs:
-#  checks:
-#    uses: openweathermap/deker-actions/.github/workflows/checks.yml@master
-#    with:
-#      package-name: ${{ vars.PACKAGE_NAME }}
-#      python-version: '3.9'
-#      min-coverage: 96
-
-  setup:
-    uses: openweathermap/deker-actions/.github/workflows/setup.yml@master
+  checks:
+    uses: openweathermap/deker-actions/.github/workflows/checks.yml@master
     with:
+      package-name: ${{ vars.PACKAGE_NAME }}
       python-version: '3.9'
-
-  build_docs:
-    needs: setup
-    uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
-    with:
-      python-version: '3.9'
+      min-coverage: 96
