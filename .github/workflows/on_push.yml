@@ -13,6 +13,7 @@ jobs:
       python-version: '3.9'
       min-coverage: 96
 
+
   build_docs:
     needs: checks
     uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
