@@ -120,7 +120,7 @@ If you have already installed Deker, you can simply install plugin to use it by:
     pip install deker-server-adapters
 
 
-Install all the options at once
+Install All at Once
 =================================
 You can install all the above mentioned options at once by:
 

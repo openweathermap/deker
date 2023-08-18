@@ -65,11 +65,10 @@ Features
 * Own **locking** mechanism enabling arrays parallel read and write
 * Array level **metadata attributes**
 * **Fancy data slicing** using timestamps and named labels
-* Support for industry standard NumPy_, pandas_ and Xarray_
+* Support for industry standard NumPy_ and Xarray_
 * Storage level data **compression and chunking** (via HDF5)
 
 .. _NumPy: https://numpy.org/doc/stable/
-.. _pandas: https://pandas.pydata.org/docs/
 .. _Xarray: https://docs.xarray.dev/en/stable/
 
 
