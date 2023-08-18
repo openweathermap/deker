@@ -16,6 +16,7 @@
 
 import datetime
 
+from enum import Enum
 from typing import List, Optional, Tuple, Union
 
 import numpy as np
@@ -314,44 +315,81 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
 
     :param vgrid: an ordered sequence of positive integers; used for splitting ``VArray`` into ordinary ``Arrays``.
 
+      Each VArray dimension "size" shall be divided by the correspondent integer without remainders, thus an
+      ``Array's`` shape is created. If there is no need to split any dimension, its vgrid positional integer
+      shall be ``1``.
+
+    :param arrays_shape: an ordered sequence of positive integers; used for setting the shape of ordinary ``Arrays``
+      laying under a ``VArray``.
+
       Each integer in the sequence represents the total quantity of cells in the correspondent dimension
-      of each ordinary array. Each varray dimension "size" shall be divided by the correspondent integer
-      without remainders. If there is no need to split any dimension, its vgrid positional integer shall be ``1``.
+      of each ordinary ``Array``. Each ``VArray`` dimension "size" shall be divided by the correspondent integer
+      without remainders, thus a ``VArray's`` vgrid is created.
 
     :param fill_value: an optional value for filling in empty cells;
       If ``None`` - default value for each dtype will be used. Numpy ``nan`` can be used only for floating numpy dtypes.
     """
 
-    vgrid: Union[List[int], Tuple[int, ...]]
+    vgrid: Optional[Union[List[int], Tuple[int, ...]]] = None
+    arrays_shape: Optional[Union[List[int], Tuple[int, ...]]] = None
     fill_value: Union[Numeric, type(np.nan), None] = None  # type: ignore[valid-type]
     attributes: Union[List[AttributeSchema], Tuple[AttributeSchema, ...]] = tuple()
 
     def __attrs_post_init__(self) -> None:
-        """Validate schema, convert vgrid to tuple and calculate arrays_shape."""
+        """Validate schema, convert `vgrid` or `arrays_shape` to tuple and calculate the other grid splitter."""
         super().__attrs_post_init__()
         __common_arrays_attributes_post_init__(self)
-        if (
-            not isinstance(self.vgrid, (list, tuple))
-            or not self.vgrid
-            or len(self.vgrid) != len(self.dimensions)
-            or not all(isinstance(g, int) for g in self.vgrid)
-            or any(g < 1 for g in self.vgrid)
-        ):
-            raise DekerValidationError(
-                f"Vgrid shall be a list or tuple of positive integers, with total elements quantity "
-                f"equal to dimensions quantity ({len(self.dimensions)}) "
-            )
-        for n, dim in enumerate(self.dimensions):
-            remainder = dim.size % self.vgrid[n]  # type: ignore[valid-type]
-            if remainder != 0:
+
+        # get all grid splitters, passed by user
+        splitters = {
+            attr: getattr(self, attr) for attr in ("vgrid", "arrays_shape") if getattr(self, attr)
+        }
+
+        # validate found splitters; should be just one parameter
+        if len(splitters) < 1:
+            raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed")
+        if len(splitters) > 1:
+            raise DekerValidationError("Either `vgrid` or `arrays_shape` shall be passed, not both")
+
+        # extract grid splitter and its value
+        splitter, value = tuple(splitters.items())[0]
+
+        # validate splitter value
+        if value is not None:
+            if (
+                not isinstance(value, (list, tuple))
+                or not value
+                or len(value) != len(self.dimensions)
+                or not all(isinstance(item, int) for item in value)
+                or any(item < 1 for item in value)
+            ):
                 raise DekerValidationError(
-                    "Dimensions shall be split by vgrid into equal parts without remainder: "
-                    f"{dim.name} size % vgrid element = "
-                    f"{dim.size} % {self.vgrid[n]} = {remainder}"  # type: ignore[valid-type]
+                    f"{splitter.capitalize()} shall be a list or tuple of positive integers, with total elements "
+                    f"quantity equal to dimensions quantity ({len(self.dimensions)})"
                 )
-        if isinstance(self.vgrid, list):
-            self.vgrid = tuple(self.vgrid)
-        self.arrays_shape = tuple(int(i) for i in np.asarray(self.shape) // np.asarray(self.vgrid))
+            for n, dim in enumerate(self.dimensions):
+                remainder = dim.size % value[n]  # type: ignore[valid-type]
+                if remainder != 0:
+                    raise DekerValidationError(
+                        f"Dimensions shall be split by {splitter} into equal parts without remainder: "
+                        f"{dim.name} size % {splitter} element = "
+                        f"{dim.size} % {value[n]} = {remainder}"  # type: ignore[valid-type]
+                    )
+
+            # convert splitter value to tuple
+            if isinstance(value, list):
+                setattr(self, splitter, tuple(value))
+
+            # calculate second splitter name and value; set its value as tuple
+            if splitter == "vgrid":
+                other_splitter = "arrays_shape"
+            else:
+                other_splitter = "vgrid"
+            setattr(
+                self,
+                other_splitter,
+                tuple(int(i) for i in np.asarray(self.shape) // np.asarray(value)),
+            )
         self.logger.debug("instantiated")
 
     @property
@@ -382,7 +420,6 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
     :param fill_value: an optional value for filling in empty cells;
       If ``None`` - default value for each dtype will be used.
       Numpy ``nan`` can be used only for floating numpy dtypes.
-
     """
 
     fill_value: Union[Numeric, type(np.nan), None] = None  # type: ignore[valid-type]
@@ -393,3 +430,11 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
         super().__attrs_post_init__()
         __common_arrays_attributes_post_init__(self)
         self.logger.debug("instantiated")
+
+
+# moved here from deker.types.private.enums because of circular import
+class SchemaTypeEnum(Enum):
+    """Mapping of schema types to strings."""
+
+    varray = VArraySchema
+    array = ArraySchema

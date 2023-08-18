@@ -30,7 +30,7 @@ from deker_tools.slices import create_shape_from_slice
 from deker_tools.time import get_utc
 
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerValidationError
+from deker.errors import DekerMetaDataError, DekerValidationError
 from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, TimeDimensionSchema, VArraySchema
 from deker.subset import Subset, VSubset
@@ -43,6 +43,7 @@ from deker.validators import process_attributes
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter, IArrayAdapter
+    from deker.arrays import Array, VArray
     from deker.collection import Collection
 
 
@@ -464,6 +465,60 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             fancy_item = self._fancy_slice_dimensions(item, self.dimensions[0])
 
         return fancy_item  # type: ignore[return-value]
+
+    @classmethod
+    def _create_from_meta(
+        cls,
+        collection: "Collection",
+        meta: "ArrayMeta",
+        array_adapter: "BaseArrayAdapter",
+        varray_adapter: Optional["BaseVArrayAdapter"] = None,
+    ) -> Union["Array", "VArray"]:
+        """Create Array or VArray from metadata.
+
+        :param collection: Collection instance
+        :param meta: array metadata
+        :param array_adapter: Array adapter instance
+        :param varray_adapter: VArray adapter instance
+        """
+        if varray_adapter:
+            attrs_schema = collection.varray_schema.attributes
+        else:
+            attrs_schema = collection.array_schema.attributes
+        try:
+            for attr in attrs_schema:
+                attributes = (
+                    meta["primary_attributes"] if attr.primary else meta["custom_attributes"]
+                )
+
+                value = attributes[attr.name]
+
+                if attr.dtype == datetime:
+                    attributes[attr.name] = get_utc(value)
+                if attr.dtype == tuple:
+                    if (
+                        attr.primary or (not attr.primary and value is not None)
+                    ) and not isinstance(value, list):
+                        raise DekerMetaDataError(
+                            f"Collection '{collection.name}' metadata is corrupted: "
+                            f"attribute '{attr.name}' has invalid type '{type(value)}'; '{attr.dtype}' expected"
+                        )
+
+                    if attr.primary or (not attr.primary and value is not None):
+                        attributes[attr.name] = tuple(value)
+
+            arr_params = {
+                "collection": collection,
+                "adapter": array_adapter,
+                "id_": meta["id"],
+                "primary_attributes": meta.get("primary_attributes"),
+                "custom_attributes": meta.get("custom_attributes"),
+            }
+            if varray_adapter:
+                arr_params.update({"adapter": varray_adapter, "array_adapter": array_adapter})
+            return cls(**arr_params)  # type: ignore[arg-type,return-value]
+        except (KeyError, ValueError) as e:
+            raise DekerMetaDataError(f"{cls} metadata invalid/corrupted: {e}")
 
     def __getitem__(self, item: FancySlice) -> Union[Subset, VSubset]:
         """Get a subset from Array or VArray.

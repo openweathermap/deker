@@ -20,7 +20,6 @@ from deker.ABC.base_managers import BaseAbstractManager, BaseManager
 from deker.arrays import Array, VArray
 from deker.log import SelfLoggerMixin
 from deker.schemas import VArraySchema
-from deker.tools import create_array_from_meta
 
 
 if TYPE_CHECKING:
@@ -192,7 +191,7 @@ class VArrayManager(SelfLoggerMixin, DataManager):
         """Yield VArrays from adapter."""
         self.logger.debug("iterating over VArrays")
         for meta in self._adapter:  # type: ignore[attr-defined]
-            yield create_array_from_meta(
+            yield VArray._create_from_meta(
                 self.__collection, meta, self.__array_adapter, self.__varray_adapter
             )
 
@@ -238,6 +237,4 @@ class ArrayManager(SelfLoggerMixin, DataManager):
         """Yield Arrays from adapter."""
         self.logger.debug("iterating over Arrays")
         for meta in self._adapter:  # type: ignore[attr-defined]
-            yield create_array_from_meta(
-                self.__collection, meta, self.__array_adapter, self.__varray_adapter
-            )
+            yield Array._create_from_meta(self.__collection, meta, self.__array_adapter)

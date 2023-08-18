@@ -45,6 +45,57 @@ def test_varray_schema_vgrid_raises_on_type(dimensions, vgrid: Any):
 
 
 @pytest.mark.parametrize(
+    "arrays_shape",
+    [
+        None,
+        True,
+        False,
+        "",
+        0,
+        1,
+        1.2,
+        object,
+        object(),
+        [],
+        set(),
+        dict(),
+        tuple(),
+        datetime.now(),
+    ],
+)
+def test_varray_schema_arrays_shape_raises_on_type(dimensions, arrays_shape: Any):
+    with pytest.raises(DekerValidationError):
+        assert VArraySchema(dtype=float, dimensions=dimensions, arrays_shape=arrays_shape)
+
+
+@pytest.mark.parametrize(
+    ("splitter", "expected"),
+    [
+        (dict(vgrid=(1, 1, 1)), (10, 10, 10)),
+        (dict(arrays_shape=(1, 1, 1)), (10, 10, 10)),
+        (dict(vgrid=(2, 2, 2)), (5, 5, 5)),
+        (dict(arrays_shape=(5, 5, 5)), (2, 2, 2)),
+        (dict(vgrid=(5, 5, 5)), (2, 2, 2)),
+        (dict(arrays_shape=(2, 2, 2)), (5, 5, 5)),
+        (dict(vgrid=(1, 2, 5)), (10, 5, 2)),
+        (dict(arrays_shape=(10, 5, 2)), (1, 2, 5)),
+        (dict(vgrid=(5, 2, 1)), (2, 5, 10)),
+        (dict(arrays_shape=(2, 5, 10)), (5, 2, 1)),
+        (dict(vgrid=(2, 1, 5)), (5, 10, 2)),
+        (dict(arrays_shape=(5, 10, 2)), (2, 1, 5)),
+    ],
+)
+def test_varray_schema_is_split_correctly(dimensions, splitter: dict, expected):
+    schema = VArraySchema(dtype=float, dimensions=dimensions, **splitter)
+    if list(splitter.keys())[0] == "vgrid":
+        assert schema.vgrid == list(splitter.values())[0]
+        assert schema.arrays_shape == expected
+    else:
+        assert schema.vgrid == expected
+        assert schema.arrays_shape == list(splitter.values())[0]
+
+
+@pytest.mark.parametrize(
     "dims",
     [
         [DimensionSchema(name="x", size=1), DimensionSchema(name="x", size=2)],
@@ -62,9 +113,18 @@ def test_varray_schema_vgrid_raises_on_type(dimensions, vgrid: Any):
         ],
     ],
 )
-def test_dimensions_non_unique_names_error(dims: List[Union[DimensionSchema, TimeDimensionSchema]]):
+@pytest.mark.parametrize(
+    "splitter",
+    [
+        dict(vgrid=(1, 1)),
+        dict(arrays_shape=(1, 1)),
+    ],
+)
+def test_dimensions_non_unique_names_error(
+    dims: List[Union[DimensionSchema, TimeDimensionSchema]], splitter
+):
     with pytest.raises(DekerValidationError):
-        assert VArraySchema(dtype=int, dimensions=dims, vgrid=(1, 1))  # type: ignore[arg-type]
+        assert VArraySchema(dtype=int, dimensions=dims, **splitter)  # type: ignore[arg-type]
 
 
 @pytest.mark.parametrize("vgrid_class", [tuple, list])
@@ -95,6 +155,25 @@ def test_varray_schema_vgrid_raises_on_type2(dimensions, vgrid_class: object()):
 def test_varray_schema_vgrid_raises_on_value(dimensions, vgrid: tuple):
     with pytest.raises(DekerValidationError):
         assert VArraySchema(dtype=float, dimensions=dimensions, vgrid=vgrid)
+
+
+@pytest.mark.parametrize(
+    "arrays_shape",
+    [
+        (0,),
+        (0, 0),
+        (0, 0, 0),
+        (3,),
+        (
+            2,
+            3,
+        ),
+        (2, 2, 3),
+    ],
+)
+def test_varray_schema_arrays_shape_raises_on_value(dimensions, arrays_shape: tuple):
+    with pytest.raises(DekerValidationError):
+        assert VArraySchema(dtype=float, dimensions=dimensions, arrays_shape=arrays_shape)
 
 
 def test_varray_schema_str(varray_schema: VArraySchema):
@@ -137,8 +216,15 @@ def test_varray_schema_custom_attributes(varray_schema_with_attributes: VArraySc
         (np.longcomplex, np.nan),
     ],
 )
-def test_varray_schema_fill_value(dimensions, dtype, fill_value):
-    s = VArraySchema(dtype=dtype, dimensions=dimensions, vgrid=(1, 1, 1))
+@pytest.mark.parametrize(
+    "splitter",
+    [
+        dict(vgrid=(1, 1, 1)),
+        dict(arrays_shape=(1, 1, 1)),
+    ],
+)
+def test_varray_schema_fill_value(dimensions, dtype, fill_value, splitter):
+    s = VArraySchema(dtype=dtype, dimensions=dimensions, fill_value=fill_value, **splitter)
     if np.isnan(fill_value):
         assert np.isnan(s.fill_value)
     else:
@@ -156,9 +242,16 @@ def test_varray_schema_fill_value(dimensions, dtype, fill_value):
         (np.longlong, np.nan),
     ],
 )
-def test_varray_schema_fill_value_raises(dimensions, dtype, fill_value):
+@pytest.mark.parametrize(
+    "splitter",
+    [
+        dict(vgrid=(1, 1, 1)),
+        dict(arrays_shape=(1, 1, 1)),
+    ],
+)
+def test_varray_schema_fill_value_raises(dimensions, dtype, fill_value, splitter):
     with pytest.raises(DekerValidationError):
-        VArraySchema(dtype=dtype, dimensions=dimensions, vgrid=(1, 1, 1), fill_value=fill_value)
+        VArraySchema(dtype=dtype, dimensions=dimensions, fill_value=fill_value, **splitter)
 
 
 @pytest.mark.parametrize(
@@ -169,8 +262,15 @@ def test_varray_schema_fill_value_raises(dimensions, dtype, fill_value):
         (complex, np.complex128),
     ],
 )
-def test_varray_schema_dtype_converting(dimensions, user_dtype, dtype):
-    s = VArraySchema(dtype=user_dtype, dimensions=dimensions, vgrid=(1, 1, 1))
+@pytest.mark.parametrize(
+    "splitter",
+    [
+        dict(vgrid=(1, 1, 1)),
+        dict(arrays_shape=(1, 1, 1)),
+    ],
+)
+def test_varray_schema_dtype_converting(dimensions, user_dtype, dtype, splitter):
+    s = VArraySchema(dtype=user_dtype, dimensions=dimensions, **splitter)
     assert s.dtype == dtype
 
 

@@ -441,7 +441,68 @@ class TestClientMethods:
 
         assert col_dict == new_col_dict
 
+    @pytest.mark.parametrize(
+        ("splitter", "expected"),
+        [
+            ({"vgrid": [1, 3]}, (3, 1)),
+            ({"arrays_shape": [1, 3]}, (3, 1)),
+            ({"vgrid": [3, 1]}, (1, 3)),
+            ({"arrays_shape": [3, 1]}, (1, 3)),
+        ],
+    )
     def test_create_from_dict_varray_collection(
+        self, client: Client, varray_collection: Collection, splitter: dict, expected: tuple
+    ):
+        """Check if creation from dict is correct."""
+        schema = {
+            "metadata_version": "0.2",
+            "name": "varray_from_dict_test_collection",
+            "type": "varray",
+            "schema": {
+                "dtype": "int",
+                "fill_value": -1,
+                "attributes": [
+                    {"name": "primary_attr_1", "dtype": "string", "primary": True},
+                    {"name": "custom_attr_1", "dtype": "datetime", "primary": False},
+                ],
+                "dimensions": [
+                    {
+                        "type": "generic",
+                        "name": "dimension_1",
+                        "size": 3,
+                        "labels": ["label_1", "label_2", "label_3"],
+                    },
+                    {
+                        "type": "time",
+                        "name": "dimension_2",
+                        "size": 3,
+                        "start_value": "$custom_attr_1",
+                        "step": {"days": 0, "seconds": 14400, "microseconds": 0},
+                    },
+                ],
+            },
+            "options": {
+                "chunks": {"mode": "manual", "size": [1, 3]},
+                "compression": {"compression": "gzip", "options": [9]},
+            },
+        }
+        col_from_dict = None
+
+        try:
+            schema["schema"].update(**splitter)
+            col_from_dict = client.collection_from_dict(schema)
+            assert col_from_dict
+            assert col_from_dict.name == schema["name"]
+            if list(splitter.keys())[0] == "vgrid":
+                other_splitter = "arrays_shape"
+            else:
+                other_splitter = "vgrid"
+            assert getattr(col_from_dict.varray_schema, other_splitter) == expected
+        finally:
+            if col_from_dict:
+                col_from_dict.delete()
+
+    def test_create_from_other_varray_collection_dict(
         self, client: Client, varray_collection: Collection
     ):
         """Check if creation from dict is correct."""

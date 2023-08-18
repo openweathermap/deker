@@ -1,18 +1,143 @@
-# https://black.readthedocs.io/en/stable/
-[tool.black]
-line-length = 100
-target-version = ['py39']
-include = '\.pyi?$'
-extend-exclude = '''
-# A regex preceded with ^/ will apply only to files and ctx
-# in the root of the project.
-^/foo.py  # exclude a file named foo.py in the root of the project (in addition to the defaults)
-examples/
-'''
+                                ###############
+                                ### PROJECT ###
+                                ###############
 
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+version = "0.0.0"  # a placeholder for poetry CI dynamic versionning plugin
+name = "deker"
+packages = [{ include = "deker" }]
+description = "Multidimensional arrays storage engine"
+authors = ["OpenWeather <info@openweathermap.org>"]
+license = "GPL-3.0-only"
+readme = "README.md"
+documentation = 'https://docs.deker.io/'
+homepage = 'https://deker.io/'
+repository = 'https://github.com/openweathermap/deker'
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Operating System :: Unix",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Programming Language :: Python",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+]
+
+[tool.poetry.extras]
+xarray = ["xarray"]
+server-adapters = ["deker-server-adapters"]
+shell = ["deker-shell"]
+all = ["deker-shell", "deker-server-adapters", "xarray"]
+
+[tool.poetry-dynamic-versioning]
+vcs = "git"
+style = "semver"
+metadata = false
+
+[[tool.poetry.source]]
+name = "PyPI"
+priority = "primary"
+
+[[tool.poetry.source]]
+name = "testpypi"
+url = "https://test.pypi.org/simple/"
+priority = "supplemental"
+
+
+[tool.poetry.dependencies]
+python = "^3.9"
+numpy = "^1.18"
+attrs = "^23.1.0"
+typing-extensions = "^4.4.0"
+tqdm = "^4.64.1"
+psutil = "^5.9.5"
+deker-local-adapters = "1.0.1"
+deker-server-adapters = {version = "^1.0.0", optional = true}
+deker-shell = { version = "^1.0.0", optional = true }
+xarray = {version = "^2023.5.0", optional = true}
+
+[tool.poetry.group.dev.dependencies]
+black = "23.1.0"
+coverage = "7.1.0"
+darglint = "1.8.1"
+Flake8-pyproject = "1.2.3"
+flake8 = "5.0.4"
+flake8-bugbear = "23.1.20"
+flake8-docstrings = "1.7.0"
+flake8-import-order = "0.18.2"
+flake8-pytest-style = "1.7.0"
+isort = "5.12.0"
+mypy = "1.0.0"
+mypy-extensions = "1.0.0"
+pep8-naming = "0.13.3"
+pre-commit = "3.0.4"
+pycln = "2.1.3"
+pytest = "7.2.1"
+pytest-cov = "4.0.0"
+pytest-sugar = "0.9.6"
+pytest-random-order = "1.1.0"
+ssort = "0.11.6"
+deepdiff = "6.3.0"
+pytest-mock = "3.10.0"
+bandit = "1.7.5"
+xarray = "^2023.5.0"
+
+
+[tool.poetry.group.docs.dependencies]
+docutils = "0.17"
+m2r2 = "0.3.2"
+sphinx-rtd-theme = "1.2.2"
+enum_tools = "0.10.0"
+sphinx_toolbox = "3.5.0"
+doc8 = "0.11.2"
+
+                                    #############
+                                    ### TOOLS ###
+                                    #############
+
+        ##############
+        # FORMATTERS #
+        ##############
+
+[tool.black]  # code formatter
+target-version = ['py39']
+line-length = 100
+
+[tool.isort]  # imports sorter
+# https://pycqa.github.io/isort/
+py_version = 39
+sections = ['FUTURE', 'STDLIB', 'THIRDPARTY', 'FIRSTPARTY', 'LOCALFOLDER']
+profile = "black"
+atomic = true
+include_trailing_comma = true
+line_length = 100
+lines_after_imports = 2
+lines_between_types = 1
+multi_line_output = 3
+extend_skip = [".md", ".json"]
+known_local_folder = ["deker"]
+known_third_party = ["deker_tools"]
+extra_standard_library = ["zoneinfo"]
+use_parentheses = true
+
+        ###########
+        # LINTERS #
+        ###########
+
+[tool.mypy]  # code linter
 # https://mypy.readthedocs.io/en/stable/
 # https://pypi.org/project/mypy-extensions/
-[tool.mypy]
 python_version = "3.9"
 ignore_missing_imports = true
 scripts_are_modules = true
@@ -29,6 +154,7 @@ exclude = [
     '^setup\.py$',
     '^tmp\.py$',
     '^venv/',
+    '^.venv/',
     '^test+\.py$',
     '^conftest\.py$',
     '^tmp/',
@@ -40,34 +166,89 @@ disable_error_code = "misc,no-redef,override,union-attr,index,assignment"
 module = "tests/*"
 disallow_untyped_defs = false
 
-# https://pycqa.github.io/isort/
-[tool.isort]
-py_version = 39
-sections = ['FUTURE', 'STDLIB', 'THIRDPARTY', 'FIRSTPARTY', 'LOCALFOLDER']
-profile = "black"
-atomic = true
-include_trailing_comma = true
-line_length = 100
-lines_after_imports = 2
-lines_between_types = 1
-multi_line_output = 3
-extend_skip = [".md", ".json"]
-known_local_folder = ["deker"]
-known_third_party = ["deker_tools"]
-extra_standard_library = ["zoneinfo"]
-use_parentheses = true
+[tool.flake8]  # code linter
+# https://flake8.pycqa.org/en/latest/
+# https://pypi.org/project/flake8-bugbear
+# https://pypi.org/project/flake8-docstrings/
+# https://pypi.org/project/flake8-import-order/
+# https://pypi.org/project/flake8-pytest-style/
+# https://pypi.org/project/pep8-naming/
+min_python_version = 3.9
+max-complexity = 15
+max-doc-length = 120
+max-line-length = 120
+strictness = "full"
+docstring_style = "sphinx"
+docstring-convention = "pep257"
+application_import_names = "deker"
+import-order-style = "pycharm"
+exclude = [
+    "venv/*",
+    ".venv/*",
+    ".git/*",
+    "__pycache__/*",
+    ".mypy_cache/*",
+    ".pytest_cache/*",
+    ".idea/*",
+    "examples/*",
+    "tmp/*",
+    "tests/*",
+    "tmp.py"
+]
 
+extend-select = ["D417"]
+per-file-ignores = [
+    "__init__.py: D104, F401, F403, F405, I100",
+    "deker/integrity.py: E501",
+    "deker/private/types/shell.py: D205, D400",
+    "deker/collection.py: D401",
+    "deker/subset.py: DAR101, E203",
+]
+ignore = [
+    "B012",
+    "B019",
+    "D100",
+    "D104",
+    "D105",
+    "D106",
+    "D107",
+    "D203",
+    "D401",
+    "D403",
+    "D404",
+    "DAR002",
+    "DAR003",
+    "DAR104",
+    "DAR105",
+    "DAR201",
+    "DAR301",
+    "DAR401",
+    "DAR501",
+    "I101",
+    "I201",
+    "I202",
+    "N807",
+    "N813",
+    "W503",
+    "W504",
+]
+
+[tool.pycln]  # imports linter
 # https://hadialqattan.github.io/pycln/#/README
-[tool.pycln]
 all = true
 diff = true
-exclude = "venv/*,.git/*,__pycache__/*,examples/*"
+exclude = "venv/*,.venv/*,.git/*,__pycache__/*,examples/*"
 
+[tool.doc8]  # RST linter
+# https://github.com/PyCQA/doc8
+max-line-length = 99
 
-[tool.bandit]
+[tool.bandit]  # security linter
+# https://github.com/PyCQA/bandit
 skips = ["B324"]
 
-[tool.ruff]
+[tool.ruff]  # code linter
+# https://github.com/astral-sh/ruff
 target-version = "py39"
 line-length = 120
 select = ["ALL"]
@@ -86,31 +267,31 @@ ignore = [
     "BLE001",
     "DTZ004",
     "FIX002",
-    "C901",    # Too complex, refactor files with this error.
+    "C901", # Too complex, refactor files with this error.
     "SLF001",
     "ANN401",
     "G004",
     "A003",
     "TD003",
     "TD002",
-    "DTZ003",  # .utcnow() is not allowed
-    "DTZ005",  # date time without tz
-    "DTZ006",  # date time without tz
-    "FA100",   # __future__ annotations
+    "DTZ003", # .utcnow() is not allowed
+    "DTZ005", # date time without tz
+    "DTZ006", # date time without tz
+    "FA100", # __future__ annotations
     "TRY301",
-    "PLR0913",  # Number of arguments
+    "PLR0913", # Number of arguments
     "PERF401",
     "RUF012",
     "PLR0912", # Too many branches,
-    "FBT001",  # Boolean positional arg
-    "FBT002",  # Boolean default value
+    "FBT001", # Boolean positional arg
+    "FBT002", # Boolean default value
     "D401",
     "COM812",
     "EM101",
-    "UP006",  # Tuple[..] -> tuple[..]
-    "UP035",  # Tuple[..] -> tuple[..]
-    "UP007",  # X | Y instead of Union
-    "UP037",  # Quotes in annotations
+    "UP006", # Tuple[..] -> tuple[..]
+    "UP035", # Tuple[..] -> tuple[..]
+    "UP007", # X | Y instead of Union
+    "UP037", # Quotes in annotations
     "RET504",
     "PIE790",
     "ERA001",
@@ -124,6 +305,7 @@ ignore = [
 ]
 exclude = [
     "venv/*",
+    ".venv/*",
     ".git/*",
     "__pycache__/*",
     ".mypy_cache/*",
@@ -144,7 +326,7 @@ exclude = [
     "PERF203" # Performance overhead
 ]
 "deker/locks.py" = [
-    "PERF203",# Performance overhead
+    "PERF203", # Performance overhead
     "PTH123",
     "SIM115"
 ]
@@ -152,7 +334,7 @@ exclude = [
 "deker/tools/path.py" = ["S324"]
 "deker/validators.py" = ["C901", "PLR0912"]
 "deker/dimensions.py" = ["PLR0915"] # Too many statements
-"deker/types/enums.py" = ["A003","A002"]
+"deker/types/enums.py" = ["A003", "A002"]
 "deker/types/shell.py" = ["D205", "D400"]
 "deker/ABC/base_subset.py" = ["PLW2901"]  #  overwritten by assignment
 "deker/ABC/base_array.py" = ["PLW2901"]  #  overwritten by assignment
@@ -174,51 +356,51 @@ known-local-folder = ["deker"]
 known-third-party = ["deker_tools"]
 extra-standard-library = ["zoneinfo"]
 
-[build-system]
-requires = ["setuptools>=45", "setuptools_scm[toml]>=6.2"]
+        #########
+        # TESTS #
+        #########
 
-[project]
-name = "deker"
-requires-python = ">=3.9"
-dynamic = ["version", "readme", "dependencies"]
-authors = [
-    {name = "OpenWeather", email = "info@openweathermap.org"},
+[tool.pytest.ini_options]  # pytest
+# https://docs.pytest.org
+# https://pypi.org/project/pytest-asyncio/
+# https://pytest-cov.readthedocs.io/en/latest/
+# https://pypi.org/project/pytest-pythonpath/
+# https://pypi.org/project/pytest-sugar/
+minversion = 7.0
+asyncio_mode = "auto"
+addopts = ["--ignore=tmp.py"]
+norecursedirs = "data"
+testpaths = "./tests"
+
+#log_cli = true
+#log_cli_level = "DEBUG"
+
+pythonpath = ["./deker", "./.venv", "./venv"]
+filterwarnings = ["ignore::UserWarning", 'ignore::DeprecationWarning', "ignore::ResourceWarning"]
+
+[tool.coverage.run]  # coverage
+branch = true
+omit = [
+    "tests/*",
+    "tmp.py",
+    "setup.py",
+    "deker/types/private/shell.py",
 ]
-maintainers = [
-        {name = "OpenWeather", email = "info@openweathermap.org"},
+
+[tool.coverage.html]
+directory = "tests/code_coverage"
+
+[tool.coverage.report]
+fail_under=96
+exclude_lines = [
+    "no cov",
+    "pragma: no cover",
+    "if typing.TYPE_CHECKING:",
+    "if TYPE_CHECKING:",
+    "if __name__ == .__main__.:",
+    "pass",
+    "raise NotImplementedError",
+    "except ImportError",
+    "except ModuleNotFoundError",
+    "except Exception"
 ]
-description = "Multidimensional arrays storage engine"
-license = {text = "GPL-3.0-only"}
-classifiers = [
-        "Development Status :: 4 - Beta",
-        "Intended Audience :: Developers",
-        "Intended Audience :: Information Technology",
-        "Intended Audience :: Science/Research",
-        "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
-        "Topic :: Software Development :: Libraries :: Python Modules",
-        "Operating System :: Unix",
-        "Operating System :: POSIX :: Linux",
-        "Operating System :: MacOS :: MacOS X",
-        "Programming Language :: Python",
-        "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.9",
-        "Programming Language :: Python :: 3.10",
-        "Programming Language :: Python :: 3.11",
-]
-[project.optional-dependencies]
-xarray = ["xarray>=2023.5.0"]
-
-[project.urls]
-'Homepage' = 'https://deker.io/'
-'Documentation' = 'https://docs.deker.io/'
-'Repository' = 'https://github.com/openweathermap/deker'
-
-[tool.setuptools.dynamic]
-readme = {file = ["README.md"], content-type='text/markdown'}
-dependencies = {file = ["requirements.txt"]}
-
-[tool.setuptools]
-packages = ["deker"]
-license-files=["LICENSE"]
-
-[tool.setuptools_scm]

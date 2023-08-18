@@ -1,0 +1,34 @@
+name: test-build
+
+on:
+  push:
+    tags-ignore:
+      - 'v[1-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build_sdist:
+    name: Build test source distribution
+    uses: openweathermap/deker-actions/.github/workflows/build.yml@master
+
+  upload_test_pypi:
+    name: Upload test source distribution
+    needs: build_sdist
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/p/${{ vars.PACKAGE_NAME }}
+
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          # unpacks default artifact into dist/
+          # if `name: artifact` is omitted, the action will create extra parent dir
+          name: artifact
+          path: dist
+
+      - name: Publish test source distributions to Test-PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/

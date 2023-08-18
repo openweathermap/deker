@@ -1,0 +1,14 @@
+name: push
+
+on:
+  push:
+    branches-ignore:
+      - 'refs/tags/v'
+
+jobs:
+  checks:
+    uses: openweathermap/deker-actions/.github/workflows/checks.yml@master
+    with:
+      package-name: ${{ vars.PACKAGE_NAME }}
+      python-version: '3.9'
+      min-coverage: 96
