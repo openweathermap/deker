@@ -96,9 +96,10 @@ repos:
         name: flake8
         files: ^deker/
         always_run: false
-        args: [ --config, setup.cfg, deker]
+        args: [ deker]
         verbose: true
         additional_dependencies:
+          - Flake8-pyproject
           - flake8-bugbear
           - flake8-pytest-style
           - flake8-docstrings
@@ -150,3 +151,11 @@ repos:
         always_run: true
         stages:
           - push
+
+      - id: doc8
+        name: doc8
+        entry: doc8 --config=pyproject.toml docs/deker
+        language: python
+        always_run: true
+        stages:
+          - commit

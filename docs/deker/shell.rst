@@ -91,4 +91,3 @@ Functions
 
 * ``use("collection_name")``: gets collection from client and saves it to ``collection`` variable
 * ``get_global_coll_variable()``: returns ``collection`` global variable
-

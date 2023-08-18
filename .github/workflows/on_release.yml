@@ -1,0 +1,49 @@
+name: build
+
+on:
+  push:
+    tags:
+      - 'v[1-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  tox_tests:
+    uses: openweathermap/deker-actions/.github/workflows/tox.yml@master
+    with:
+      package-name: ${{ vars.PACKAGE_NAME }}
+      min-coverage: 96
+
+  build_docs:
+    needs: tox_tests
+    uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
+    with:
+      python-version: '3.9'
+
+  build_sdist:
+    needs: [tox_tests, build_docs]
+    name: Build source distribution
+    uses: openweathermap/deker-actions/.github/workflows/build.yml@master
+
+  publish_docs:
+    needs: [build_docs, build_sdist]
+    uses: openweathermap/deker-actions/.github/workflows/docs_publish.yml@master
+
+  upload_pypi:
+    name: Publish source distribution
+    needs: [build_docs, build_sdist]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+    environment:
+      name: pypi
+      url: https://pypi.org/p/${{ vars.PACKAGE_NAME }}
+
+    steps:
+      - uses: actions/download-artifact@v3
+        with:
+          # unpacks default artifact into dist/
+          # if `name: artifact` is omitted, the action will create extra parent dir
+          name: artifact
+          path: dist
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

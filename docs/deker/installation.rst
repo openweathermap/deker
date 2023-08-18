@@ -40,9 +40,12 @@ Also please not that for flexibility few internal Deker components are published
 packages:
 
     * ``deker-local-adapters``
+    * ``deker-server-adapters``
     * ``deker-tools``
 
-To install Deker with all the previously mentioned dependencies, run::
+To install Deker run:
+
+.. code-block:: bash
 
     pip install deker
 
@@ -50,38 +53,77 @@ To install Deker with all the previously mentioned dependencies, run::
 Optional Packages
 -----------------
 
-Deker also supports output of its data as pandas_ or Xarray_ via the following package:
+Deker also supports output of its data as Xarray_ via the following package:
 
     * ``xarray`` >= 2023.5.0
 
-To install it with ``xarray`` optional dependency::
+To install it with ``xarray`` optional dependency:
+
+.. code-block:: bash
 
     pip install deker[xarray]
 
 .. _Xarray: https://docs.xarray.dev/en/stable/getting-started-guide/installing.html
-.. _pandas: https://pandas.pydata.org/getting_started.html
+
+Deker Tools
+===========
+
+``deker-tools`` is an out-of-box battery which provides several useful tools and utilities to work
+with Deker data. You may find this package useful in your projects, even if they are not related to
+Deker.
+
+To install Deker tools package, run:
+
+.. code-block:: bash
+
+    pip install deker-tools
 
 
 Interactive Shell
 =================
 
 ``deker-shell`` is an interactive environment that enables you to manage and access Deker storage
-in a convenient way. It requires ``deker`` package to be installed manually before use as described
-above.
+in a convenient way. It requires ``deker`` package to be installed **manually** before use as
+described above.
 
-To install interactive shell package::
+To install interactive shell package, run:
 
-   pip install deker deker-shell
+.. code-block:: bash
+
+    pip install deker deker-shell
+
+Or you can install it alongside with Deker by:
+
+.. code-block:: bash
+
+    pip install deker[shell]
 
 
-Deker Tools
-===========
+Server Adapters
+===============
+.. _plugin: connecting_to_server.html
 
-``deker-tools`` is an out-of-box battery which provides several useful tools and utilities to work
-with Deker data. You may find this package useful in projects, even if they are not related to
-Deker.
+It is an original OpenWeather plugin_, based on `httpx <https://www.python-httpx.org/>`_
+with HTTP 2.0 support, that allows your local client to communicate with remote OpenWeather
+public server instances of Deker.
 
-To install Deker tools package::
+If you don't have Deker yet, run
 
-   pip install deker-tools
+.. code-block:: bash
 
+    pip install deker[server-adapters]
+
+If you have already installed Deker, you can simply install plugin to use it by:
+
+.. code-block:: bash
+
+    pip install deker-server-adapters
+
+
+Install All at Once
+=================================
+You can install all the above mentioned options at once by:
+
+.. code-block:: bash
+
+    pip install deker[all]
