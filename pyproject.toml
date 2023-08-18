@@ -50,7 +50,7 @@ name = "PyPI"
 priority = "primary"
 
 [[tool.poetry.source]]
-name = "TestPyPI"
+name = "testpypi"
 url = "https://test.pypi.org/simple/"
 priority = "supplemental"
 

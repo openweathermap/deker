@@ -8,6 +8,8 @@ on:
 jobs:
   build_docs:
     uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
+    with:
+      python-version: '3.9'
 
   checks:
     uses: openweathermap/deker-actions/.github/workflows/checks.yml@master
