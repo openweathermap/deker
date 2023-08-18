@@ -6,9 +6,12 @@ on:
       - 'refs/tags/v'
 
 jobs:
+  build_docs:
+    uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
+
   checks:
     uses: openweathermap/deker-actions/.github/workflows/checks.yml@master
     with:
-      package-name: deker
+      package-name: ${{ vars.PACKAGE_NAME }}
       python-version: '3.9'
       min-coverage: 96

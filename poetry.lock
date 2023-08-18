@@ -341,13 +341,13 @@ files = [
 
 [[package]]
 name = "click"
-version = "8.1.6"
+version = "8.1.7"
 description = "Composable command line interface toolkit"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "click-8.1.6-py3-none-any.whl", hash = "sha256:fa244bb30b3b5ee2cae3da8f55c9e5e0c0e86093306301fb418eb9dc40fbded5"},
-    {file = "click-8.1.6.tar.gz", hash = "sha256:48ee849951919527a045bfe3bf7baa8a959c423134e1a5b98c05c20ba75a1cbd"},
+    {file = "click-8.1.7-py3-none-any.whl", hash = "sha256:ae74fb96c20a0277a1d615f1e4d73c8414f5a98db8b799a7931d1582f3390c28"},
+    {file = "click-8.1.7.tar.gz", hash = "sha256:ca9853ad459e787e2192211578cc907e7594e294c7ccc834310722b41b9ca6de"},
 ]
 
 [package.dependencies]
@@ -476,12 +476,12 @@ optimize = ["orjson"]
 
 [[package]]
 name = "deker-local-adapters"
-version = "1.0.1b2"
+version = "1.0.1"
 description = "Plugin with local adapters for deker"
 optional = false
 python-versions = ">=3.9,<4.0"
 files = [
-    {file = "deker_local_adapters-1.0.1b2.tar.gz", hash = "sha256:ba6d5f803bb0b766b36ee7b67ecb8e369d52e31ba0a4624fd86a6ac1ec884814"},
+    {file = "deker_local_adapters-1.0.1.tar.gz", hash = "sha256:d7ed69c122a132e79b557e96fdaccd554e57eacaa2feb42ac1f9a064905023c1"},
 ]
 
 [package.dependencies]
@@ -490,37 +490,27 @@ h5py = ">=3.8.0,<4.0.0"
 hdf5plugin = ">=4.0.1,<5.0.0"
 numpy = ">=1.18,<2.0"
 
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "TestPyPI"
-
 [[package]]
 name = "deker-server-adapters"
-version = "1.0.0rc0"
+version = "1.0.0"
 description = "Plugin with server adapters for Deker"
 optional = true
 python-versions = ">=3.9,<4.0"
 files = [
-    {file = "deker_server_adapters-1.0.0rc0.tar.gz", hash = "sha256:cfa5bc35524475ffc2cc7ff6e44c0ad9677e707372ba4cdad2c0aa86bcf8ca7c"},
+    {file = "deker_server_adapters-1.0.0.tar.gz", hash = "sha256:54b4929c0944a6feb84806902ea07a5136802aaca1445e354c57134ad1460b93"},
 ]
 
 [package.dependencies]
 httpx = {version = ">=0.24.1,<0.25.0", extras = ["http2"]}
 
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "TestPyPI"
-
 [[package]]
 name = "deker-shell"
-version = "1.0.0"
+version = "1.0.1"
 description = "Interactive shell for Deker"
 optional = true
-python-versions = ">=3.9"
+python-versions = ">=3.9,<4.0"
 files = [
-    {file = "deker_shell-1.0.0.tar.gz", hash = "sha256:1e913def4dea93c5ff6002fae8d9b1020b92dd7b9fade8120a697f0b5ceb75a6"},
+    {file = "deker_shell-1.0.1.tar.gz", hash = "sha256:663a9557e3eaac093ace1f5e375d6188de66de0f3075cd7086e5d7058ce43cbf"},
 ]
 
 [package.dependencies]
@@ -2054,17 +2044,17 @@ files = [
 
 [[package]]
 name = "setuptools"
-version = "68.1.0"
+version = "68.1.2"
 description = "Easily download, build, install, upgrade, and uninstall Python packages"
 optional = false
 python-versions = ">=3.8"
 files = [
-    {file = "setuptools-68.1.0-py3-none-any.whl", hash = "sha256:e13e1b0bc760e9b0127eda042845999b2f913e12437046e663b833aa96d89715"},
-    {file = "setuptools-68.1.0.tar.gz", hash = "sha256:d59c97e7b774979a5ccb96388efc9eb65518004537e85d52e81eaee89ab6dd91"},
+    {file = "setuptools-68.1.2-py3-none-any.whl", hash = "sha256:3d8083eed2d13afc9426f227b24fd1659489ec107c0e86cec2ffdde5c92e790b"},
+    {file = "setuptools-68.1.2.tar.gz", hash = "sha256:3d4dfa6d95f1b101d695a6160a7626e15583af71a5f52176efa5d39a054d475d"},
 ]
 
 [package.extras]
-docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "pygments-github-lexers (==0.0.5)", "rst.linker (>=1.9)", "sphinx (>=3.5)", "sphinx-favicon", "sphinx-hoverxref (<2)", "sphinx-inline-tabs", "sphinx-lint", "sphinx-notfound-page (==0.8.3)", "sphinx-reredirects", "sphinxcontrib-towncrier"]
+docs = ["furo", "jaraco.packaging (>=9.3)", "jaraco.tidelift (>=1.4)", "pygments-github-lexers (==0.0.5)", "rst.linker (>=1.9)", "sphinx (>=3.5,<=7.1.2)", "sphinx-favicon", "sphinx-hoverxref (<2)", "sphinx-inline-tabs", "sphinx-lint", "sphinx-notfound-page (==0.8.3)", "sphinx-reredirects", "sphinxcontrib-towncrier"]
 testing = ["build[virtualenv]", "filelock (>=3.4.0)", "flake8-2020", "ini2toml[lite] (>=0.9)", "jaraco.develop (>=7.21)", "jaraco.envs (>=2.2)", "jaraco.path (>=3.2.0)", "pip (>=19.1)", "pytest (>=6)", "pytest-black (>=0.3.7)", "pytest-checkdocs (>=2.4)", "pytest-cov", "pytest-enabler (>=2.2)", "pytest-mypy (>=0.9.1)", "pytest-perf", "pytest-ruff", "pytest-timeout", "pytest-xdist", "tomli-w (>=1.0.0)", "virtualenv (>=13.0.0)", "wheel"]
 testing-integration = ["build[virtualenv]", "filelock (>=3.4.0)", "jaraco.envs (>=2.2)", "jaraco.path (>=3.2.0)", "pytest", "pytest-enabler", "pytest-xdist", "tomli", "virtualenv (>=13.0.0)", "wheel"]
 
@@ -2659,4 +2649,4 @@ xarray = ["xarray"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "ec256f9a05df6736329b9e8c836d5a8739519e5a6366b8876b78d52d9c1ec7dc"
+content-hash = "cc04888b1ce4e0b1006ea10357b4de564d6c90de47fed8a6b92c52b47c62ae52"
