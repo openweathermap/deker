@@ -2649,4 +2649,4 @@ xarray = ["xarray"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "cc04888b1ce4e0b1006ea10357b4de564d6c90de47fed8a6b92c52b47c62ae52"
+content-hash = "c6e89a1f69e312422c8099412c661af19d485b9249877824c4b0dc3057503011"
