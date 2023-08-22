@@ -52,8 +52,11 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
     @abstractmethod
     def close(self) -> None:
         """Close own executor."""
-        if self.executor and self._own_executor:
-            self.executor.shutdown(wait=True, cancel_futures=False)
+        try:
+            if self.executor and self._own_executor:
+                self.executor.shutdown(wait=True, cancel_futures=False)
+        except Exception:
+            pass
 
     @abstractmethod
     def get_array_adapter(self, *args: Any, **kwargs: Any) -> "BaseArrayAdapter":

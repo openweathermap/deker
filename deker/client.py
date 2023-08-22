@@ -330,15 +330,20 @@ class Client(SelfLoggerMixin):
 
     def close(self) -> None:
         """Close client."""
-        if self.__adapter:
-            self.__adapter.close()
-            self.__adapter = None
-        if self.__factory:
-            self.__factory.close()
-            self.__factory = None
-        self.__is_closed = True
-        self.__ctx.is_closed = True
-        self.logger.info("Client is closed")
+        try:
+            if self.__adapter:
+                self.__adapter.close()
+                self.__adapter = None
+            if self.__factory:
+                self.__factory.close()
+                self.__factory = None
+            if self.__ctx:
+                self.__ctx.is_closed = True
+            self.__is_closed = True
+        except Exception as e:
+            self.logger.debug(f"Exception in Client.close(): {e}")
+        finally:
+            self.logger.info("Client is closed")
 
     def create_collection(
         self,
