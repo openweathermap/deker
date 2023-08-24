@@ -55,7 +55,7 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
         try:
             if self.executor and self._own_executor:
                 self.executor.shutdown(wait=True, cancel_futures=False)
-        except Exception:
+        except AttributeError:
             pass
 
     @abstractmethod

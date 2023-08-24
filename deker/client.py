@@ -340,7 +340,7 @@ class Client(SelfLoggerMixin):
             if self.__ctx:
                 self.__ctx.is_closed = True
             self.__is_closed = True
-        except Exception as e:
+        except AttributeError as e:
             self.logger.debug(f"Exception in Client.close(): {e}")
         finally:
             self.logger.info("Client is closed")
