@@ -67,9 +67,9 @@ By default, adapters' ``httpx client`` has following settings:
      - True
    * - http2
      - bool
-     - True
+     - False
    * - timeout
-     - Optional[float]
+     - Optional[int, float]
      - None
 
 The full list of ``httpx`` configuration parameters you can find at `the official website`_.
