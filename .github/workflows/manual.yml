@@ -1,0 +1,16 @@
+name: manual_docs
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build_docs:
+    if: ${{ github.ref == 'refs/heads/main'}}
+    uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
+    with:
+      python-version: '3.9'
+
+#
+#  publish_docs:
+#    needs: build_docs
+#    uses: openweathermap/deker-actions/.github/workflows/docs_publish.yml@master
