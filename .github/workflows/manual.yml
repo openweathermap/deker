@@ -1,0 +1,17 @@
+name: manual_docs
+
+on:
+  workflow_dispatch:
+    branches:
+      - main
+
+jobs:
+  build_docs:
+    uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
+    with:
+      python-version: '3.9'
+
+#
+#  publish_docs:
+#    needs: build_docs
+#    uses: openweathermap/deker-actions/.github/workflows/docs_publish.yml@master
