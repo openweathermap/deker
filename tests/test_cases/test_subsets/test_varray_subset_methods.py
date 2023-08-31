@@ -535,10 +535,10 @@ class TestVSubsetForXArray:
                 step=timedelta(hours=1),
             ),
             DimensionSchema(
-                name="y", size=361, scale=Scale(start_value=90.0, step=-0.5, name="lat")
+                name="y", size=721, scale=Scale(start_value=90.0, step=-0.25, name="lat")
             ),
             DimensionSchema(
-                name="x", size=720, scale=Scale(start_value=-180.0, step=0.5, name="lon")
+                name="x", size=1440, scale=Scale(start_value=-180.0, step=0.25, name="lon")
             ),
             DimensionSchema(name="layers", size=3, labels=["temp", "pres", "pcp"]),
         ]
@@ -565,8 +565,8 @@ class TestVSubsetForXArray:
                 start_value=datetime(2023, 1, 1, tzinfo=timezone.utc),
                 step=timedelta(hours=1),
             ),
-            DimensionSchema(name="y", size=361),
-            DimensionSchema(name="x", size=720),
+            DimensionSchema(name="y", size=721),
+            DimensionSchema(name="x", size=1440),
             DimensionSchema(name="layers", size=3),
         ]
 
@@ -619,8 +619,8 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": np.around(np.arange(90, -91, -0.5), 1).tolist()[:361],
-                        "x": np.around(np.arange(-180, 180, 0.5), 1).tolist()[:720],
+                        "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
+                        "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -630,8 +630,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
-                        "y": np.around(np.arange(90, -91, -0.5), 1).tolist()[:361],
-                        "x": np.around(np.arange(-180, 180, 0.5), 1).tolist()[:720],
+                        "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
+                        "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -645,7 +645,7 @@ class TestVSubsetForXArray:
                             for n in range(24)
                         ],
                         "y": [90.0],
-                        "x": np.around(np.arange(-180, 180, 0.5), 1).tolist()[:720],
+                        "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -658,7 +658,7 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": np.around(np.arange(90, -91, -0.5), 1).tolist()[:361],
+                        "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": [-180],
                         "layers": ["temp", "pres", "pcp"],
                     }
@@ -672,8 +672,8 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": np.around(np.arange(90, -91, -0.5), 1).tolist()[:361],
-                        "x": np.around(np.arange(-180, 180, 0.5), 1).tolist()[:720],
+                        "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
+                        "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["pres"],
                     }
                 ),
@@ -683,8 +683,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
-                        "y": [89.5],
-                        "x": [-179.0],
+                        "y": [89.75],
+                        "x": [-179.5],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -694,8 +694,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
-                        "y": [89.5],
-                        "x": [-179.0],
+                        "y": [89.75],
+                        "x": [-179.5],
                         "layers": ["temp"],
                     }
                 ),
@@ -705,8 +705,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
-                        "y": np.around(np.arange(90, -91, -0.5), 1).tolist()[:361],
-                        "x": np.around(np.arange(-180, 180, 0.5), 1).tolist()[:720],
+                        "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
+                        "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -716,8 +716,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
-                        "y": [89.5],
-                        "x": np.around(np.arange(-180, 180, 0.5), 1).tolist()[:720],
+                        "y": [89.75],
+                        "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -727,8 +727,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
-                        "y": [89.5],
-                        "x": [-179.0],
+                        "y": [89.75],
+                        "x": [-179.5],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -738,8 +738,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
-                        "y": [89.5],
-                        "x": [-179.0],
+                        "y": [89.75],
+                        "x": [-179.5],
                         "layers": ["temp"],
                     }
                 ),
@@ -752,8 +752,8 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(6, 12)
                         ],
-                        "y": np.around(np.arange(90, -91, -0.5), 1).tolist()[:361],
-                        "x": np.around(np.arange(-180, 180, 0.5), 1).tolist()[:720],
+                        "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
+                        "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -766,8 +766,8 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": [87.0, 86.5, 86.0, 85.5, 85.0, 84.5],
-                        "x": np.around(np.arange(-180, 180, 0.5), 1).tolist()[:720],
+                        "y": [88.5, 88.25, 88.0, 87.75, 87.5, 87.25],
+                        "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -780,8 +780,8 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": np.around(np.arange(90, -91, -0.5), 1).tolist()[:361],
-                        "x": [-177.0, -176.5, -176.0, -175.5, -175.0, -174.5],
+                        "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
+                        "x": [-178.5, -178.25, -178.0, -177.75, -177.5, -177.25],
                         "layers": ["temp", "pres", "pcp"],
                     }
                 ),
@@ -794,22 +794,22 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": np.around(np.arange(90, -91, -0.5), 1).tolist()[:361],
-                        "x": np.around(np.arange(-180, 180, 0.5), 1).tolist()[:720],
+                        "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
+                        "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres"],
                     }
                 ),
             ),
             (
-                np.index_exp[22:, 359:, 718:, 1:],
+                np.index_exp[22:, 719:, 1438:, 1:],
                 OrderedDict(
                     {
                         "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(22, 24)
+                            datetime(2023, 1, 1, 22, tzinfo=timezone.utc),
+                            datetime(2023, 1, 1, 23, tzinfo=timezone.utc),
                         ],
-                        "y": [-89.5, -90.0],
-                        "x": [179.0, 179.5],
+                        "y": [-89.75, -90.0],
+                        "x": [179.5, 179.75],
                         "layers": ["pres", "pcp"],
                     }
                 ),
@@ -820,7 +820,7 @@ class TestVSubsetForXArray:
                     {
                         "dt": [datetime(2023, 1, 1, 23, 0, tzinfo=timezone.utc)],
                         "y": [-90.0],
-                        "x": [179.5],
+                        "x": [179.75],
                         "layers": ["pcp"],
                     }
                 ),
@@ -830,8 +830,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, 22, 0, tzinfo=timezone.utc)],
-                        "y": [-89.5],
-                        "x": [179.0],
+                        "y": [-89.75],
+                        "x": [179.5],
                         "layers": ["pres"],
                     }
                 ),
@@ -864,8 +864,8 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": list(range(361)),
-                        "x": list(range(720)),
+                        "y": list(range(721)),
+                        "x": list(range(1440)),
                         "layers": list(range(3)),
                     }
                 ),
@@ -875,8 +875,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
-                        "y": list(range(361)),
-                        "x": list(range(720)),
+                        "y": list(range(721)),
+                        "x": list(range(1440)),
                         "layers": list(range(3)),
                     }
                 ),
@@ -890,7 +890,7 @@ class TestVSubsetForXArray:
                             for n in range(24)
                         ],
                         "y": [0],
-                        "x": list(range(720)),
+                        "x": list(range(1440)),
                         "layers": list(range(3)),
                     }
                 ),
@@ -903,7 +903,7 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": list(range(361)),
+                        "y": list(range(721)),
                         "x": [0],
                         "layers": list(range(3)),
                     }
@@ -917,8 +917,8 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": list(range(361)),
-                        "x": list(range(720)),
+                        "y": list(range(721)),
+                        "x": list(range(1440)),
                         "layers": [1],
                     }
                 ),
@@ -950,8 +950,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
-                        "y": list(range(361)),
-                        "x": list(range(720)),
+                        "y": list(range(721)),
+                        "x": list(range(1440)),
                         "layers": list(range(3)),
                     }
                 ),
@@ -962,7 +962,7 @@ class TestVSubsetForXArray:
                     {
                         "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc)],
                         "y": [1],
-                        "x": list(range(720)),
+                        "x": list(range(1440)),
                         "layers": list(range(3)),
                     }
                 ),
@@ -997,8 +997,8 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(6, 12)
                         ],
-                        "y": list(range(361)),
-                        "x": list(range(720)),
+                        "y": list(range(721)),
+                        "x": list(range(1440)),
                         "layers": list(range(3)),
                     }
                 ),
@@ -1012,7 +1012,7 @@ class TestVSubsetForXArray:
                             for n in range(24)
                         ],
                         "y": [6, 7, 8, 9, 10, 11],
-                        "x": list(range(720)),
+                        "x": list(range(1440)),
                         "layers": list(range(3)),
                     }
                 ),
@@ -1025,7 +1025,7 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": list(range(361)),
+                        "y": list(range(721)),
                         "x": [6, 7, 8, 9, 10, 11],
                         "layers": list(range(3)),
                     }
@@ -1039,22 +1039,22 @@ class TestVSubsetForXArray:
                             datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
                             for n in range(24)
                         ],
-                        "y": list(range(361)),
-                        "x": list(range(720)),
+                        "y": list(range(721)),
+                        "x": list(range(1440)),
                         "layers": [0, 1],
                     }
                 ),
             ),
             (
-                np.index_exp[22:, 359:, 718:, 1:],
+                np.index_exp[22:, 719:, 1438:, 1:],
                 OrderedDict(
                     {
                         "dt": [
                             datetime(2023, 1, 1, 22, tzinfo=timezone.utc),
                             datetime(2023, 1, 1, 23, tzinfo=timezone.utc),
                         ],
-                        "y": [359, 360],
-                        "x": [718, 719],
+                        "y": [719, 720],
+                        "x": [1438, 1439],
                         "layers": [1, 2],
                     }
                 ),
@@ -1064,8 +1064,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, 23, 0, tzinfo=timezone.utc)],
-                        "y": [360],
-                        "x": [719],
+                        "y": [720],
+                        "x": [1439],
                         "layers": [2],
                     }
                 ),
@@ -1075,8 +1075,8 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [datetime(2023, 1, 1, 22, 0, tzinfo=timezone.utc)],
-                        "y": [359],
-                        "x": [718],
+                        "y": [719],
+                        "x": [1438],
                         "layers": [1],
                     }
                 ),

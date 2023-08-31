@@ -29,7 +29,6 @@ line parameter (in this case it would be ``/tmp/deker-data``)::
 
     deker file:///tmp/deker-data
 
-
 Examples
 ========
 
@@ -45,7 +44,6 @@ REPL menu (called with ``F2``):
 
 .. image:: images/shell_menu.png
    :scale: 45%
-
 
 Interface
 =========
@@ -91,3 +89,9 @@ Functions
 
 * ``use("collection_name")``: gets collection from client and saves it to ``collection`` variable
 * ``get_global_coll_variable()``: returns ``collection`` global variable
+
+Miscellaneous
+--------------
+You can also run an isolated Python script with::
+
+   deker my_python_script.py

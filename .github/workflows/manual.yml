@@ -10,7 +10,6 @@ jobs:
     with:
       python-version: '3.9'
 
-#
-#  publish_docs:
-#    needs: build_docs
-#    uses: openweathermap/deker-actions/.github/workflows/docs_publish.yml@master
+  publish_docs:
+    needs: build_docs
+    uses: openweathermap/deker-actions/.github/workflows/docs_publish.yml@master

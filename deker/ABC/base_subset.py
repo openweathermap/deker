@@ -205,7 +205,7 @@ class BaseSubset(SelfLoggerMixin, ABC):
         step = dimension.scale.step
         start_value = dimension.scale.start_value
         end = start_value + dimension.size * step
-        rounder = len(str(start_value).split(".")[-1])
+        rounder = len(str(step).split(".")[-1])
         value = np.around(np.arange(start_value, end, dimension.scale.step), rounder)
         return value.tolist()[: dimension.size]  # type: ignore[return-value]
 
