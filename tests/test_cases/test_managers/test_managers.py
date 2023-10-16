@@ -1,4 +1,5 @@
 import os
+import uuid
 
 from datetime import datetime, timedelta
 
@@ -9,7 +10,7 @@ from deker_tools.time import get_utc
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerFilterError
+from deker.errors import DekerFilterError, DekerValidationError, DekerArrayError
 from deker.schemas import (
     ArraySchema,
     AttributeSchema,
@@ -20,13 +21,44 @@ from deker.schemas import (
 
 
 class TestDataManagerMethods:
-    def test_manager_create_array(self, collection_manager):
+    @pytest.mark.parametrize("array_params", [
+        {},
+        {"id_": str(uuid.uuid4())}
+    ])
+    def test_manager_create_array(self, collection_manager, array_params):
         """Tests if manager can create array.
 
         :param collection_manager: fixture
         """
-        array = collection_manager.create()
+        array = collection_manager.create(**array_params)
         assert isinstance(array, Array)
+        if array_params.get("id_"):
+            assert array.id == array_params["id_"]
+
+    @pytest.mark.parametrize("id_", [
+        (str(uuid.uuid4()))[:-10],
+        "123",
+        "{20f5484b-88ae-49b0-8af0-3a389b4917dd}",
+        "20f5484b88ae49b08af03a389b4917dd"
+    ])
+    def test_manager_create_array_fail_bad_id(self, collection_manager, id_):
+        """Tests if manager returns error on incorrect id param.
+
+        :param collection_manager: fixture
+        :param id_: incorrect uuid
+        """
+        with pytest.raises(DekerValidationError):
+            collection_manager.create(id_=id_)
+
+    def test_manager_create_array_fail_exists(self, inserted_array: Array, collection_manager):
+        """Tests if manager returns error on trying to create array with uuid of existing array.
+
+        :param inserted_array: fixture
+        :param collection_manager: fixture
+        """
+        with pytest.raises(DekerArrayError) as e:
+            collection_manager.create(id_=inserted_array.id)
+            assert inserted_array.id in str(e) and "already exists" in str(e)
 
     def test_get_array_by_id(self, inserted_array: Array, collection_manager):
         """Tests possibility of getting an array by id.
@@ -91,9 +123,9 @@ class TestDataManagerMethods:
 
     @pytest.mark.parametrize("property_name", ["first", "last"])
     def test_get_array_by_primary_attribute_datetime(
-        self,
-        client: Client,
-        property_name: str,
+            self,
+            client: Client,
+            property_name: str,
     ):
         """Tests possibility of getting an array by datetme primary attributes.
 
@@ -134,9 +166,9 @@ class TestDataManagerMethods:
 
     @pytest.mark.parametrize("property_name", ["first", "last"])
     def test_get_varray_by_primary_attribute_datetime(
-        self,
-        client: Client,
-        property_name: str,
+            self,
+            client: Client,
+            property_name: str,
     ):
         """Tests possibility of getting an array by datetme primary attributes.
 
@@ -180,10 +212,10 @@ class TestDataManagerMethods:
 
     @pytest.mark.parametrize("property_name", ["first", "last"])
     def test_get_array_by_primary_attribute_no_such_attribute(
-        self,
-        inserted_array_with_attributes: Array,
-        collection_manager_with_attributes,
-        property_name: str,
+            self,
+            inserted_array_with_attributes: Array,
+            collection_manager_with_attributes,
+            property_name: str,
     ):
         """Tests None is returned if there is no array with such primary attributes.
 
@@ -200,10 +232,10 @@ class TestDataManagerMethods:
 
     @pytest.mark.parametrize("property_name", ["first", "last"])
     def test_get_array_by_primary_attribute_empty_collection(
-        self,
-        array_with_attributes: Array,
-        collection_manager_with_attributes,
-        property_name: str,
+            self,
+            array_with_attributes: Array,
+            collection_manager_with_attributes,
+            property_name: str,
     ):
         """Tests None is returned if collection is empty.
 
@@ -218,9 +250,9 @@ class TestDataManagerMethods:
         assert array is None
 
     def test_get_array_by_primary_attribute_fails_too_many_attrs(
-        self,
-        inserted_array_with_attributes: Array,
-        collection_manager_with_attributes,
+            self,
+            inserted_array_with_attributes: Array,
+            collection_manager_with_attributes,
     ):
         """Tests if filtering fails of there is too many attributes
 
@@ -240,9 +272,9 @@ class TestDataManagerMethods:
         assert "Some arguments don't exist in schema" == str(error.value)
 
     def test_get_array_by_primary_attribute_absence(
-        self,
-        inserted_array_with_attributes: Array,
-        collection_manager_with_attributes,
+            self,
+            inserted_array_with_attributes: Array,
+            collection_manager_with_attributes,
     ):
         with pytest.raises(NotImplementedError):
             collection_manager_with_attributes.filter({"extra": 12}).first()
@@ -252,13 +284,44 @@ class TestDataManagerMethods:
 
 
 class TestDataManagerMethodsVArray:
-    def test_manager_create_varray(self, va_collection_manager):
-        """Tests if manager creates array.
+    @pytest.mark.parametrize("varray_params", [
+        {},
+        {"id_": str(uuid.uuid4())}
+    ])
+    def test_manager_create_varray(self, va_collection_manager, varray_params):
+        """Tests if manager can create VArray.
 
         :param va_collection_manager: fixture
         """
-        array = va_collection_manager.create()
-        assert isinstance(array, VArray)
+        varray = va_collection_manager.create(**varray_params)
+        assert isinstance(varray, VArray)
+        if varray_params.get("id_"):
+            assert varray.id == varray_params["id_"]
+
+    @pytest.mark.parametrize("id_", [
+        str(uuid.uuid4())[:-1],
+        "123",
+        "{20f5484b-88ae-49b0-8af0-3a389b4917dd}",
+        "20f5484b88ae49b08af03a389b4917dd"
+    ])
+    def test_manager_create_varray_fail_bad_id(self, va_collection_manager, id_):
+        """Tests if manager returns error on incorrect id param.
+
+        :param va_collection_manager: fixture
+        :param id_: incorrect uuid
+        """
+        with pytest.raises(DekerValidationError):
+            va_collection_manager.create(id_=id_)
+
+    def test_manager_create_varray_fail_exists(self, inserted_varray: VArray, va_collection_manager):
+        """Tests if manager returns error on trying to create varray with uuid of existing varray.
+
+        :param inserted_varray: fixture
+        :param va_collection_manager: fixture
+        """
+        with pytest.raises(DekerArrayError) as e:
+            va_collection_manager.create(id_=inserted_varray.id)
+            assert inserted_varray.id in str(e) and "already exists" in str(e)
 
     def test_get_array_by_id(self, inserted_varray: VArray, va_collection_manager):
         """Tests possibility of getting an array by id.
@@ -295,10 +358,10 @@ class TestDataManagerMethodsVArray:
 
     @pytest.mark.parametrize("property_name", ["first", "last"])
     def test_get_varray_by_primary_attribute(
-        self,
-        inserted_varray_with_attributes: VArray,
-        va_collection_manager_with_attributes,
-        property_name: str,
+            self,
+            inserted_varray_with_attributes: VArray,
+            va_collection_manager_with_attributes,
+            property_name: str,
     ):
         """Tests possibility of getting an array by primary attributes.
 
@@ -319,10 +382,10 @@ class TestDataManagerMethodsVArray:
 
     @pytest.mark.parametrize("property_name", ["first", "last"])
     def test_get_varray_by_primary_attribute_no_such_attribute(
-        self,
-        inserted_varray_with_attributes: VArray,
-        va_collection_manager_with_attributes,
-        property_name: str,
+            self,
+            inserted_varray_with_attributes: VArray,
+            va_collection_manager_with_attributes,
+            property_name: str,
     ):
         """Tests None is returned if there is no array with such primary attributes.
 
@@ -339,10 +402,10 @@ class TestDataManagerMethodsVArray:
 
     @pytest.mark.parametrize("property_name", ["first", "last"])
     def test_get_varray_by_primary_attribute_empty_collection(
-        self,
-        varray_with_attributes: VArray,
-        va_collection_manager_with_attributes,
-        property_name: str,
+            self,
+            varray_with_attributes: VArray,
+            va_collection_manager_with_attributes,
+            property_name: str,
     ):
         """Tests None is returned if collection is empty.
 
@@ -359,9 +422,9 @@ class TestDataManagerMethodsVArray:
         assert array is None
 
     def test_get_array_by_primary_attribute_fails_too_many_attrs(
-        self,
-        inserted_array_with_attributes: Array,
-        va_collection_manager_with_attributes,
+            self,
+            inserted_array_with_attributes: Array,
+            va_collection_manager_with_attributes,
     ):
         """Tests if filtering fails if there is too many attributes
 
@@ -381,9 +444,9 @@ class TestDataManagerMethodsVArray:
         assert "Some arguments don't exist in schema" == str(error.value)
 
     def test_get_varray_by_primary_attribute_absence(
-        self,
-        inserted_varray_with_attributes: Array,
-        va_collection_manager_with_attributes,
+            self,
+            inserted_varray_with_attributes: Array,
+            va_collection_manager_with_attributes,
     ):
         with pytest.raises(NotImplementedError) as error:
             va_collection_manager_with_attributes.filter({"extra": 12}).first()
