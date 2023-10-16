@@ -35,6 +35,7 @@ from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, TimeDimensionSchema, VArraySchema
 from deker.subset import Subset, VSubset
 from deker.tools.array import check_memory, get_id
+from deker.validators import is_valid_uuid
 from deker.tools.schema import create_dimensions
 from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
@@ -251,9 +252,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
     ) -> None:
-        if id_ is not None and (
-            not isinstance(id_, str) or len(id_.split("-")) != 5  # noqa[PLR2004]
-        ):
+        if id_ is not None and not is_valid_uuid(id_):
             raise DekerValidationError(
                 f"{self.__class__.__name__} id shall be a non-empty uuid.uuid5 string or None"
             )

@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import datetime
+import uuid
 
 from typing import TYPE_CHECKING, Optional, Tuple, Union
 
@@ -131,3 +132,17 @@ def process_attributes(
         )
     __process_attrs(attrs_schema, attributes, primary_attributes, custom_attributes)  # type: ignore[arg-type]
     return primary_attributes, custom_attributes
+
+
+def is_valid_uuid(id_: str) -> bool:
+    """Validate if id is in uuid format.
+
+    :param id_: id to validate
+    """
+    if not isinstance(id_, str) or len(id_.split("-")) != 5 or len(id_) != 36:
+        return False
+    try:
+        uuid.UUID(id_)
+        return True
+    except ValueError:
+        return False
