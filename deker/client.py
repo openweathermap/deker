@@ -402,6 +402,7 @@ class Client(SelfLoggerMixin):
 
     def _validate_collection(self, collection_data: dict) -> Collection:
         """Validate ``Collection`` object and return it without creation.
+
         Not recommended to use except for validation.
 
         :param collection_data: Dictionary with collection metadata
