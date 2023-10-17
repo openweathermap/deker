@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 from deker_tools.time import get_utc
 
-from deker import Dimension, TimeDimension
+from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerValidationError
 
 
@@ -138,8 +138,8 @@ def process_attributes(
 def validate_custom_attributes(
     schema: Union["ArraySchema", "VArraySchema"],
     dimensions: Tuple[Union[Dimension, TimeDimension], ...],
-    primary_attributes: Optional[dict],
-    custom_attributes: Optional[dict],
+    primary_attributes: dict,
+    custom_attributes: dict,
     attributes: Optional[dict],
 ) -> dict:
     """Validate custom attributes over schema.
@@ -154,9 +154,9 @@ def validate_custom_attributes(
         raise DekerValidationError("No attributes passed for update")
     for s in schema.dimensions:
         if (
-                isinstance(s, TimeDimensionSchema)
-                and isinstance(s.start_value, str)
-                and s.start_value.startswith("$")
+            isinstance(s, TimeDimensionSchema)
+            and isinstance(s.start_value, str)
+            and s.start_value.startswith("$")
         ):
             if s.start_value[1:] in primary_attributes:
                 continue

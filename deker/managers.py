@@ -109,7 +109,7 @@ class DataManager(BaseManager):
         schema: "BaseArraysSchema",
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
-        id_: Optional[str]=None
+        id_: Optional[str] = None,
     ) -> Union[Array, VArray]:
         """Create Array or VArray.
 
@@ -141,7 +141,7 @@ class DataManager(BaseManager):
         self,
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
-        id_: Optional[str] = None
+        id_: Optional[str] = None,
     ) -> Union[Array, VArray]:
         """Create array or varray.
 
@@ -184,7 +184,7 @@ class VArrayManager(SelfLoggerMixin, DataManager):
         self,
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
-        id_: Optional[str] = None
+        id_: Optional[str] = None,
     ) -> VArray:
         """Create varray in collection.
 
@@ -232,7 +232,7 @@ class ArrayManager(SelfLoggerMixin, DataManager):
         self,
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
-        id_: Optional[str] = None
+        id_: Optional[str] = None,
     ) -> Array:
         """Create array in collection.
 

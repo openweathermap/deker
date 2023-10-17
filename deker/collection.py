@@ -266,7 +266,7 @@ class Collection(SelfLoggerMixin, Serializer):
         self,
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
-        id_: Optional[str] = None
+        id_: Optional[str] = None,
     ) -> Union[Array, VArray]:
         """Create ``Array`` or ``VArray`` according to collection main schema.
 

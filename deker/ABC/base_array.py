@@ -35,11 +35,10 @@ from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, VArraySchema
 from deker.subset import Subset, VSubset
 from deker.tools.array import check_memory, get_id
-from deker.validators import is_valid_uuid, validate_custom_attributes
 from deker.tools.schema import create_dimensions
 from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
-from deker.validators import process_attributes
+from deker.validators import process_attributes, is_valid_uuid, validate_custom_attributes
 
 
 if TYPE_CHECKING:
@@ -386,7 +385,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             self.dimensions,
             self.primary_attributes,
             self.custom_attributes,
-            attributes
+            attributes,
         )
         self._adapter.update_meta_custom_attributes(self, attributes)
         self.custom_attributes = attributes
