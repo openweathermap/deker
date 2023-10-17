@@ -32,10 +32,10 @@ from deker_tools.time import get_utc
 from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerMetaDataError, DekerValidationError
 from deker.log import SelfLoggerMixin
-from deker.schemas import ArraySchema, TimeDimensionSchema, VArraySchema
+from deker.schemas import ArraySchema, VArraySchema
 from deker.subset import Subset, VSubset
 from deker.tools.array import check_memory, get_id
-from deker.validators import is_valid_uuid
+from deker.validators import is_valid_uuid, validate_custom_attributes
 from deker.tools.schema import create_dimensions
 from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
@@ -381,26 +381,13 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
         :param attributes: attributes for updating
         """
-        if not attributes:
-            raise DekerValidationError("No attributes passed for update")
-        for s in self.schema.dimensions:
-            if (
-                isinstance(s, TimeDimensionSchema)
-                and isinstance(s.start_value, str)
-                and s.start_value.startswith("$")
-            ):
-                if s.start_value[1:] in self.primary_attributes:
-                    continue
-                if s.start_value[1:] not in attributes:
-                    for d in self.dimensions:
-                        if d.name == s.name:
-                            attributes[s.start_value[1:]] = d.start_value  # type: ignore[attr-defined]
-            else:
-                for attr in self.schema.attributes:
-                    if not attr.primary and attr.name not in attributes:
-                        attributes[attr.name] = self.custom_attributes[attr.name]
-
-        process_attributes(self.schema, self.primary_attributes, attributes)
+        attributes = validate_custom_attributes(
+            self.schema,
+            self.dimensions,
+            self.primary_attributes,
+            self.custom_attributes,
+            attributes
+        )
         self._adapter.update_meta_custom_attributes(self, attributes)
         self.custom_attributes = attributes
         self.logger.info(f"{self!s} custom attributes updated: {attributes}")

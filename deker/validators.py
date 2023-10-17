@@ -21,11 +21,12 @@ from typing import TYPE_CHECKING, Optional, Tuple, Union
 
 from deker_tools.time import get_utc
 
+from deker import Dimension, TimeDimension
 from deker.errors import DekerValidationError
 
 
 if TYPE_CHECKING:
-    from deker.schemas import ArraySchema, AttributeSchema, VArraySchema
+    from deker.schemas import ArraySchema, AttributeSchema, VArraySchema, TimeDimensionSchema
 
 
 def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.datetime:
@@ -132,6 +133,44 @@ def process_attributes(
         )
     __process_attrs(attrs_schema, attributes, primary_attributes, custom_attributes)  # type: ignore[arg-type]
     return primary_attributes, custom_attributes
+
+
+def validate_custom_attributes(
+    schema: Union["ArraySchema", "VArraySchema"],
+    dimensions: Tuple[Union[Dimension, TimeDimension], ...],
+    primary_attributes: Optional[dict],
+    custom_attributes: Optional[dict],
+    attributes: Optional[dict],
+) -> dict:
+    """Validate custom attributes over schema.
+
+    :param schema: ArraySchema or VArraySchema instance
+    :param dimensions: tuple of (V)Array dimensions
+    :param primary_attributes: (V)Array primary attributes
+    :param custom_attributes: old custom attributes
+    :param attributes: new custom attributes to validate
+    """
+    if not attributes:
+        raise DekerValidationError("No attributes passed for update")
+    for s in schema.dimensions:
+        if (
+                isinstance(s, TimeDimensionSchema)
+                and isinstance(s.start_value, str)
+                and s.start_value.startswith("$")
+        ):
+            if s.start_value[1:] in primary_attributes:
+                continue
+            if s.start_value[1:] not in attributes:
+                for d in dimensions:
+                    if d.name == s.name:
+                        attributes[s.start_value[1:]] = d.start_value  # type: ignore[attr-defined]
+        else:
+            for attr in schema.attributes:
+                if not attr.primary and attr.name not in attributes:
+                    attributes[attr.name] = custom_attributes[attr.name]
+
+    process_attributes(schema, primary_attributes, attributes)
+    return attributes
 
 
 def is_valid_uuid(id_: str) -> bool:
