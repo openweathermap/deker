@@ -24,9 +24,8 @@ from deker_tools.time import get_utc
 from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerValidationError
 
-
 if TYPE_CHECKING:
-    from deker.schemas import ArraySchema, AttributeSchema, VArraySchema, TimeDimensionSchema
+    from deker.schemas import ArraySchema, AttributeSchema, VArraySchema
 
 
 def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.datetime:
@@ -150,6 +149,8 @@ def validate_custom_attributes(
     :param custom_attributes: old custom attributes
     :param attributes: new custom attributes to validate
     """
+    from deker.schemas import TimeDimensionSchema
+
     if not attributes:
         raise DekerValidationError("No attributes passed for update")
     for s in schema.dimensions:
