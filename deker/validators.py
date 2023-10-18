@@ -136,7 +136,9 @@ def process_attributes(
             f"Setting additional attributes not listed in schema is not allowed. "
             f"Invalid attributes: {sorted(extra_names)}"
         )
-    __process_attributes_types(attrs_schema, attributes, primary_attributes, custom_attributes)  # type: ignore[arg-type]
+    __process_attributes_types(
+        attrs_schema, attributes, primary_attributes, custom_attributes  # type: ignore[arg-type]
+    )
     return primary_attributes, custom_attributes
 
 
