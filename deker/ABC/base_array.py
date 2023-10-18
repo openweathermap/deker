@@ -38,7 +38,7 @@ from deker.tools.array import check_memory, get_id
 from deker.tools.schema import create_dimensions
 from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
-from deker.validators import process_attributes, is_valid_uuid, validate_custom_attributes
+from deker.validators import process_attributes, is_valid_uuid, validate_custom_attributes_update
 
 
 if TYPE_CHECKING:
@@ -380,7 +380,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
         :param attributes: attributes for updating
         """
-        attributes = validate_custom_attributes(
+        attributes = validate_custom_attributes_update(
             self.schema,
             self.dimensions,
             self.primary_attributes,

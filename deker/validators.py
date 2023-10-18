@@ -42,12 +42,19 @@ def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.d
     return time_attribute
 
 
-def __process_attrs(
+def __process_attributes_types(
     attrs_schema: Tuple["AttributeSchema", ...],
     attributes: dict,
     primary_attributes: dict,
     custom_attributes: dict,
 ) -> None:
+    """Validate attributes types over schema and update dicts if needed.
+
+    :param attrs_schema: attributes schema
+    :param attributes: dict with both primary and custom attributes
+    :param primary_attributes: primary attributes to validate
+    :param custom_attributes: custom attributes to validate
+    """
     for attr in attrs_schema:
         if attr.primary:
             if attr.name not in attributes:
@@ -71,6 +78,7 @@ def __process_attrs(
                     raise DekerValidationError(f'Custom attribute "{attr.name}" cannot be None')
                 custom_attributes[attr.name] = None
 
+        # convert attribute with datetime to utc if needed
         if attr.dtype == datetime.datetime and attr.name in attributes:
             try:
                 utc = get_utc(attributes[attr.name])
@@ -87,7 +95,7 @@ def process_attributes(
     primary_attributes: Optional[dict],
     custom_attributes: Optional[dict],
 ) -> Tuple[dict, dict]:
-    """Validate attributes over schema.
+    """Validate attributes over schema and return them.
 
     :param schema: ArraySchema or VArraySchema instance
     :param primary_attributes: attributes to validate
@@ -99,10 +107,8 @@ def process_attributes(
 
     attrs_schema = schema.attributes if schema else None
 
-    if primary_attributes is None:
-        primary_attributes = {}
-    if custom_attributes is None:
-        custom_attributes = {}
+    primary_attributes = primary_attributes or {}
+    custom_attributes = custom_attributes or {}
 
     if any((primary_attributes, custom_attributes)) and not attrs_schema:
         raise DekerValidationError(f"{array_type} attributes schema is missing".capitalize())
@@ -130,18 +136,18 @@ def process_attributes(
             f"Setting additional attributes not listed in schema is not allowed. "
             f"Invalid attributes: {sorted(extra_names)}"
         )
-    __process_attrs(attrs_schema, attributes, primary_attributes, custom_attributes)  # type: ignore[arg-type]
+    __process_attributes_types(attrs_schema, attributes, primary_attributes, custom_attributes)  # type: ignore[arg-type]
     return primary_attributes, custom_attributes
 
 
-def validate_custom_attributes(
+def validate_custom_attributes_update(
     schema: Union["ArraySchema", "VArraySchema"],
     dimensions: Tuple[Union[Dimension, TimeDimension], ...],
     primary_attributes: dict,
     custom_attributes: dict,
     attributes: Optional[dict],
 ) -> dict:
-    """Validate custom attributes over schema.
+    """Validate custom attributes update over schema.
 
     :param schema: ArraySchema or VArraySchema instance
     :param dimensions: tuple of (V)Array dimensions
@@ -166,6 +172,7 @@ def validate_custom_attributes(
                     if d.name == s.name:
                         attributes[s.start_value[1:]] = d.start_value  # type: ignore[attr-defined]
         else:
+            # fill attributes to update dict with already existing custom attributes values
             for attr in schema.attributes:
                 if not attr.primary and attr.name not in attributes:
                     attributes[attr.name] = custom_attributes[attr.name]
