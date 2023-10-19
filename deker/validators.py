@@ -44,19 +44,19 @@ def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.d
 
 def __process_attributes_types(
     attrs_schema: Tuple["AttributeSchema", ...],
-    attributes: dict,
     primary_attributes: dict,
     custom_attributes: dict,
 ) -> None:
     """Validate attributes types over schema and update dicts if needed.
 
     :param attrs_schema: attributes schema
-    :param attributes: dict with both primary and custom attributes
     :param primary_attributes: primary attributes to validate
     :param custom_attributes: custom attributes to validate
     """
+    attributes = {**primary_attributes, **custom_attributes}
     for attr in attrs_schema:
         if attr.primary:
+            # check if primary attribute is not missing and its type
             if attr.name not in attributes:
                 raise DekerValidationError(f"Key attribute missing: {attr.name}")
             if not isinstance(primary_attributes[attr.name], attr.dtype):
@@ -66,6 +66,7 @@ def __process_attributes_types(
                 )
 
         else:
+            # check if custom attribute is not missing and its type
             custom_attribute = custom_attributes.get(attr.name)
             if custom_attribute is not None and not isinstance(custom_attribute, attr.dtype):
                 raise DekerValidationError(
@@ -137,7 +138,7 @@ def process_attributes(
             f"Invalid attributes: {sorted(extra_names)}"
         )
     __process_attributes_types(
-        attrs_schema, attributes, primary_attributes, custom_attributes  # type: ignore[arg-type]
+        attrs_schema, primary_attributes, custom_attributes  # type: ignore[arg-type]
     )
     return primary_attributes, custom_attributes
 
