@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
@@ -64,11 +65,13 @@ class TestCollectionMethods:
         assert not path.exists()
         assert not schema.exists()
 
+    @pytest.mark.parametrize("array_params", [{}, {"id_": str(uuid.uuid4())}])
     def test_clear_collection(
         self,
         array_collection: Collection,
         collection_adapter: LocalCollectionAdapter,
         storage_adapter,
+        array_params
     ):
         """Test collection clears its data well.
 
@@ -78,7 +81,7 @@ class TestCollectionMethods:
         schema = path / (array_collection.name + collection_adapter.file_ext)
         assert path.exists()
         assert schema.exists()
-        array = array_collection.create()
+        array = array_collection.create(**array_params)
         assert array
         array_paths = get_paths(array, array_collection.path)
         main_path = array_paths.main / (array.id + storage_adapter.file_ext)

@@ -400,8 +400,10 @@ class Client(SelfLoggerMixin):
             self.logger.info(f"Collection {name} not found")
             return None
 
-    def collection_from_dict(self, collection_data: dict) -> Collection:
-        """Create a new ``Collection`` in the database from collection metadata dictionary.
+    def _validate_collection(self, collection_data: dict) -> Collection:
+        """Validate ``Collection`` object and return it without creation.
+
+        Not recommended to use except for validation.
 
         :param collection_data: Dictionary with collection metadata
         """
@@ -432,9 +434,16 @@ class Client(SelfLoggerMixin):
 
                     elif k not in collection_data[key]:
                         collection_data[key][k] = default_fields[key][k]
-        collection = self.__adapter.create_collection_from_meta(  # type: ignore[return-value]
+        return self.__adapter.create_collection_from_meta(  # type: ignore[return-value]
             collection_data, self.__factory
         )
+
+    def collection_from_dict(self, collection_data: dict) -> Collection:
+        """Create a new ``Collection`` in the database from collection metadata dictionary.
+
+        :param collection_data: Dictionary with collection metadata
+        """
+        collection = self._validate_collection(collection_data)
         self.__adapter.create(collection)
         self.logger.debug(f"Collection {collection.name} created from dict")
         return collection  # type: ignore[return-value]
