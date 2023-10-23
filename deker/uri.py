@@ -16,17 +16,20 @@
 
 from __future__ import annotations
 
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from pathlib import Path
-from typing import Dict, List, Union
-from urllib.parse import ParseResult, parse_qs, quote, urlparse
+from typing import Dict, List, Optional, Tuple, Union
+from urllib.parse import ParseResult, _NetlocResultMixinStr, parse_qs, quote, urlparse
 
 from deker_tools.path import is_path_valid
 
 from deker.errors import DekerValidationError
 
 
-class Uri(ParseResult):
+ParseResultWithServers = namedtuple("ParseResultWithServers", ParseResult._fields + ("servers",))
+
+
+class Uri(ParseResultWithServers, _NetlocResultMixinStr):
     """Deker client uri wrapper.
 
     Overrides parsed result to have query as a dictionary.
@@ -40,8 +43,10 @@ class Uri(ParseResult):
         params={"separator": ";", "divider": None},
         query={"separator": "?", "divider": "&"},
         fragment={"separator": "#", "divider": None},
+        servers=Optional[List[str]],
     )
     query: Dict[str, List[str]]
+    servers: List[str]
 
     @property
     def raw_url(self) -> str:
@@ -51,6 +56,22 @@ class Uri(ParseResult):
             url += self.netloc
         url += quote(str(self.path), safe=":/")
         return url
+
+    @classmethod
+    def __get_servers_and_netloc(cls, netloc: str, scheme: str) -> Tuple[str, Optional[List[str]]]:
+        """Parse list of servers.
+
+        :param netloc: Netloc object
+        :param scheme: http or https
+        """
+        if "," not in netloc or scheme not in ["http", "https"]:
+            return netloc, None
+        servers = netloc.split(",")
+        node_with_possible_auth = servers[0]
+        if "@" in node_with_possible_auth:
+            auth, _ = node_with_possible_auth.split("@")
+            return node_with_possible_auth, [f"{scheme}://{auth}@{host}" for host in servers[1:]]
+        return node_with_possible_auth, [f"{scheme}://{host}" for host in servers[1:]]
 
     @classmethod
     def __parse(cls, uri: str) -> Uri:
@@ -66,14 +87,15 @@ class Uri(ParseResult):
             path, params = result.path, result.params
 
         query = parse_qs(result.query)
-
+        netloc, servers = cls.__get_servers_and_netloc(result.netloc, result.scheme)
         return Uri(  # type: ignore
             result.scheme,
-            result.netloc,
+            netloc,
             path,  # type: ignore[arg-type]
             params,
             query,  # type: ignore[arg-type]
             result.fragment,
+            servers,
         )
 
     @classmethod
@@ -99,7 +121,7 @@ class Uri(ParseResult):
     def create(cls, uri: str) -> Uri:
         """Create parsed and validated uri from string.
 
-        :param uri: : scheme://username:password@host:port/path;parameters?query
+        :param uri: scheme://username:password@host:port/path;parameters?query
         """
         cls.validate(uri)
         return cls.__parse(uri)
@@ -112,13 +134,15 @@ class Uri(ParseResult):
         sep = "/"
         other = str(other)
         path = sep.join((self.path, other.strip()))
+        netloc, servers = self.__get_servers_and_netloc(self.netloc, self.scheme)
         res = Uri(  # type: ignore
             self.scheme,
-            self.netloc,
+            netloc,
             path,  # type: ignore[arg-type]
             self.params,
             self.query,  # type: ignore[arg-type]
             self.fragment,
+            servers,
         )
         return res
 
