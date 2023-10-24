@@ -51,10 +51,10 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
     @property
     def raw_url(self) -> str:
         """Get url from raw uri without query string, arguments and fragments."""
-        url = self.scheme + "://"
-        if self.netloc:
-            url += self.netloc
-        url += quote(str(self.path), safe=":/")
+        url = self.scheme + "://"  # type: ignore[attr-defined]
+        if self.netloc:  # type: ignore[attr-defined]
+            url += self.netloc  # type: ignore[attr-defined]
+        url += quote(str(self.path), safe=":/")  # type: ignore[attr-defined]
         return url
 
     @classmethod
@@ -64,8 +64,12 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
         :param netloc: Netloc object
         :param scheme: http or https
         """
+        # If scheme is not http or https, it couldn't work in cluster mode
         if "," not in netloc or scheme not in ["http", "https"]:
+            # So servers will be None
             return netloc, None
+
+        # Otherwise parse servers
         servers = netloc.split(",")
         node_with_possible_auth = servers[0]
         if "@" in node_with_possible_auth:
@@ -110,8 +114,8 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
             raise DekerValidationError("Empty uri passed")
 
         parsed_uri = cls.__parse(uri)
-        if parsed_uri.scheme == "file":
-            pathname = Path(parsed_uri.path)
+        if parsed_uri.scheme == "file":  # type: ignore[attr-defined]
+            pathname = Path(parsed_uri.path)  # type: ignore[attr-defined]
             try:
                 is_path_valid(pathname)
             except Exception as e:
@@ -133,15 +137,15 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
         """
         sep = "/"
         other = str(other)
-        path = sep.join((self.path, other.strip()))
-        netloc, servers = self.__get_servers_and_netloc(self.netloc, self.scheme)
+        path = sep.join((self.path, other.strip()))  # type: ignore[attr-defined]
+        netloc, servers = self.__get_servers_and_netloc(self.netloc, self.scheme)  # type: ignore[attr-defined]
         res = Uri(  # type: ignore
-            self.scheme,
+            self.scheme,  # type: ignore[attr-defined]
             netloc,
             path,  # type: ignore[arg-type]
-            self.params,
+            self.params,  # type: ignore[attr-defined]
             self.query,  # type: ignore[arg-type]
-            self.fragment,
+            self.fragment,  # type: ignore[attr-defined]
             servers,
         )
         return res
