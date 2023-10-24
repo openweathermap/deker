@@ -30,7 +30,7 @@ dimensions and provides under the hood mechanisms to **partition** huge amounts 
 ## Features
 
 * **Open source** under GPL 3.0
-* Scalabale storage of huge virtual arrays via **tiling**
+* Scalable storage of huge virtual arrays via **tiling**
 * **Parallel processing** of virtual array tiles
 * Own **locking** mechanism enabling virtual arrays parallel read and write
 * Array level **metadata attributes**
