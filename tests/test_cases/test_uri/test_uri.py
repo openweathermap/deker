@@ -179,5 +179,30 @@ def test_uri_path_correct_concatenation_with_assignment(string):
     assert uri.raw_url == "/".join((init_uri.raw_url, "some_path", "some_extra"))
 
 
+@pytest.mark.parametrize(
+    "kwargs,result",
+    (
+        ({"netloc": "foo", "scheme": "file"}, ("file://foo", None)),
+        ({"netloc": "foo", "scheme": "ftp"}, ("ftp://foo", None)),
+        (
+            {"netloc": "foo:bar@host1:8000,host2:8001", "scheme": "http"},
+            ("foo:bar@host1:8000", ["http://foo:bar@host2:8001"]),
+        ),
+        (
+            {"netloc": "host1:8000,host2:8001", "scheme": "http"},
+            ("host1:8000", ["http://host2:8001"]),
+        ),
+    ),
+)
+def test_uri_get_netloc_and_servers(kwargs, result):
+    parsed_netloc, parsed_servers = Uri._Uri__get_servers_and_netloc(**kwargs)
+    netloc, servers = result
+
+    if result[1]:
+        assert list(parsed_servers) == servers
+    else:
+        assert parsed_servers is None
+
+
 if __name__ == "__main__":
     pytest.main()

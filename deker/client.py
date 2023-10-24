@@ -142,20 +142,20 @@ class Client(SelfLoggerMixin):
                 "No installed adapters are found: run `pip install deker_local_adapters`"
             )
 
-        if self.__uri.scheme not in self.__plugins:
+        if self.__uri.scheme not in self.__plugins:  # type: ignore[attr-defined]
             raise DekerClientError(
-                f"Invalid uri: {self.__uri.scheme} is not supported; {self.__uri}"
+                f"Invalid uri: {self.__uri.scheme} is not supported; {self.__uri}"  # type: ignore[attr-defined]
             )
 
         if self.is_closed:
             self.__is_closed = False
 
             try:
-                factory = self.__plugins[self.__uri.scheme]
+                factory = self.__plugins[self.__uri.scheme]  # type: ignore[attr-defined]
             except AttributeError:
                 raise DekerClientError(
                     f"Invalid source: installed package does not provide AdaptersFactory "
-                    f"for managing uri scheme {self.__uri.scheme}"
+                    f"for managing uri scheme {self.__uri.scheme}"  # type: ignore[attr-defined]
                 )
 
             self.__ctx = CTX(
@@ -267,7 +267,10 @@ class Client(SelfLoggerMixin):
     @property
     def root_path(self) -> Path:
         """Get root path to the current storage."""
-        return Path(self.__adapter.uri.path) / self.__config.collections_directory
+        return (
+            Path(self.__adapter.uri.path)  # type: ignore[attr-defined]
+            / self.__config.collections_directory
+        )
 
     @property
     def is_closed(self) -> bool:
