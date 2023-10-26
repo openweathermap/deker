@@ -132,6 +132,8 @@ def test_uri_raises_invalid_uri(uri):
         "http://host:8080/data/collections/",
         "https://user:pass@host:8080/data/collections/",
         "http://host:8080/data/collections/",
+        "https://user:pass@host:8080,host:8000/data/collections/",
+        "http://host:8080,host:3000/data/collections/",
         "https://user:pass@host:8080/data/collections/",
     ],
 )
@@ -152,6 +154,8 @@ def test_uri_path_concatenation(string):
         "https://user:pass@host:8080/data/collections/",
         "http://host:8080/data/collections/",
         "https://user:pass@host:8080/data/collections/",
+        "https://user:pass@host:8080,host:8000/data/collections/",
+        "http://host:8080,host:3000/data/collections/",
     ],
 )
 def test_uri_path_concatenation_with_assignment_wrong_expectations(string):
@@ -171,6 +175,8 @@ def test_uri_path_concatenation_with_assignment_wrong_expectations(string):
         "https://user:pass@host:8080/data/collections/",
         "http://host:8080/data/collections/",
         "https://user:pass@host:8080/data/collections/",
+        "https://user:pass@host:8080,host:8000/data/collections/",
+        "http://host:8080,host:3000/data/collections/",
     ],
 )
 def test_uri_path_correct_concatenation_with_assignment(string):

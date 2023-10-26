@@ -96,7 +96,7 @@ def process_attributes(
 
     array_type = "VArray" if isinstance(schema, VArraySchema) else "Array"
 
-    attrs_schema = schema.attributes if schema else None
+    attrs_schema = schema.attributes if schema else []
 
     if primary_attributes is None:
         primary_attributes = {}

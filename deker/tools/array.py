@@ -17,7 +17,7 @@
 import uuid
 
 from functools import singledispatch
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Tuple, Union, Literal
 
 import numpy as np
 
@@ -26,6 +26,7 @@ from deker_tools.time import get_utc
 from psutil import swap_memory, virtual_memory
 
 from deker.errors import DekerMemoryError, DekerValidationError
+from deker.types.private.enums import ArrayType
 
 
 def calculate_total_cells_in_array(seq: Union[Tuple[int, ...], List[int]]) -> int:
@@ -87,6 +88,15 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
         )
 
 
+def generate_uid(array_type: ArrayType) -> str:
+    """Generate uuid5 for given array_type.
+
+    :param array_type: Either array or varray
+    """
+    namespace = uuid.NAMESPACE_X500 if array_type == "array" else uuid.NAMESPACE_OID
+    return str(uuid.uuid5(namespace, array_type + get_utc().isoformat()))
+
+
 def get_id(array: Any) -> str:
     """Generate unique id by object type and datetime.
 
@@ -108,7 +118,7 @@ def get_id(array: Any) -> str:
 
         :param arr: Array type
         """
-        return str(uuid.uuid5(uuid.NAMESPACE_X500, "array" + get_utc().isoformat()))
+        return generate_uid(ArrayType.array)
 
     @generate_id.register(VArray)
     def varray_id(arr: VArray) -> str:  # noqa[ARG001]
@@ -116,6 +126,6 @@ def get_id(array: Any) -> str:
 
         :param arr: VArray type
         """
-        return str(uuid.uuid5(uuid.NAMESPACE_OID, "varray" + get_utc().isoformat()))
+        return generate_uid(ArrayType.varray)
 
     return generate_id(array)
