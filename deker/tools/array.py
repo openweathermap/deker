@@ -17,7 +17,7 @@
 import uuid
 
 from functools import singledispatch
-from typing import Any, Dict, List, Tuple, Union, Literal
+from typing import Any, Dict, List, Tuple, Union
 
 import numpy as np
 
