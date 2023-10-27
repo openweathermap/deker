@@ -61,14 +61,14 @@ class DTypeEnum(Enum):
         return f"numpy.{object.name}"
 
 
-class DimensionType(Enum):
+class DimensionType(str, Enum):
     """Enum of dimensions' types."""
 
     generic = "generic"
     time = "time"
 
 
-class LocksExtensions(Enum):
+class LocksExtensions(str, Enum):
     """Extensions for lock files."""
 
     array_lock = ".arrlock"
@@ -77,10 +77,15 @@ class LocksExtensions(Enum):
     varray_lock = ".varraylock"
 
 
-class LocksTypes(Enum):
+class LocksTypes(str, Enum):
     """Locks enum."""
 
     array_lock = "array creation lock"
     array_read_lock = "array read lock"
     collection_lock = "collection creation lock"
     varray_lock = "varray write lock"
+
+
+class ArrayType(str, Enum):
+    array = "array"
+    varray = "varray"
