@@ -6,6 +6,7 @@ import pytest
 
 from deker_local_adapters import LocalCollectionAdapter
 
+from deker.tools.array import generate_uid
 from tests.parameters.collection_params import CollectionParams
 
 from deker.collection import Collection
@@ -218,6 +219,12 @@ def test_convert_isoformat_attrs(attrs, expected):
 def test_convert_isoformat_attrs_raises(attrs):
     with pytest.raises(TypeError):
         assert convert_iso_attrs_to_datetime(attrs)
+
+
+@pytest.mark.parametrize("array_type_arg", (list(), set(), tuple(), dict(), 1, "2", 3.4))
+def test_generate_id_raises(array_type_arg):
+    with pytest.raises(TypeError):
+        generate_uid(array_type_arg)
 
 
 if __name__ == "__main__":
