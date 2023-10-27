@@ -93,7 +93,8 @@ def generate_uid(array_type: ArrayType) -> str:
 
     :param array_type: Either array or varray
     """
-    namespace = uuid.NAMESPACE_X500 if array_type == "array" else uuid.NAMESPACE_OID
+    assert isinstance(array_type, ArrayType), "Invalid argument type. Array type is required"
+    namespace = uuid.NAMESPACE_X500 if array_type == ArrayType.array else uuid.NAMESPACE_OID
     return str(uuid.uuid5(namespace, array_type + get_utc().isoformat()))
 
 
