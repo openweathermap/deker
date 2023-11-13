@@ -10,8 +10,8 @@ from deker.tools.array import generate_uid
 from tests.parameters.collection_params import CollectionParams
 
 from deker.collection import Collection
-from deker.errors import DekerInstanceNotExistsError, DekerMemoryError
-from deker.tools import check_memory
+from deker.errors import DekerInstanceNotExistsError, DekerMemoryError, DekerValidationError
+from deker.tools import check_memory, convert_human_memory_to_bytes
 from deker.tools.time import convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime
 
 
@@ -225,6 +225,24 @@ def test_convert_isoformat_attrs_raises(attrs):
 def test_generate_id_raises(array_type_arg):
     with pytest.raises(TypeError):
         generate_uid(array_type_arg)
+
+
+@pytest.mark.parametrize(
+    "params,result,error",
+    (
+        ("1K", 1024, None),
+        ("1M", 1024**2, None),
+        ("1G", 1024**3, None),
+        ("0", 0, None),
+        ("Foo", None, DekerValidationError),
+    ),
+)
+def test_convert_human_to_bytes(params, result, error):
+    if error:
+        with pytest.raises(error):
+            convert_human_memory_to_bytes(params)
+    else:
+        assert convert_human_memory_to_bytes(params) == result
 
 
 if __name__ == "__main__":
