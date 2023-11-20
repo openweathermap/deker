@@ -36,7 +36,7 @@ Deker depends on the following third-party packages:
     * ``h5py`` >= 3.8.0
     * ``hdf5plugin`` >= 4.0.1
 
-Also please not that for flexibility few internal Deker components are published as separate
+Also please note that for flexibility few internal Deker components are published as separate
 packages:
 
     * ``deker-local-adapters``

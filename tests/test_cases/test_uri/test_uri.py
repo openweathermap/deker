@@ -132,6 +132,8 @@ def test_uri_raises_invalid_uri(uri):
         "http://host:8080/data/collections/",
         "https://user:pass@host:8080/data/collections/",
         "http://host:8080/data/collections/",
+        "https://user:pass@host:8080,host:8000/data/collections/",
+        "http://host:8080,host:3000/data/collections/",
         "https://user:pass@host:8080/data/collections/",
     ],
 )
@@ -152,6 +154,8 @@ def test_uri_path_concatenation(string):
         "https://user:pass@host:8080/data/collections/",
         "http://host:8080/data/collections/",
         "https://user:pass@host:8080/data/collections/",
+        "https://user:pass@host:8080,host:8000/data/collections/",
+        "http://host:8080,host:3000/data/collections/",
     ],
 )
 def test_uri_path_concatenation_with_assignment_wrong_expectations(string):
@@ -171,12 +175,39 @@ def test_uri_path_concatenation_with_assignment_wrong_expectations(string):
         "https://user:pass@host:8080/data/collections/",
         "http://host:8080/data/collections/",
         "https://user:pass@host:8080/data/collections/",
+        "https://user:pass@host:8080,host:8000/data/collections/",
+        "http://host:8080,host:3000/data/collections/",
     ],
 )
 def test_uri_path_correct_concatenation_with_assignment(string):
     init_uri = uri = Uri.create(string)
     uri /= Path("some_path") / "some_extra"
     assert uri.raw_url == "/".join((init_uri.raw_url, "some_path", "some_extra"))
+
+
+@pytest.mark.parametrize(
+    "kwargs,result",
+    (
+        ({"netloc": "foo", "scheme": "file"}, ("file://foo", None)),
+        ({"netloc": "foo", "scheme": "ftp"}, ("ftp://foo", None)),
+        (
+            {"netloc": "foo:bar@host1:8000,host2:8001", "scheme": "http"},
+            ("foo:bar@host1:8000", ["http://foo:bar@host2:8001"]),
+        ),
+        (
+            {"netloc": "host1:8000,host2:8001", "scheme": "http"},
+            ("host1:8000", ["http://host2:8001"]),
+        ),
+    ),
+)
+def test_uri_get_netloc_and_servers(kwargs, result):
+    parsed_netloc, parsed_servers = Uri._Uri__get_servers_and_netloc(**kwargs)
+    netloc, servers = result
+
+    if result[1]:
+        assert list(parsed_servers) == servers
+    else:
+        assert parsed_servers is None
 
 
 if __name__ == "__main__":

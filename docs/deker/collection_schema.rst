@@ -104,7 +104,7 @@ with its *zero-index* at the front-left-bottom corner.
 .. image:: images/varray.png
    :scale: 30%
 
-Let's query the following slice of it: ``[:, 2:4, :]``
+Let's query the following slice of it: ``[2:4, :, :]``
 
 .. image:: images/varray_request.png
    :scale: 30%

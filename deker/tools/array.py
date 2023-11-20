@@ -26,6 +26,7 @@ from deker_tools.time import get_utc
 from psutil import swap_memory, virtual_memory
 
 from deker.errors import DekerMemoryError, DekerValidationError
+from deker.types.private.enums import ArrayType
 
 
 def calculate_total_cells_in_array(seq: Union[Tuple[int, ...], List[int]]) -> int:
@@ -52,6 +53,11 @@ def convert_human_memory_to_bytes(memory_limit: Union[int, str]) -> int:
 
     if isinstance(memory_limit, int):
         return memory_limit
+
+    try:
+        return int(memory_limit)
+    except ValueError:
+        pass
 
     limit, div = memory_limit[:-1], memory_limit.lower()[-1]
     try:
@@ -87,6 +93,18 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
         )
 
 
+def generate_uid(array_type: ArrayType) -> str:
+    """Generate uuid5 for given array_type.
+
+    :param array_type: Either array or varray
+    """
+    if not isinstance(array_type, ArrayType):
+        raise TypeError("Invalid argument type. Array type is required")
+
+    namespace = uuid.NAMESPACE_X500 if array_type == ArrayType.array else uuid.NAMESPACE_OID
+    return str(uuid.uuid5(namespace, array_type.value + get_utc().isoformat()))
+
+
 def get_id(array: Any) -> str:
     """Generate unique id by object type and datetime.
 
@@ -108,7 +126,7 @@ def get_id(array: Any) -> str:
 
         :param arr: Array type
         """
-        return str(uuid.uuid5(uuid.NAMESPACE_X500, "array" + get_utc().isoformat()))
+        return generate_uid(ArrayType.array)
 
     @generate_id.register(VArray)
     def varray_id(arr: VArray) -> str:  # noqa[ARG001]
@@ -116,6 +134,6 @@ def get_id(array: Any) -> str:
 
         :param arr: VArray type
         """
-        return str(uuid.uuid5(uuid.NAMESPACE_OID, "varray" + get_utc().isoformat()))
+        return generate_uid(ArrayType.varray)
 
     return generate_id(array)

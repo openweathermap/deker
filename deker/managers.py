@@ -109,17 +109,20 @@ class DataManager(BaseManager):
         schema: "BaseArraysSchema",
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
+        id_: Optional[str] = None,
     ) -> Union[Array, VArray]:
         """Create Array or VArray.
 
         :param primary_attributes: array primary attribute
         :param custom_attributes: array custom attributes
         :param schema: schema decides which array will be created
+        :param id_: (V)Array uuid string
         """
         arr_params = {
             "collection": self.__collection,
             "primary_attributes": primary_attributes,
             "custom_attributes": custom_attributes,
+            "id_": id_,
         }
 
         if isinstance(schema, VArraySchema):
@@ -135,15 +138,19 @@ class DataManager(BaseManager):
         return array
 
     def create(
-        self, primary_attributes: Optional[dict] = None, custom_attributes: Optional[dict] = None
+        self,
+        primary_attributes: Optional[dict] = None,
+        custom_attributes: Optional[dict] = None,
+        id_: Optional[str] = None,
     ) -> Union[Array, VArray]:
         """Create array or varray.
 
-        :param primary_attributes: Primary attributes
-        :param custom_attributes:  Custom attributes
+        :param primary_attributes: primary attributes
+        :param custom_attributes: custom attributes
+        :param id_: unique UUID string
         """
         schema = self.__collection.varray_schema or self.__collection.array_schema
-        return self._create(schema, primary_attributes, custom_attributes)
+        return self._create(schema, primary_attributes, custom_attributes, id_)
 
 
 class VArrayManager(SelfLoggerMixin, DataManager):
@@ -177,14 +184,16 @@ class VArrayManager(SelfLoggerMixin, DataManager):
         self,
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
+        id_: Optional[str] = None,
     ) -> VArray:
         """Create varray in collection.
 
-        :param primary_attributes: Primary attributes the varray
-        :param custom_attributes: Custom attributes the varray
+        :param primary_attributes: VArray primary attributes
+        :param custom_attributes: VArray custom attributes
+        :param id_: VArray unique UUID string
         """
         return self._create(  # type: ignore[return-value]
-            self.__collection.varray_schema, primary_attributes, custom_attributes  # type: ignore[arg-type]
+            self.__collection.varray_schema, primary_attributes, custom_attributes, id_  # type: ignore[arg-type]
         )
 
     def __iter__(self) -> Generator[VArray, None, None]:
@@ -223,14 +232,16 @@ class ArrayManager(SelfLoggerMixin, DataManager):
         self,
         primary_attributes: Optional[dict] = None,
         custom_attributes: Optional[dict] = None,
+        id_: Optional[str] = None,
     ) -> Array:
-        """Create varray in collection.
+        """Create array in collection.
 
-        :param primary_attributes: Primary attributes the varray
-        :param custom_attributes: Custom attributes the varray
+        :param primary_attributes: Array primary attributes
+        :param custom_attributes: Array custom attributes
+        :param id_: Array unique UUID string
         """
         return self._create(  # type: ignore[return-value]
-            self.__collection.array_schema, primary_attributes, custom_attributes
+            self.__collection.array_schema, primary_attributes, custom_attributes, id_
         )
 
     def __iter__(self) -> Generator[Array, None, None]:

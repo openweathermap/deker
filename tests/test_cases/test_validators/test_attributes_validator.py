@@ -600,5 +600,22 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection.delete()
 
 
+class TestNoAttributes:
+    def test_no_attributes(self, client):
+        """Test that it's possible to create array with empty primary and custom attributes schema."""
+        coll_params = ClientParams.ArraySchema.OK.no_vgrid_no_attrs()
+        try:
+            collection: Collection = client.create_collection(**coll_params)
+        except DekerCollectionAlreadyExistsError:
+            coll = client.get_collection(coll_params["name"])
+            coll.delete()
+            collection: Collection = client.create_collection(**coll_params)
+        try:
+            array = collection.create()
+            assert array
+        finally:
+            collection.delete()
+
+
 if __name__ == "__main__":
     pytest.main()

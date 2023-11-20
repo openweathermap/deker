@@ -1,4 +1,5 @@
 import os
+import uuid
 
 from datetime import datetime, timedelta
 
@@ -9,7 +10,7 @@ from deker_tools.time import get_utc
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerFilterError
+from deker.errors import DekerFilterError, DekerValidationError, DekerArrayError
 from deker.schemas import (
     ArraySchema,
     AttributeSchema,
@@ -20,13 +21,44 @@ from deker.schemas import (
 
 
 class TestDataManagerMethods:
-    def test_manager_create_array(self, collection_manager):
+    @pytest.mark.parametrize("array_params", [{}, {"id_": str(uuid.uuid4())}])
+    def test_manager_create_array(self, collection_manager, array_params):
         """Tests if manager can create array.
 
         :param collection_manager: fixture
         """
-        array = collection_manager.create()
+        array = collection_manager.create(**array_params)
         assert isinstance(array, Array)
+        if array_params.get("id_"):
+            assert array.id == array_params["id_"]
+
+    @pytest.mark.parametrize(
+        "id_",
+        [
+            (str(uuid.uuid4()))[:-10],
+            "123",
+            "{20f5484b-88ae-49b0-8af0-3a389b4917dd}",
+            "20f5484b88ae49b08af03a389b4917dd",
+        ],
+    )
+    def test_manager_create_array_fail_bad_id(self, collection_manager, id_):
+        """Tests if manager returns error on incorrect id param.
+
+        :param collection_manager: fixture
+        :param id_: incorrect uuid
+        """
+        with pytest.raises(DekerValidationError):
+            collection_manager.create(id_=id_)
+
+    def test_manager_create_array_fail_exists(self, inserted_array: Array, collection_manager):
+        """Tests if manager returns error on trying to create array with uuid of existing array.
+
+        :param inserted_array: fixture
+        :param collection_manager: fixture
+        """
+        with pytest.raises(DekerArrayError) as e:
+            collection_manager.create(id_=inserted_array.id)
+            assert inserted_array.id in str(e) and "already exists" in str(e)
 
     def test_get_array_by_id(self, inserted_array: Array, collection_manager):
         """Tests possibility of getting an array by id.
@@ -252,13 +284,46 @@ class TestDataManagerMethods:
 
 
 class TestDataManagerMethodsVArray:
-    def test_manager_create_varray(self, va_collection_manager):
-        """Tests if manager creates array.
+    @pytest.mark.parametrize("varray_params", [{}, {"id_": str(uuid.uuid4())}])
+    def test_manager_create_varray(self, va_collection_manager, varray_params):
+        """Tests if manager can create VArray.
 
         :param va_collection_manager: fixture
         """
-        array = va_collection_manager.create()
-        assert isinstance(array, VArray)
+        varray = va_collection_manager.create(**varray_params)
+        assert isinstance(varray, VArray)
+        if varray_params.get("id_"):
+            assert varray.id == varray_params["id_"]
+
+    @pytest.mark.parametrize(
+        "id_",
+        [
+            str(uuid.uuid4())[:-1],
+            "123",
+            "{20f5484b-88ae-49b0-8af0-3a389b4917dd}",
+            "20f5484b88ae49b08af03a389b4917dd",
+        ],
+    )
+    def test_manager_create_varray_fail_bad_id(self, va_collection_manager, id_):
+        """Tests if manager returns error on incorrect id param.
+
+        :param va_collection_manager: fixture
+        :param id_: incorrect uuid
+        """
+        with pytest.raises(DekerValidationError):
+            va_collection_manager.create(id_=id_)
+
+    def test_manager_create_varray_fail_exists(
+        self, inserted_varray: VArray, va_collection_manager
+    ):
+        """Tests if manager returns error on trying to create varray with uuid of existing varray.
+
+        :param inserted_varray: fixture
+        :param va_collection_manager: fixture
+        """
+        with pytest.raises(DekerArrayError) as e:
+            va_collection_manager.create(id_=inserted_varray.id)
+            assert inserted_varray.id in str(e) and "already exists" in str(e)
 
     def test_get_array_by_id(self, inserted_varray: VArray, va_collection_manager):
         """Tests possibility of getting an array by id.
