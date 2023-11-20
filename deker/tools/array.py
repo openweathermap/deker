@@ -54,6 +54,11 @@ def convert_human_memory_to_bytes(memory_limit: Union[int, str]) -> int:
     if isinstance(memory_limit, int):
         return memory_limit
 
+    try:
+        return int(memory_limit)
+    except ValueError:
+        pass
+
     limit, div = memory_limit[:-1], memory_limit.lower()[-1]
     try:
         int_limit: int = int(limit)
