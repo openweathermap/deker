@@ -6,12 +6,12 @@ import pytest
 
 from deker_local_adapters import LocalCollectionAdapter
 
-from deker.tools.array import generate_uid
 from tests.parameters.collection_params import CollectionParams
 
 from deker.collection import Collection
 from deker.errors import DekerInstanceNotExistsError, DekerMemoryError, DekerValidationError
 from deker.tools import check_memory, convert_human_memory_to_bytes
+from deker.tools.array import generate_uid
 from deker.tools.time import convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime
 
 

@@ -1,8 +1,10 @@
 import uuid
+
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import hdf5plugin
+import numpy as np
 import pytest
 
 from deker_local_adapters import HDF5StorageAdapter, LocalCollectionAdapter
@@ -71,7 +73,7 @@ class TestCollectionMethods:
         array_collection: Collection,
         collection_adapter: LocalCollectionAdapter,
         storage_adapter,
-        array_params
+        array_params,
     ):
         """Test collection clears its data well.
 
@@ -338,6 +340,10 @@ class TestCollectionMethods:
             BytesIO,
             set,
             type,
+            str,
+            dict,
+            tuple,
+            list,
         ),
     )
     def test_wrong_dtype(self, dtype: type, array_schema: ArraySchema):

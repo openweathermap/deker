@@ -88,7 +88,7 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
     if array_size_bytes > limit:
         raise DekerMemoryError(
             f"Can not allocate {array_size_human} for array/subset with shape {shape} and dtype {dtype}. "
-            f"Current Deker limit per array/subset is {limit_human}. Value in config: {mem_limit_from_settings}"
+            f"Current Deker limit per array/subset is {limit_human}. Value in config: {mem_limit_from_settings} bytes. "
             f"Reduce shape or dtype of your array/subset or increase Deker RAM limit."
         )
 

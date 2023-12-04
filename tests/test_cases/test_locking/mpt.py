@@ -27,7 +27,6 @@ config = DekerConfig(
     array_symlinks_directory="array_symlinks",
     varray_symlinks_directory="varray_symlinks",
     uri="/tmp/mp_test/",
-    graceful_shutdown=True,
 )
 
 

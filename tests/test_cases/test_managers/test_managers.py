@@ -10,7 +10,7 @@ from deker_tools.time import get_utc
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerFilterError, DekerValidationError, DekerArrayError
+from deker.errors import DekerArrayError, DekerFilterError, DekerValidationError
 from deker.schemas import (
     ArraySchema,
     AttributeSchema,

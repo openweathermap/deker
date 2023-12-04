@@ -90,7 +90,7 @@ class BaseArraysSchema:
     dtype: Type[Numeric]
     fill_value: Union[Numeric, type(np.nan), None]  # type: ignore[valid-type]
     dimensions: Union[List[BaseDimensionSchema], Tuple[BaseDimensionSchema, ...]]
-    attributes: Union[List[BaseAttributeSchema], Tuple[BaseAttributeSchema, ...]]
+    attributes: Union[List[BaseAttributeSchema], Tuple[BaseAttributeSchema, ...], None]
 
     @property
     def primary_attributes(self) -> Optional[Tuple[BaseAttributeSchema, ...]]:
@@ -163,6 +163,10 @@ class BaseArraysSchema:
     @property
     def as_dict(self) -> dict:
         """Serialize as dict."""
+        if not issubclass(self.dtype, Numeric):  # type: ignore[arg-type]
+            raise DekerInvalidSchemaError(
+                f'Schema "{self.__class__.__name__}" is invalid/corrupted: wrong dtype {self.dtype}'
+            )
         try:
             dtype = DTypeEnum.get_name(DTypeEnum(self.dtype))
             fill_value = None if np.isnan(self.fill_value) else str(self.fill_value)  # type: ignore[arg-type]
@@ -170,7 +174,9 @@ class BaseArraysSchema:
             return {
                 "dimensions": tuple(dim.as_dict for dim in self.dimensions),
                 "dtype": dtype,
-                "attributes": tuple(attr.as_dict for attr in self.attributes),
+                "attributes": tuple(attr.as_dict for attr in self.attributes)
+                if self.attributes is not None
+                else tuple(),
                 "fill_value": fill_value,
             }
         except (KeyError, ValueError) as e:

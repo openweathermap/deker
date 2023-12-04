@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from collections import OrderedDict, namedtuple
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Tuple, Union
 from urllib.parse import ParseResult, _NetlocResultMixinStr, parse_qs, quote, urlparse
 
 from deker_tools.path import is_path_valid
@@ -39,22 +39,22 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
     __annotations__ = OrderedDict(
         scheme={"separator": None, "divider": None},
         netloc={"separator": "://", "divider": None},
-        path={"separator": "/", "divider": None},
-        params={"separator": ";", "divider": None},
+        servers={"separator": "@", "divider": ","},
+        path={"separator": "/", "divider": "/"},
+        params={"separator": ";", "divider": ","},
         query={"separator": "?", "divider": "&"},
         fragment={"separator": "#", "divider": None},
-        servers=Optional[List[str]],
     )
-    query: Dict[str, List[str]]
-    servers: List[str]
 
     @property
     def raw_url(self) -> str:
         """Get url from raw uri without query string, arguments and fragments."""
-        url = self.scheme + "://"  # type: ignore[attr-defined]
+        url = self.scheme + self.__annotations__["netloc"]["separator"]  # type: ignore[attr-defined]
         if self.netloc:  # type: ignore[attr-defined]
             url += self.netloc  # type: ignore[attr-defined]
-        url += quote(str(self.path), safe=":/")  # type: ignore[attr-defined]
+        url += quote(
+            str(self.path), safe=self.__annotations__["netloc"]["separator"][:-1]  # type: ignore[attr-defined]
+        )
         return url
 
     @classmethod
@@ -64,18 +64,33 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
         :param netloc: Netloc object
         :param scheme: http or https
         """
-        # If scheme is not http or https, it couldn't work in cluster mode
-        if "," not in netloc or scheme not in ["http", "https"]:
+        # If scheme is not http or https, it cannot work in cluster mode
+        if (
+            scheme not in ["http", "https"]
+            or cls.__annotations__["servers"]["divider"] not in netloc
+        ):
             # So servers will be None
             return netloc, None
 
         # Otherwise parse servers
-        servers = netloc.split(",")
+        servers = netloc.split(cls.__annotations__["servers"]["divider"])
         node_with_possible_auth = servers[0]
-        if "@" in node_with_possible_auth:
-            auth, _ = node_with_possible_auth.split("@")
-            return node_with_possible_auth, [f"{scheme}://{auth}@{host}" for host in servers[1:]]
-        return node_with_possible_auth, [f"{scheme}://{host}" for host in servers[1:]]
+        if cls.__annotations__["servers"]["separator"] in node_with_possible_auth:
+            auth, _ = node_with_possible_auth.split(cls.__annotations__["servers"]["separator"])
+            return (
+                node_with_possible_auth,
+                [
+                    f"{scheme}{cls.__annotations__['netloc']['separator']}"
+                    f"{auth}"
+                    f"{cls.__annotations__['servers']['separator']}"
+                    f"{host}"
+                    for host in servers[1:]
+                ],
+            )
+        return (
+            node_with_possible_auth,
+            [f"{scheme}{cls.__annotations__['netloc']['separator']}{host}" for host in servers[1:]],
+        )
 
     @classmethod
     def __parse(cls, uri: str) -> Uri:
@@ -86,7 +101,7 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
         result = urlparse(uri)
 
         if ";" in result.path:
-            path, params = result.path.split(";")
+            path, params = result.path.split(cls.__annotations__["params"]["separator"])
         else:
             path, params = result.path, result.params
 
@@ -135,16 +150,16 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
 
         :param other: Path or string to join
         """
-        sep = "/"
+        sep = self.__annotations__["path"]["separator"]
         other = str(other)
         path = sep.join((self.path, other.strip()))  # type: ignore[attr-defined]
         netloc, servers = self.__get_servers_and_netloc(self.netloc, self.scheme)  # type: ignore[attr-defined]
         res = Uri(  # type: ignore
             self.scheme,  # type: ignore[attr-defined]
             netloc,
-            path,  # type: ignore[arg-type]
+            path,  # type: ignore[attr-defined]
             self.params,  # type: ignore[attr-defined]
-            self.query,  # type: ignore[arg-type]
+            self.query,  # type: ignore[attr-defined]
             self.fragment,  # type: ignore[attr-defined]
             servers,
         )
