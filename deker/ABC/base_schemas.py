@@ -27,7 +27,7 @@ from attr import dataclass
 from deker.errors import DekerInvalidSchemaError, DekerValidationError
 from deker.tools.schema import get_default_fill_value
 from deker.types.private.enums import DTypeEnum
-from deker.types.private.typings import Numeric
+from deker.types.private.typings import Numeric, NumericDtypes
 
 
 @dataclass(repr=True)
@@ -121,6 +121,9 @@ class BaseArraysSchema:
         if len({d.name for d in self.dimensions}) < len(self.dimensions):
             raise DekerValidationError("Dimensions shall have unique names")
 
+        if self.dtype not in NumericDtypes:
+            raise DekerValidationError(f"Invalid dtype {self.dtype}")
+
         try:
             if self.dtype == int:
                 self.dtype = np.int64
@@ -163,10 +166,10 @@ class BaseArraysSchema:
     @property
     def as_dict(self) -> dict:
         """Serialize as dict."""
-        if not issubclass(self.dtype, Numeric):  # type: ignore[arg-type]
-            raise DekerInvalidSchemaError(
-                f'Schema "{self.__class__.__name__}" is invalid/corrupted: wrong dtype {self.dtype}'
-            )
+        error = f'Schema "{self.__class__.__name__}" is invalid/corrupted: '
+
+        if self.dtype not in NumericDtypes:
+            raise DekerInvalidSchemaError(error + f"wrong dtype {self.dtype}")
         try:
             dtype = DTypeEnum.get_name(DTypeEnum(self.dtype))
             fill_value = None if np.isnan(self.fill_value) else str(self.fill_value)  # type: ignore[arg-type]
@@ -180,6 +183,4 @@ class BaseArraysSchema:
                 "fill_value": fill_value,
             }
         except (KeyError, ValueError) as e:
-            raise DekerInvalidSchemaError(
-                f'Schema "{self.__class__.__name__}" is invalid/corrupted: {e}'
-            )
+            raise DekerInvalidSchemaError(error + str(e))
