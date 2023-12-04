@@ -46,14 +46,14 @@ if TYPE_CHECKING:
     EllipsisType = Type[Ellipsis]
 
 NumericDtypes = [
-    # int,
-    # float,
-    # complex,
-    # np.int_,  # alias for np.compat.long, deprecated in numpy version 1.25, equals to np.int64
-    # np.int8,
-    # np.int16,
-    # np.int32,
-    # np.int64,
+    int,
+    float,
+    complex,
+    np.int_,  # alias for np.compat.long, deprecated in numpy version 1.25, equals to np.int64
+    np.int8,
+    np.int16,
+    np.int32,
+    np.int64,
     np.uint,
     np.uint8,
     np.ubyte,
@@ -64,17 +64,17 @@ NumericDtypes = [
     np.uintp,
     np.ushort,
     np.ulonglong,
-    # np.float16,
-    # np.float64,
-    # np.float128,
-    # np.longfloat,
-    # np.double,
-    # np.longdouble,
-    # np.complex64,
-    # np.complex128,
-    # np.complex256,
-    # np.longcomplex,
-    # np.longlong,
+    np.float16,
+    np.float64,
+    np.float128,
+    np.longfloat,
+    np.double,
+    np.longdouble,
+    np.complex64,
+    np.complex128,
+    np.complex256,
+    np.longcomplex,
+    np.longlong,
 ]
 
 Numeric = Union[
