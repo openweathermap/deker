@@ -2,7 +2,6 @@
 Data Access
 ***********
 
-
 Collections
 ===========
 
@@ -599,3 +598,28 @@ It provides even more opportunities. Refer to ``xarray.DataArray`` API_ for deta
 .. _Installation: installation.html#extra-dependencies
 .. _Xarray: https://docs.xarray.dev/en/stable/
 .. _API: https://docs.xarray.dev/en/stable/generated/xarray.DataArray.html
+
+Locks
+======
+Deker is thread and process safe. It uses its own locks for the majority of operations.
+Deker locks can be divided into two groups:
+- read locks
+- write locks
+
+*Read locks* can be shared between threads and processes with no risk of data corruption.
+
+*Write locks* are exclusive and are taken for the files with correspondent data content.
+Only the process/thread, which has already acquired a write lock, may produce any changes
+in the data.
+
+It means that if one process is already writing some data into a ``HDF5`` file (or into
+an ``Array``) and some other processes want to read from it or to write some other data
+into the same file, they will receive a ``DekerLockError``.
+
+.. note::
+   Reading data from an ``Array``, which is locked for writing, is impossible.
+
+Speaking about ``VArray`` it means that several processes are able to update data
+in several non-intersecting ``VSubsets``. In case if any updating ``VSubset`` intersects
+with another one, the update operation will be rejected for the ``VSubset``, which met
+the write lock.

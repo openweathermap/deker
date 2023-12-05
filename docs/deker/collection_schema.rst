@@ -484,28 +484,160 @@ Data Type
 ---------
 
 Deker has a strong data typing. All the values of all the ``Array``  or ``VArray`` objects in one
-``Collection`` shall be of the same data type. Deker accepts numeric data of the following NumPy
-data types:
+``Collection`` shall be of the same data type. Deker accepts numeric data of the following Python
+and NumPy data types:
 
-    * ``numpy.int8``
-    * ``numpy.int16``
-    * ``numpy.int32``
-    * ``numpy.int64``
-    * ``numpy.float16``
-    * ``numpy.float64``
-    * ``numpy.float128``
-    * ``numpy.longfloat``
-    * ``numpy.double``
-    * ``numpy.longdouble``
-    * ``numpy.complex64``
-    * ``numpy.complex128``
-    * ``numpy.complex256``
-    * ``numpy.longcomplex``
-    * ``numpy.longlong``
+   .. list-table:: Integers
+      :align: center
+      :widths: 10 6 6 50
+      :header-rows: 1
 
-Python ``int``, ``float`` and ``complex`` are also acceptable. They are correspondingly converted
-to ``numpy.int32``, ``numpy.float64`` and ``numpy.complex128``.
+      * - Type
+        - Bits
+        - Bytes
+        - Range
+      * - Python ``int``
+        - 64
+        - 8
+        - -9223372036854775808 ... 9223372036854775807
+      * - ``numpy.int8`` |br| ``numpy.byte``
+        - 8
+        - 1
+        - -128 ... 127
+      * - ``numpy.int16`` |br| ``numpy.short``
+        - 16
+        - 2
+        - -32768 ... 32767
+      * - ``numpy.int32`` |br| ``numpy.intc``
+        - 32
+        - 4
+        - -2147483648 ... 2147483647
+      * - ``numpy.int64`` |br| ``numpy.longlong`` |br| ``numpy.intp`` |br| ``numpy.int_``
+        - 64
+        - 8
+        - -9223372036854775808 ... 9223372036854775
 
+
+   .. list-table:: Unsigned Integers
+      :align: center
+      :widths: 10 6 6 50
+      :header-rows: 1
+
+      * - Type
+        - Bits
+        - Bytes
+        - Range
+      * - ``numpy.uint8`` |br| ``numpy.ubyte``
+        - 8
+        - 1
+        - 0 ... 255
+      * - ``numpy.uint16`` |br| ``numpy.ushort``
+        - 16
+        - 2
+        - 0 ... 65535
+      * - ``numpy.uint32`` |br| ``numpy.uintc``
+        - 32
+        - 4
+        - 0 ... 4294967295
+      * - ``numpy.uint`` |br| ``numpy.uint64`` |br| ``numpy.uintp`` |br| ``numpy.ulonglong``
+        - 64
+        - 8
+        - 0 ... 18446744073709551615
+
+   .. list-table:: Floating points
+      :align: center
+      :widths: 10 6 6 50
+      :header-rows: 1
+
+      * - Type
+        - Bits
+        - Bytes
+        - Range
+      * - Python ``float``
+        - 64
+        - 8
+        - -1.7976931348623157*10^308 ... |br| 1.7976931348623157*10^308
+      * - ``numpy.float16`` |br| ``numpy.cfloat`` |br| ``numpy.cdouble``
+        - 16
+        - 2
+        - -65500.0 ... 65500.0
+      * - ``numpy.float32`` |br| ``numpy.clongfloat``
+        - 32
+        - 4
+        - -3.4028235*10^38 ... 3.4028235*10^38
+      * - ``numpy.float64`` |br| ``numpy.double``
+        - 64
+        - 8
+        - -1.7976931348623157*10^308 ... |br| 1.7976931348623157*10^308
+      * - ``numpy.float128`` |br| ``numpy.longfloat`` |br| ``numpy.longdouble``
+        - 128
+        - 16
+        - -1.189731495357231765*10^4932 ... |br| 1.189731495357231765*10^4932
+
+
+
+   .. list-table:: Complex
+      :align: center
+      :widths: 10 6 6 25
+      :header-rows: 1
+
+      * - Type
+        - Bits
+        - Bytes
+        - Range
+      * - Python ``complex``
+        - 128
+        - 16
+        - -1.189731495357231765*10^4932-1.189731495357231765*10^4932j ... |br|
+          1.189731495357231765*10^4932+1.189731495357231765*10^4932j
+      * - ``numpy.complex64`` |br| ``numpy.singlecomplex``
+        - 64
+        - 8
+        - -1.7976931348623157*10^308-1.7976931348623157*10^308j ... |br|
+          1.7976931348623157*10^308+1.7976931348623157*10^308j
+      * - ``numpy.complex128`` |br| ``numpy.complex_``
+        - 128
+        - 16
+        - -1.189731495357231765*10^4932-1.189731495357231765*10^4932j ... |br|
+          1.189731495357231765*10^4932+1.189731495357231765*10^4932j
+      * - ``numpy.complex256`` |br| ``numpy.longcomplex``
+        - 256
+        - 32
+        - `even more`
+
+
+Python ``int``, ``float`` and ``complex`` are correspondingly converted to ``numpy.int64``,
+``numpy.float64`` and ``numpy.complex128``.
+
+.. |br| raw:: html
+
+       <br />
+
+**What influence is caused by a chosen data type?**
+
+Insofar as any data type has its own size it influences the memory: virtual and physical.
+Thus, we can predict how much memory and space we will need for an array with this or that
+`shape` and `dtype`. Let's say, we have an array with shape `(10, 10, 10)`::
+
+   np.int32 = 32 bits / 8 bits = 4 bytes
+   shape (10, 10, 10) * 4 b = 10 * 10 * 10 * 4 = 4000 b / 1024 b = 3.9 Kb
+
+   np.float64 = 64 bits / 8 bits = 8 bytes
+   shape (10, 10, 10) * 8 b = 10 * 10 * 10 * 8 = 8000 b / 1024 b = 7.8 Kb
+
+   np.complex128  = 128 bits / 8 bits = 16 bytes
+   shape (10, 10, 10) * 16 b = 10 * 10 * 10 * 16 = 16000 b / 1024 b = 15.6 Kb
+
+
+
+Also, it influences minimal and maximal values of your data. |br| For example,
+the range of ``numpy.int8`` is insufficient for displaying Kelvin zero
+in Celsius integer degrees, as the limit is -128 and 0°K ~= -273.15°C.
+
+
+
+
+And it influences the ``fill value``.
 
 Fill Value
 ----------
@@ -518,10 +650,10 @@ Rules are the following:
 
 1. ``fill_value`` **shall not be significant** for your data.
 2. ``fill_value`` **is optional** - you may not provide it. In this case Deker will choose it
-   automatically basing on the provided ``dtype``. For ``integer`` data types it will be the lowest
-   value for the correspondent data type bit capacity. For example, it will be ``-128`` for
-   ``numpy.int8``. For ``float`` data types (including ``complex``) it will be ``numpy.nan`` as
-   this type is also ``floating``.
+   automatically basing on the provided ``dtype``. For ``integer`` and ``unsigned integer`` data
+   types it will be the lowest value for the correspondent data type bit capacity. For example,
+   it will be ``-128`` for ``numpy.int8``. For ``float`` and ``complex`` data types it will be
+   ``numpy.nan`` as this type is also ``floating``.
 3. If you would like to set it manually, ``fill_value`` shall be of the same data type, that was
    passed to the ``dtype`` parameter. If all the values of the correspondent ``dtype`` are
    significant for you, you shall choose a data type of a greater bit capacity. For example, if all
@@ -570,8 +702,8 @@ And schema of ``Collection`` of ``VArray``::
         dimensions=dimensions,
         dtype=np.int64,
         fill_value=-99999,
-        vgrid=(50, 20)
-        # attributes are not passed as they are optional
+        vgrid=(50, 20),
+        attributes=None  # attributes are optional
     )
 
 
