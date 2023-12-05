@@ -520,7 +520,7 @@ class TypedSchemaParams:
             datetime.now(),
             Scale(0.1, 0.2),
         ]:
-            if exception_types and type(item) in exception_types or item is None:
+            if exception_types and type(item) in exception_types:
                 continue
             result.append({**base_dict.copy(), key: item})
             if key == "scale":

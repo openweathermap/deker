@@ -317,7 +317,7 @@ class WriteVarrayLock(BaseLock):
         super().release()
 
     def acquire(self, path: Optional[Path]) -> None:
-        """VArray shall not be locked itself.
+        """VArray shall not lock itself.
 
         :param path: path to the file to be locked
         """
