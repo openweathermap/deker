@@ -515,7 +515,7 @@ and NumPy data types:
       * - ``numpy.int64`` |br| ``numpy.longlong`` |br| ``numpy.intp`` |br| ``numpy.int_``
         - 64
         - 8
-        - -9223372036854775808 ... 9223372036854775
+        - -9223372036854775808 ... 9223372036854775807
 
 
    .. list-table:: Unsigned Integers
