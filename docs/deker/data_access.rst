@@ -602,13 +602,11 @@ It provides even more opportunities. Refer to ``xarray.DataArray`` API_ for deta
 Locks
 ======
 Deker is thread and process safe. It uses its own locks for the majority of operations.
-Deker locks can be divided into two groups:
-- read locks
-- write locks
+Deker locks can be divided into two groups: **read** and **write** locks
 
-*Read locks* can be shared between threads and processes with no risk of data corruption.
+**Read locks** can be shared between threads and processes with no risk of data corruption.
 
-*Write locks* are exclusive and are taken for the files with correspondent data content.
+**Write locks** are exclusive and are taken for the files with correspondent data content.
 Only the process/thread, which has already acquired a write lock, may produce any changes
 in the data.
 
