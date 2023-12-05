@@ -265,6 +265,9 @@ def __common_arrays_attributes_post_init__(self: BaseArraysSchema) -> None:  # n
 
     :param self: ArraySchema or VArraySchema instance
     """
+    if self.attributes is None:
+        self.attributes = tuple()
+
     if not isinstance(self.attributes, (tuple, list)):
         raise DekerValidationError("Attributes shall be a list or tuple of AttributeSchema")
     if any(not isinstance(a, AttributeSchema) for a in self.attributes):
@@ -333,7 +336,7 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
     vgrid: Optional[Union[List[int], Tuple[int, ...]]] = None
     arrays_shape: Optional[Union[List[int], Tuple[int, ...]]] = None
     fill_value: Union[Numeric, type(np.nan), None] = None  # type: ignore[valid-type]
-    attributes: Union[List[AttributeSchema], Tuple[AttributeSchema, ...]] = tuple()
+    attributes: Union[List[AttributeSchema], Tuple[AttributeSchema, ...], None] = None
 
     def __attrs_post_init__(self) -> None:
         """Validate schema, convert `vgrid` or `arrays_shape` to tuple and calculate the other grid splitter."""
@@ -423,7 +426,7 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
     """
 
     fill_value: Union[Numeric, type(np.nan), None] = None  # type: ignore[valid-type]
-    attributes: Union[List[AttributeSchema], Tuple[AttributeSchema, ...]] = tuple()
+    attributes: Union[List[AttributeSchema], Tuple[AttributeSchema, ...], None] = None
 
     def __attrs_post_init__(self) -> None:
         """Validate schema."""

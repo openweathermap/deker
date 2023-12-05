@@ -43,10 +43,10 @@ def convert_human_memory_to_bytes(memory_limit: Union[int, str]) -> int:
     :param memory_limit: memory limit provided by the user
     """
     bytes_ = 1024
-    mapping: Dict[str, int] = {"k": bytes_, "m": bytes_**2, "g": bytes_**3}
+    mapping: Dict[str, int] = {"k": bytes_, "m": bytes_**2, "g": bytes_**3, "t": bytes_**4}
     error = (
         f"invalid memory_limit value: {memory_limit}; expected `int` or `str` in format [number][unit] "
-        f'where unit is one of ["k", "K", "m", "M", "g", "G"], e.g. "8G" or "512m"'
+        f'where unit is one of ["k", "K", "m", "M", "g", "G", "t", "T"], e.g. "8G" or "512m"'
     )
     if not isinstance(memory_limit, (int, str)):
         raise DekerValidationError(error)
@@ -81,15 +81,32 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
     array_size_bytes = np.dtype(dtype).itemsize * array_values
     array_size_human = convert_size_to_human(array_size_bytes)
 
+    total_machine_mem = virtual_memory().total + swap_memory().total
+    total_human_mem = convert_size_to_human(total_machine_mem)
     current_limit = virtual_memory().available + swap_memory().free
     limit = min(mem_limit_from_settings, current_limit)
     limit_human = convert_size_to_human(limit)
+    config_human_limit = convert_size_to_human(mem_limit_from_settings)
+
+    deker_limit = f"{config_human_limit} ({mem_limit_from_settings} bytes). "
+    limit_message = (
+        "Deker Client memory usage is limited to the total memory available on this machine: "
+        + deker_limit
+    )
+    advise = ""
+    if total_machine_mem > mem_limit_from_settings:
+        limit_message = (
+            f"Total memory available on this machine is {total_human_mem} ({total_machine_mem} bytes). "
+            f"Deker Client memory usage is manually limited to " + deker_limit
+        )
+        advise = " Also, you may try to increase the value of Deker Client memory limit."
 
     if array_size_bytes > limit:
         raise DekerMemoryError(
             f"Can not allocate {array_size_human} for array/subset with shape {shape} and dtype {dtype}. "
-            f"Current Deker limit per array/subset is {limit_human}. Value in config: {mem_limit_from_settings} bytes. "
-            f"Reduce shape or dtype of your array/subset or increase Deker RAM limit."
+            f"{limit_message}"
+            f"Current available free memory per array/subset is {limit_human} ({limit} bytes). "
+            f"Reduce your schema or the `shape` of your subset or revise other processes memory usage.{advise}"
         )
 
 

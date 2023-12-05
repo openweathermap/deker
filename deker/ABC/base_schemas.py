@@ -177,9 +177,7 @@ class BaseArraysSchema:
             return {
                 "dimensions": tuple(dim.as_dict for dim in self.dimensions),
                 "dtype": dtype,
-                "attributes": tuple(attr.as_dict for attr in self.attributes)
-                if self.attributes is not None
-                else tuple(),
+                "attributes": tuple(attr.as_dict for attr in self.attributes),
                 "fill_value": fill_value,
             }
         except (KeyError, ValueError) as e:

@@ -520,7 +520,7 @@ class TypedSchemaParams:
             datetime.now(),
             Scale(0.1, 0.2),
         ]:
-            if exception_types and type(item) in exception_types:
+            if exception_types and type(item) in exception_types or item is None:
                 continue
             result.append({**base_dict.copy(), key: item})
             if key == "scale":
@@ -545,7 +545,7 @@ class ArraySchemaCreationParams(SchemaParams, TypedSchemaParams):
             *cls._generate_types(
                 base_dict={"dtype": dtype, "dimensions": dimensions},
                 key="attributes",
-                exception_types=[tuple, list],
+                exception_types=[tuple, list, NoneType],
             ),
         ]
 

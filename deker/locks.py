@@ -181,7 +181,13 @@ class WriteArrayLock(BaseLock):
 
 
 class WriteVarrayLock(BaseLock):
-    """Write lock for VArrays."""
+    """Write lock for VArrays.
+
+    VArray shall not be locked itself when writing data.
+    Only inner Arrays shall be locked.
+    If updating subsets do not intersect - it's OK, otherwise the first,
+    which managed to obtain all Array locks, will survive.
+    """
 
     ALLOWED_TYPES = ["VSubset"]
 
@@ -310,18 +316,27 @@ class WriteVarrayLock(BaseLock):
             Path(f"{lock}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink(missing_ok=True)
         super().release()
 
+    def acquire(self, path: Optional[Path]) -> None:
+        """VArray shall not be locked itself.
+
+        :param path: path to the file to be locked
+        """
+        pass
+
     @staticmethod
     def _inner_method_logic(
         lock: "WriteVarrayLock", args: Sequence, kwargs: Dict, func: Callable
     ) -> Any:
         """Logic of acquiring lock and getting result.
 
+        When writing in VArray
+
         :param lock: The lock that will be acquired
         :param func: decorated function
         :param args: arguments of decorated function
         :param kwargs: keyword arguments of decorated function
         """
-        # If we want to skip logic of lock (e.g when we use server adapters)
+        # If we want to skip logic of lock (e.g. when we use server adapters)
         if lock.skip_lock:
             return lock.get_result(func, args, kwargs)
         return super()._inner_method_logic(lock, args, kwargs, func)
