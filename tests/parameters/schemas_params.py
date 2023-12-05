@@ -545,7 +545,7 @@ class ArraySchemaCreationParams(SchemaParams, TypedSchemaParams):
             *cls._generate_types(
                 base_dict={"dtype": dtype, "dimensions": dimensions},
                 key="attributes",
-                exception_types=[tuple, list],
+                exception_types=[tuple, list, NoneType],
             ),
         ]
 
