@@ -294,12 +294,12 @@ class WriteVarrayLock(BaseLock):
         currently_locked = self.check_arrays_locks(arrays_positions, adapter, varray)
         if not currently_locked and len(self.locks) == len(arrays_positions):
             return
+
         # Wait till there are no more read locks
         start_time = time.monotonic()
         while (time.monotonic() - start_time) <= adapter.ctx.config.write_lock_timeout:
             if not self.check_arrays_locks(arrays_positions, adapter, varray):
                 return
-
             sleep(adapter.ctx.config.write_lock_check_interval)
         # Release all locks
         self.release()
