@@ -358,86 +358,65 @@ class TestLocks:
     def test_non_intersecting_vsubsets_update_OK(
         self, inserted_varray: VArray, root_path, varray_collection: Collection
     ):
-        """Test that as we lock varray, inner varrays also locked."""
+        """Test varray allows writing into non-intersecting subsets."""
         manager = Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
-        inserted_varray[:].clear()
         value = -9999.9
-        proc1 = Process(
-            target=call_array_method,
-            args=(
-                inserted_varray.collection,
-                str(embedded_uri(root_path)),
-                inserted_varray.id,
-                "update",
-                lock_set,
-                func_finished,
-                False,
-                True,
-                None,
-                None,
-                slice_converter[:2, :2, :2],
-                value,
-            ),
-        )
-        proc2 = Process(
-            target=call_array_method,
-            args=(
-                inserted_varray.collection,
-                str(embedded_uri(root_path)),
-                inserted_varray.id,
-                "update",
-                lock_set,
-                func_finished,
-                False,
-                True,
-                None,
-                None,
-                slice_converter[8:, 8:, 8:],
-                value,
-            ),
-        )
-        proc1.start()
-        proc2.start()
-        proc1.join()
-        proc2.join()
+        slices = (np.index_exp[:2, :2, :2], np.index_exp[8:, 8:, 8:])
+        with Pool(WORKERS) as pool:
+            pool.starmap(
+                call_array_method,
+                [
+                    (
+                        inserted_varray.collection,
+                        str(embedded_uri(root_path)),
+                        inserted_varray.id,
+                        "update",
+                        lock_set,
+                        func_finished,
+                        False,
+                        True,
+                        None,
+                        None,
+                        slice_converter[subset_slice],
+                        value,
+                    )
+                    for subset_slice in slices
+                ],
+            )
 
         try:
-            for slice_ in (np.index_exp[:2, :2, :2], np.index_exp[8:, 8:, 8:]):
+            for slice_ in slices:
                 subset = inserted_varray[slice_]
                 data = np.ndarray(shape=subset.shape, dtype=subset.dtype)
                 data.fill(value)
                 result = subset.read()
-                assert not proc1.is_alive()
-                assert not proc2.is_alive()
                 assert np.all(result == data)
-            assert not np.all(inserted_varray[:].read() == value)
-        except AssertionError:
-            raise
+            assert np.all(inserted_varray[2:8].read() != value)
         except Exception:
-            proc1.kill()
-            proc2.kill()
             raise
-        finally:
-            print(inserted_varray[:].read(), flush=True)
+        # finally:
+        #     print(inserted_varray[:].read(), flush=True)
 
-    def test_intersecting_vsubsets_update_fail(self, root_path, varray_collection: Collection):
-        """Test that as we lock varray, inner varrays also locked."""
-        inserted_varray: VArray = varray_collection.create()
-        inserted_varray[:].update(np.zeros(inserted_varray.shape, inserted_varray.dtype))
+    def test_intersecting_vsubsets_update_fail(
+        self, inserted_varray: VArray, root_path, varray_collection: Collection
+    ):
+        """Test VArray not allows writing into intersecting subsets."""
+        inserted_varray[:].update(np.ones(shape=inserted_varray.shape, dtype=inserted_varray.dtype))
+        check_data = inserted_varray[:].read()
         manager = Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
-        check_data = inserted_varray[:].read()
         blocking_slice = np.index_exp[:4, :4, :4]
         blocking_value = -9999.9
         slices = (
-            (np.index_exp[1:4, 1:2, 1:4], 100),
-            (np.index_exp[:2, 0:2, 0:2], 200),
-            (np.index_exp[3, 2, 1], 300),
-            (np.index_exp[0:6, 0:6, 0:6], 400),
-            (np.index_exp[:5, 3:, :], 500),
+            (np.index_exp[0:2, 1:3, 2:4], 100),  # shall be blocked
+            (np.index_exp[2:3, 0:2, 0], 200),  # shall be blocked
+            (np.index_exp[3, 2, 1], 300),  # shall be blocked
+            (np.index_exp[0:6, 0:6, 0:6], 400),  # shall be blocked
+            (np.index_exp[:5, 3:, :], 500),  # shall be blocked
+            (np.index_exp[8:, 8:, 8:], blocking_value),  # shall proceed as non-locked
         )
         # Call read process to lock arrays for reading
         proc = Process(
@@ -489,8 +468,9 @@ class TestLocks:
             proc.kill()
             print(111111111, result, flush=True)
             try:
-                assert result.count(DekerLockError) == len(slices)
+                assert result.count(DekerLockError) == len(slices) - 1
                 check_data[blocking_slice].fill(blocking_value)
+                check_data[8:, 8:, 8:].fill(blocking_value)
                 assert np.all(inserted_varray[:].read() == check_data)
             except Exception:
                 raise
@@ -506,7 +486,6 @@ class TestLocks:
     ):
         """Test that varray lock release all flocks and delete varraylock"""
         # Check that sequential update are fine
-        inserted_varray[:].update(np.zeros(shape=varray_collection.varray_schema.shape))
         inserted_varray[:].update(np.zeros(shape=varray_collection.varray_schema.shape))
 
         # Check that there is no flocks or extra files.
