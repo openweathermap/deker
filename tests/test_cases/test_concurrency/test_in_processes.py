@@ -78,7 +78,7 @@ def call_array_method(
     primary_attributes: Dict = None,
     custom_attributes: Dict = None,
     subset_slice: str = "[:]",
-    value: Numeric = 0,
+    fill_value: Numeric = 0,
 ):
     """Call a method on an Array object.
 
@@ -93,6 +93,7 @@ def call_array_method(
     :param primary_attributes: primary attributes dict
     :param custom_attributes: custom attributes dict
     :param subset_slice: slice string from slice_converter to make a subset from array
+    :param fill_value: value to fill the subset
     """
     client = Client(uri, write_lock_timeout=1, loglevel="ERROR")
     collection = client.get_collection(collection_name)
@@ -116,8 +117,6 @@ def call_array_method(
         array = collection.filter({"id": id_}).last()
     except DekerLockError:
         return DekerLockError
-    except DekerVSubsetError:
-        return DekerVSubsetError
 
     if is_virtual:
         lock = WriteVarrayLock
@@ -134,7 +133,13 @@ def call_array_method(
                 data = np.ndarray(
                     shape=create_shape_from_slice(schema.shape, subset_slice), dtype=schema.dtype
                 )
-                data.fill(value)
+                try:
+                    if data.shape == ():
+                        data = fill_value
+                    else:
+                        data.fill(fill_value)
+                except Exception:
+                    raise
                 array[subset_slice].update(data)
 
         elif method == "clear":
@@ -424,13 +429,14 @@ class TestLocks:
         manager = Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
-        inserted_varray[:].clear()
-        value = -9999.9
+        check_data = inserted_varray[:].read()
+        blocking_slice = np.index_exp[:4, :4, :4]
+        blocking_value = -9999.9
         slices = (
-            np.index_exp[1:4, 1:2, 1:4],
-            np.index_exp[:2, 0:2, 0:2],
-            np.index_exp[3, 2, 1],
-            np.index_exp[:6, 0:6, 0:6],
+            (np.index_exp[1:4, 1:2, 1:4], 100),
+            (np.index_exp[:2, 0:2, 0:2], 200),
+            (np.index_exp[3, 2, 1], 300),
+            (np.index_exp[0:6, 0:6, 0:6], 400),
         )
         # Call read process to lock arrays for reading
         proc = Process(
@@ -446,18 +452,14 @@ class TestLocks:
                 True,
                 None,
                 None,
-                slice_converter[:],
-                value,
+                slice_converter[blocking_slice],
+                blocking_value,
             ),
         )
-        # try:
         proc.start()
-        # proc.join()
-
         lock_set.wait()
-        time.sleep(1)
+        result = None
         try:
-            result = None
             with Pool(WORKERS) as pool:
                 result = pool.starmap(
                     call_array_method,
@@ -474,23 +476,22 @@ class TestLocks:
                             None,
                             None,
                             slice_converter[subset_slice],
-                            100,
+                            val,
                         )
-                        for subset_slice in slices
+                        for subset_slice, val in slices
                     ],
                 )
             print(111111111, result, flush=True)
-            # assert result.count(DekerLockError) == len(slices)
-            assert result.count(DekerVSubsetError) == len(slices)
+            assert result.count(DekerLockError) == len(slices)
             func_finished.set()
-        except AssertionError:
+        except Exception:
             raise
-        # except DekerVSubsetError:
-        #     pass
         finally:
-            print(inserted_varray[:].read())
+            print()
             func_finished.set()
             proc.kill()
+            check_data[blocking_slice].fill(blocking_value)
+            assert np.all(inserted_varray[:].read() == check_data)
 
     def test_varray_locks_release_arrays(
         self,
