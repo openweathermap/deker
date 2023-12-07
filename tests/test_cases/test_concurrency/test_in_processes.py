@@ -422,10 +422,10 @@ class TestLocks:
         finally:
             print(inserted_varray[:].read(), flush=True)
 
-    def test_intersecting_vsubsets_update_fail(
-        self, inserted_varray: VArray, root_path, varray_collection: Collection
-    ):
+    def test_intersecting_vsubsets_update_fail(self, root_path, varray_collection: Collection):
         """Test that as we lock varray, inner varrays also locked."""
+        inserted_varray: VArray = varray_collection.create()
+        inserted_varray[:].update(np.zeros(inserted_varray.shape, inserted_varray.dtype))
         manager = Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
@@ -437,6 +437,7 @@ class TestLocks:
             (np.index_exp[:2, 0:2, 0:2], 200),
             (np.index_exp[3, 2, 1], 300),
             (np.index_exp[0:6, 0:6, 0:6], 400),
+            (np.index_exp[:5, 3:, :], 500),
         )
         # Call read process to lock arrays for reading
         proc = Process(
@@ -481,17 +482,20 @@ class TestLocks:
                         for subset_slice, val in slices
                     ],
                 )
-            print(111111111, result, flush=True)
-            assert result.count(DekerLockError) == len(slices)
-            func_finished.set()
         except Exception:
             raise
         finally:
-            print()
             func_finished.set()
             proc.kill()
-            check_data[blocking_slice].fill(blocking_value)
-            assert np.all(inserted_varray[:].read() == check_data)
+            print(111111111, result, flush=True)
+            try:
+                assert result.count(DekerLockError) == len(slices)
+                check_data[blocking_slice].fill(blocking_value)
+                assert np.all(inserted_varray[:].read() == check_data)
+            except Exception:
+                raise
+            finally:
+                inserted_varray.delete()
 
     def test_varray_locks_release_arrays(
         self,
