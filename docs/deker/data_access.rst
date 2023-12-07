@@ -621,3 +621,6 @@ Speaking about ``VArray`` it means that several processes are able to update dat
 in several non-intersecting ``VSubsets``. In case if any updating ``VSubset`` intersects
 with another one, the update operation will be rejected for the ``VSubset``, which met
 the write lock.
+
+Please note that operation of custom attributes updating also locks Array or VArray files
+for writing.
