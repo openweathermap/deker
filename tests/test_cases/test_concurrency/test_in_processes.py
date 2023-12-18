@@ -12,8 +12,10 @@ import traceback
 from multiprocessing import Event, Manager, Process, cpu_count
 from multiprocessing.pool import Pool
 from pathlib import Path
+from threading import get_native_id
 from typing import Callable, Dict, Literal
 from unittest.mock import patch
+from uuid import uuid4
 
 import h5py
 import numpy as np
@@ -131,7 +133,8 @@ def call_array_method(
                 lock, "release", wait_unlock(lock.release, lock_set, funcs_finished, wait)
             ):
                 data = np.ndarray(
-                    shape=create_shape_from_slice(schema.shape, subset_slice), dtype=schema.dtype
+                    shape=create_shape_from_slice(schema.shape, subset_slice),
+                    dtype=schema.dtype,
                 )
                 try:
                     if data.shape == ():
@@ -325,7 +328,7 @@ class TestLocks:
     def test_varray_locks_inner_arrays(
         self, inserted_varray: VArray, root_path, varray_collection: Collection
     ):
-        """Test that as we lock varray, inner varrays also locked."""
+        """Test that as we lock varray, inner arrays also locked."""
         manager = Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
@@ -346,14 +349,10 @@ class TestLocks:
         )
         proc.start()
         lock_set.wait()
-        try:
-            for array in varray_collection.arrays:
-                with pytest.raises(DekerLockError):
-                    array[:].update(np.zeros(shape=varray_collection.array_schema.shape))
-            func_finished.set()
-        except Exception:
-            proc.kill()
-            raise
+        with pytest.raises(DekerLockError):
+            for _ in varray_collection.arrays:
+                pass
+        func_finished.set()
 
     def test_non_intersecting_vsubsets_update_OK(
         self, inserted_varray: VArray, root_path, varray_collection: Collection
@@ -465,8 +464,6 @@ class TestLocks:
             raise
         finally:
             func_finished.set()
-            proc.kill()
-            print(111111111, result, flush=True)
             try:
                 assert result.count(DekerLockError) == len(slices) - 1
                 check_data[blocking_slice].fill(blocking_value)
@@ -659,10 +656,27 @@ class TestMethods:
         manager = Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
+        proc = Process(
+            target=call_array_method,
+            args=(
+                array_with_attributes.collection,
+                str(embedded_uri(root_path)),
+                array_with_attributes.id,
+                "create",
+                lock_set,
+                func_finished,
+                True,
+                False,
+                array_with_attributes.primary_attributes,
+                array_with_attributes.custom_attributes,
+            ),
+        )
+        proc.start()
+        lock_set.wait()
 
         methods = ["create"] * 3
         with Pool(WORKERS - 1) as pool:
-            pool.starmap(
+            result = pool.starmap(
                 call_array_method,
                 [
                     (
@@ -681,6 +695,7 @@ class TestMethods:
                 ],
             )
         lock_set.wait()
+        assert result.count(DekerLockError) == len(methods)
         func_finished.set()
 
         paths = get_paths(
