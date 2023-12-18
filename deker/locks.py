@@ -190,12 +190,22 @@ class WriteArrayLock(BaseLock):
         raise DekerLockError(f"Array {array} is locked with read locks")
 
     def release(self, e: Optional[Exception] = None) -> None:
+        """Release Flock.
+
+        If array is locked from Varary from current Process, do nothing
+        :param e: exception that might have been raised
+        """
         if self.is_locked_with_varray:
             return
 
         super().release(e)
 
     def acquire(self, path: Optional[Path]) -> None:
+        """Make lock using flock.
+
+        If array is locked from Varary from current Process, do nothing
+        :param path: Path to file that should be flocked
+        """
         if self.is_locked_with_varray:
             return
         super().acquire(path)
