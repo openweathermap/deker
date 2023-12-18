@@ -36,6 +36,7 @@ from deker.locks import (
     UpdateMetaAttributeLock,
     WriteArrayLock,
     WriteVarrayLock,
+    CreateArrayLock,
 )
 from deker.schemas import ArraySchema, DimensionSchema, VArraySchema
 from deker.tools import get_paths
@@ -104,7 +105,9 @@ def call_array_method(
     # Get Array object
     if method == "create":
         with patch.object(
-            Flock, "release", wait_unlock(Flock.release, lock_set, funcs_finished, wait)
+            CreateArrayLock,
+            "release",
+            wait_unlock(CreateArrayLock.release, lock_set, funcs_finished, wait),
         ):
             with patch("deker.ABC.base_array.get_id", lambda *a: id_):
                 try:

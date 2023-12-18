@@ -456,6 +456,10 @@ class CreateArrayLock(BaseLock):
         return result
 
     def release(self, e: Optional[Exception] = None) -> None:
+        """Release Flock.
+
+        :param e: exception that might have been raised
+        """
         self.path.unlink(missing_ok=True)
         super().release(e)
 
