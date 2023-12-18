@@ -370,8 +370,9 @@ class CreateArrayLock(BaseLock):
     """Lock that we set when we want to create an array."""
 
     ALLOWED_TYPES = ["LocalArrayAdapter", "LocalVArrayAdapter"]
-    
-    path: Optional[Path] = None 
+
+    path: Optional[Path] = None
+
     def get_path(self, func_args: Sequence, func_kwargs: Dict) -> Path:
         """Return path to the file that should be locked.
 
@@ -395,7 +396,7 @@ class CreateArrayLock(BaseLock):
         path = dir_path / f"{filename}{LocksExtensions.array_lock.value}"
         if not path.exists():
             path.open("w").close()
-            
+
         self.path = path
         self.logger.debug(f"got path for array.id {array.id} lock file: {path}")
         return path
@@ -443,7 +444,7 @@ class CreateArrayLock(BaseLock):
         else:
             result = func(*args, **kwargs)
         return result
-    
+
     def release(self, e: Optional[Exception] = None) -> None:
         self.path.unlink(missing_ok=True)
         super().release(e)
