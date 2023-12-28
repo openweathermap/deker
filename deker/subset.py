@@ -24,7 +24,7 @@ from deker_tools.slices import create_shape_from_slice, match_slice_size, slice_
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
-from deker.errors import DekerArrayError, DekerVSubsetError
+from deker.errors import DekerArrayError, DekerLockError, DekerVSubsetError
 from deker.locks import WriteVarrayLock
 from deker.schemas import TimeDimensionSchema
 from deker.tools import not_deleted
@@ -631,7 +631,10 @@ class VSubset(BaseSubset):
         try:
             list(results)
         except Exception as e:
-            raise DekerVSubsetError(
-                f"ATTENTION: Data in {self!s} IS NOW CORRUPTED due to the exception above"
-            ).with_traceback(e.__traceback__)
+            if isinstance(e, DekerLockError):
+                raise e
+            else:
+                raise DekerVSubsetError(
+                    f"ATTENTION: Data in {self!s} IS NOW CORRUPTED due to the exception above"
+                ).with_traceback(e.__traceback__)
         self.logger.info(f"{self!s} data updated OK")

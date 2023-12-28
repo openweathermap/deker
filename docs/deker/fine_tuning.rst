@@ -124,8 +124,8 @@ request requires too much memory or you are trying to create a ``Collection`` wi
 may cause a memory overflow in future, ``DekerMemoryError`` will be immediately raised.
 
 You can lower the default value by passing a certain number of ``bytes`` or by passing a human
-readable representation of kilobytes, megabytes or gigabytes, for example: ``"1024K"``, ``"512M"``,
-``"8G"``::
+readable representation of kilobytes, megabytes, gigabytes ot terabytes, for example: ``"1024K"``,
+``"512M"``, ``"8G"``, ``"1T"``::
 
    from deker import Client
 
@@ -133,14 +133,13 @@ readable representation of kilobytes, megabytes or gigabytes, for example: ``"10
    client = Client(uri, memory_limit=4096)  # 4096 bytes
 
 Only integers are acceptable for both of bytes and human representation. Capitalization of units
-suffix is ignored: ``"1024k"``, ``"512m"``, ``"8g"`` will work.
+suffix is ignored: ``"1024k"``, ``"512m"``, ``"8g"``, ``"1t"`` will work.
 
 .. note::
    You definitely may want to use it in **Docker**.
 
    If you set a memory limit to your container, you'd better limit Deker to the same value.
    Otherwise your container may be killed because of memory overflow.
-
 
 HDF5 Options
 ============
