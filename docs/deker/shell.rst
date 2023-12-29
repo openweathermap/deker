@@ -3,9 +3,9 @@ Interactive Shell
 *****************
 
 Interactive shell is a convenient Python REPL interface that allows you to manage, query and modify
-data in your Deker storage.
+data in your DEKER™ storage.
 
-.. note:: Deker shell is based on amazing ptpython_ - a better Python REPL
+.. note:: DEKER™ shell is based on amazing ptpython_ - a better Python REPL
 
 .. _ptpython: https://github.com/prompt-toolkit/ptpython
 
@@ -24,7 +24,7 @@ Features
 Start
 =====
 
-Once installed, open your terminal and run the shell providing path to Deker storage via command
+Once installed, open your terminal and run the shell providing path to DEKER™ storage via command
 line parameter (in this case it would be ``/tmp/deker-data``)::
 
     deker file:///tmp/deker-data
@@ -48,8 +48,8 @@ REPL menu (called with ``F2``):
 Interface
 =========
 
-Imported Deker Classes
-----------------------
+Imported DEKER™ Classes
+------------------------
 
 Basic storage access and management classes:
 

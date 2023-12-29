@@ -2,7 +2,7 @@
 Fine Tuning
 ***********
 
-This chapter is dedicated to advanced settings and features provided by Deker.
+This chapter is dedicated to advanced settings and features provided by DEKER™.
 
 
 Client
@@ -15,9 +15,9 @@ tune. All of them shall be explicitly passed as keyword parameters, none of them
 ``executor``
 ------------
 
-Deker creates its own ``ThreadPoolExecutor`` instance for working with ``VArray``. By default, this
-parameter is ``None``. You may want to use your own ``ThreadPoolExecutor`` (or some custom
-executor, based on ``ThreadPoolExecutor``) instance. In this case Deker will use the passed one::
+DEKER™ creates its own ``ThreadPoolExecutor`` instance for working with ``VArray``. By default,
+this parameter is ``None``. You may want to use your own ``ThreadPoolExecutor`` (or some custom
+executor, based on ``ThreadPoolExecutor``) instance. In this case DEKER™ will use the passed one::
 
    from deker import Client
 
@@ -34,9 +34,9 @@ executor, based on ``ThreadPoolExecutor``) instance. In this case Deker will use
 ``workers``
 -----------
 
-This is a parameter for the native Deker executor mentioned above.
+This is a parameter for the native DEKER™ executor mentioned above.
 
-By default, it is ``None`` and in this case Deker uses the maximum number of threads from the
+By default, it is ``None`` and in this case DEKER™ uses the maximum number of threads from the
 formula, provided by `Python 3.9 documentation`_ : ``cpu_count() + 4``.
 
 You may increase or reduce it, if you need::
@@ -51,7 +51,7 @@ You may increase or reduce it, if you need::
 ``write_lock_timeout``
 ----------------------
 
-Deker uses its own file locking mechanisms for different operations, one of which is for writing.
+DEKER™ uses its own file locking mechanisms for different operations, one of which is for writing.
 With ``write_lock_timeout`` you can modify an amount of seconds during which a parallel writing
 process waits for the release of the locked file::
 
@@ -78,8 +78,9 @@ The default is ``1`` second. The units are immutable and only ``int`` is accepte
 ``loglevel``
 ------------
 
-All the Deker objects (including private ones) have their own loggers. They are bound by the common
-logging level, which defaults to ``"ERROR"``. If you need, you may change it at ``Client`` init::
+All the DEKER™ objects (including private ones) have their own loggers. They are bound by the
+common logging level, which defaults to ``"ERROR"``. If you need, you may change
+it at ``Client`` init::
 
    from deker import Client
 
@@ -89,7 +90,7 @@ If you need to change it on the fly, you may use the following function::
 
    from deker.log import set_logging_level
 
-   set_logging_level("INFO")  # now Deker logs starting from "INFO" level
+   set_logging_level("INFO")  # now DEKER™ logs starting from "INFO" level
 
 
 ``memory_limit``
@@ -97,7 +98,7 @@ If you need to change it on the fly, you may use the following function::
 
 This parameter is used for the early run time break in case of potential memory overflow.
 
-Deker operates big amounts of data, and you may be unaware that your machine will probably run out
+DEKER™ operates big amounts of data, and you may be unaware that your machine will probably run out
 of memory. For example, NumPy shall raise ``_ArrayMemoryError`` if you do something like this::
 
    >>> import numpy as np
@@ -106,19 +107,19 @@ of memory. For example, NumPy shall raise ``_ArrayMemoryError`` if you do someth
    # numpy.core._exceptions._ArrayMemoryError: Unable to allocate 74.5 GiB
    # for an array with shape (100000, 100000) and data type float64
 
-As Deker is lazy, you shall be warned about such problems beforehand. For that purpose, Deker
+As DEKER™ is lazy, you shall be warned about such problems beforehand. For that purpose, DEKER™
 checks the memory limits when it is creating:
 
    * ``Collection``
    * ``Subset`` or ``VSubset``
    * ``xarray.DataArray`` from a ``Subset`` or a ``VSubset``
 
-By default Deker is limited to your **total virtual memory size** (i.e. total amount of RAM plus
-swap size). For example, you have 16 GB of RAM and 2 GB of swap. Thus, Deker is limited to 18 GB of
-memory by default. But usually a machine is already using some parts of these memory for other
+By default DEKER™ is limited to your **total virtual memory size** (i.e. total amount of RAM plus
+swap size). For example, you have 16 GB of RAM and 2 GB of swap. Thus, DEKER™ is limited to 18 GB
+of memory by default. But usually a machine is already using some parts of these memory for other
 processes. So your current available free memory is always lower than the total one.
 
-Deker compares its limits with your current available free memory (RAM + swap) and chooses the
+DEKER™ compares its limits with your current available free memory (RAM + swap) and chooses the
 minimal one of them. Than it compares the result with the requested shape size. In case your
 request requires too much memory or you are trying to create a ``Collection`` with a schema, which
 may cause a memory overflow in future, ``DekerMemoryError`` will be immediately raised.
@@ -138,7 +139,7 @@ suffix is ignored: ``"1024k"``, ``"512m"``, ``"8g"``, ``"1t"`` will work.
 .. note::
    You definitely may want to use it in **Docker**.
 
-   If you set a memory limit to your container, you'd better limit Deker to the same value.
+   If you set a memory limit to your container, you'd better limit DEKER™ to the same value.
    Otherwise your container may be killed because of memory overflow.
 
 HDF5 Options
@@ -154,15 +155,15 @@ supports an unlimited variety of data types, and is designed for flexible and ef
 high volume and complex data. This format offers a big number of special tuning options. We will
 talk about ``chunks`` and data ``compression``.
 
-Deker ``deker-local-adapters`` plugin has its default implementation of working with this format.
+DEKER™ ``deker-local-adapters`` plugin has its default implementation of working with this format.
 It depends on two packages: ``h5py_`` and ``hdf5plugin_`` which provide a Python interface for HDF5
 binaries and a pack of compression filters.
 
 .. _h5py: https://docs.h5py.org/en/stable/
 .. _hdf5plugin: http://www.silx.org/doc/hdf5plugin/latest/
 
-Deker applies chunks and compression options to all of the files within one collection. As long as
-you do not interact directly with the files and low-level interfaces, Deker provides special types
+DEKER™ applies chunks and compression options to all of the files within one collection. As long as
+you do not interact directly with the files and low-level interfaces, DEKER™ provides special types
 for these options usage. Your settings are stored in the collection metadata. When you invoke a
 ``Collection``, they are recovered and ready to be applied to your data. But they have to make a
 trip from the collection metadata to the final data, that's why we need ``HDF5Options`` and
@@ -238,7 +239,7 @@ A HDF5-file may have *no chunks* options or be chunked either *manually* or *aut
 
 .. _HDF5 chunking manual: https://portal.hdfgroup.org/display/HDF5/Chunking+in+HDF5
 
-Deker allows you to use all the 3 options.
+DEKER™ allows you to use all the 3 options.
 
 Chunks options are set to ``None`` by default.
 
