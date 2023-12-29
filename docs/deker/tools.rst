@@ -1,17 +1,17 @@
-***********
-Deker Tools
-***********
+*************
+DEKER™ Tools
+*************
 
-Deker Tools is a collection of utility functions and classes designed to assist in common data
+DEKER™ Tools is a collection of utility functions and classes designed to assist in common data
 processing tasks. It consists of modules that handle data conversion, path validation, and slice
 manipulation.
 
-.. attention:: This package is not considered to be part of Deker public API and can be significantly
+.. attention:: This package is not considered to be part of DEKER™ public API and can be significantly
                changed in future versions.
 
-For details please refer to the `Deker Tools`_ API documentation.
+For details please refer to the `DEKER™ Tools`_ API documentation.
 
-.. _Deker Tools: api/deker_tools/modules.html
+.. _DEKER™ Tools: api/deker_tools/modules.html
 
 
 ``data``

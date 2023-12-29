@@ -6,10 +6,10 @@ Collection Schema
 Introduction
 ============
 
-In some aspects Deker is similar to other database management systems. It has *collections* which
+In some aspects DEKER™ is similar to other database management systems. It has *collections* which
 are equivalent to tables in relational databases or collections in MongoDB.
 
-Collection stores one of two flavors of *arrays* supported by Deker. We would look into difference
+Collection stores one of two flavors of *arrays* supported by DEKER™. We would look into difference
 between them later in this tutorial, but for now it is important to understand that *array* is
 defined by the *schema* associated with the *collection* where it is stored.
 
@@ -31,8 +31,8 @@ Collection *schema* consists from several components:
 Understanding Array Flavors
 ===========================
 
-Two flavor of *arrays* supported by Deker are ``Array`` and ``VArray``. Those objects represent
-core concept of Deker storage. Hereafter we will describe their structure, differences and
+Two flavor of *arrays* supported by DEKER™ are ``Array`` and ``VArray``. Those objects represent
+core concept of DEKER™ storage. Hereafter we will describe their structure, differences and
 commonalities and give overview of when either of them should be used.
 
 
@@ -61,8 +61,8 @@ layers with particular weather characteristic values, as shown in the legend.
 In the illustration above single ``Array`` has 4 cells in each dimension, in other words its
 *shape* is ``(4, 4, 4)``.
 
-Deker will store each ``Array`` data in a separate file, and when we retrieve this ``Array`` object
-from ``Collection`` and access its data, all operations will affect this file only.
+DEKER™ will store each ``Array`` data in a separate file, and when we retrieve this ``Array``
+object from ``Collection`` and access its data, all operations will affect this file only.
 
 
 VArray
@@ -80,7 +80,7 @@ something really huge like whole Earth surface satellite image. Let's say that s
 would be 300000x200000 px. If stored in single file it will produce large filesystem objects
 that will impose limitations on concurrent read-write access thus impending storage scalability.
 
-To optimize this type of data storage, Deker uses tiling, i.e. it splits large ``VArray`` objects
+To optimize this type of data storage, DEKER™ uses tiling, i.e. it splits large ``VArray`` objects
 into series of smaller ``Array`` objects and transparently join them into for user access as
 virtual array. It probably would still be impossible to access this huge array as a whole, but it
 enables efficient access to digestible parts of it piece by piece.
@@ -92,7 +92,7 @@ enables efficient access to digestible parts of it piece by piece.
 into separate *tiles* (``Array`` objects) with regular *grid*.
 
 If ``Collection`` is defined to contain ``VArray`` objects, you don't have to worry about tiling,
-Deker would transparently manage this for you under the hood.
+DEKER™ would transparently manage this for you under the hood.
 
 When some slice of data is queried from the ``VArray``, it automatically calculates which files
 need to be opened to retrieve it and what part of requested slice data bounds belong to each of
@@ -111,8 +111,8 @@ Let's query the following slice of it: ``[1:3, :, :]``
 
 Here you can see, that all 4 tile files will be affected, but only the highlighted pieces of them
 will be actually read or written. All different files reads or writes could be done in parallel.
-In case you are retrieving data, Deker will transparently combine each read piece into subset with
-requested shape and return it to you. If you use these bounds to write data, Deker will
+In case you are retrieving data, DEKER™ will transparently combine each read piece into subset with
+requested shape and return it to you. If you use these bounds to write data, DEKER™ will
 automatically split the slice you have provided into pieces and write them in parallel to
 corresponding files.
 
@@ -234,7 +234,7 @@ If a dimension has a real regular scale, we may indicate it::
         ),
     ]
 
-As you can see, regular scale can be defined either with Python ``dict`` or with Deker ``Scale``
+As you can see, regular scale can be defined either with Python ``dict`` or with DEKER™ ``Scale``
 named tuple. The keyword ``name`` is optional. Scale values shall be always defined as ``floats``.
 
 The parameters ``step`` and ``start_value`` may be negative as well. For example, ``era5`` weather
@@ -242,7 +242,7 @@ model has a geo grid shaped ``(ys=721, xs=1440)`` with step ``0.25`` degrees per
 zero-point of the ``map`` is north-west or left-upper corner. In other words ``era5`` grid point
 ``(0, 0)`` is set to coordinates ``(lat=90.0, lon=-180.0)``.
 
-Here is an example of how this grid can be bound to real geographical coordinates in Deker::
+Here is an example of how this grid can be bound to real geographical coordinates in DEKER™::
 
     dimensions = [
         DimensionSchema(
@@ -348,7 +348,7 @@ let you set an individual start point for each new ``Array`` or ``VArray`` at it
 
 .. attention::
    For ``start_value`` you can pass a datetime value with any timezone (e.g. your local timezone),
-   but you should remember that Deker converts and stores it in the UTC timezone.
+   but you should remember that DEKER™ converts and stores it in the UTC timezone.
 
    Before querying some data from ``TimeDimension``, you should convert your local time to UTC to
    be sure that you get a pack of correct data. You can do it with ``get_utc()`` function from
@@ -381,7 +381,7 @@ All databases provide some additional obligatory and/or optional information con
 example, in SQL there are primary keys which indicate that data cannot be inserted without passing
 them.
 
-For this purpose Deker provides **primary** and **custom attributes** which shall be defined as a
+For this purpose DEKER™ provides **primary** and **custom attributes** which shall be defined as a
 list (or a tuple) of ``AttributeSchema``::
 
     from deker import AttributeSchema
@@ -428,7 +428,7 @@ Primary Attributes
    It is highly recommended to define at least one **primary** attribute in every schema.
 
 Primary attributes are a strictly ordered sequence. They are used for ``Array`` or ``VArray``
-filtering. When Deker is building its file system, it creates symlinks for main data files using
+filtering. When DEKER™ is building its file system, it creates symlinks for main data files using
 primary attributes in the symlink path. If you need to get a certain ``Array`` or ``VArray`` from a
 ``Collection``, you have two options how to do it:
 
@@ -483,8 +483,8 @@ dimensions schemas and ``dtype``. You may optionally pass a list of attributes s
 Data Type
 ---------
 
-Deker has a strong data typing. All the values of all the ``Array``  or ``VArray`` objects in one
-``Collection`` shall be of the same data type. Deker accepts numeric data of the following Python
+DEKER™ has a strong data typing. All the values of all the ``Array``  or ``VArray`` objects in one
+``Collection`` shall be of the same data type. DEKER™ accepts numeric data of the following Python
 and NumPy data types:
 
    .. list-table:: Integers
@@ -649,7 +649,7 @@ That's why we need something that will fill them in.
 Rules are the following:
 
 1. ``fill_value`` **shall not be significant** for your data.
-2. ``fill_value`` **is optional** - you may not provide it. In this case Deker will choose it
+2. ``fill_value`` **is optional** - you may not provide it. In this case DEKER™ will choose it
    automatically basing on the provided ``dtype``. For ``integer`` and ``unsigned integer`` data
    types it will be the lowest value for the correspondent data type bit capacity. For example,
    it will be ``-128`` for ``numpy.int8``. For ``float`` and ``complex`` data types it will be
@@ -658,8 +658,8 @@ Rules are the following:
    passed to the ``dtype`` parameter. If all the values of the correspondent ``dtype`` are
    significant for you, you shall choose a data type of a greater bit capacity. For example, if all
    the values in the range ``[-128; 128]`` are valid for your dataset, you'd better choose
-   ``numpy.int16`` instead of ``numpy.int8`` and set ``-129`` as ``fill_value`` or let Deker to set
-   it automatically. The other workaround is to choose any floating data type, e.g.
+   ``numpy.int16`` instead of ``numpy.int8`` and set ``-129`` as ``fill_value`` or let DEKER™ to
+   set it automatically. The other workaround is to choose any floating data type, e.g.
    ``numpy.float16``, and have ``numpy.nan`` as a ``fill_value``.
 
 Now, let's create once again some simple dimensions and attributes for both types of schemas::
@@ -797,7 +797,7 @@ Creating Collection
 
 ``Client`` is responsible for creating connections and its internal context.
 
-As far as Deker is a file-based database, you need to provide some path to the storage, where your
+As far as DEKER™ is a file-based database, you need to provide some path to the storage, where your
 collections will be kept.
 
 
@@ -806,9 +806,9 @@ URI
 
 There is a universal way to provide paths and connection options: an URI.
 
-The scheme of URI string for embedded Deker databases, stored on your local drive, is ``file://``.
+The scheme of URI string for embedded DEKER™ databases, stored on your local drive, is ``file://``.
 It shall be followed by a path to the directory where the storage will be located. If this
-directory (or even full path to it) does not exist, Deker will create it at ``Client``
+directory (or even full path to it) does not exist, DEKER™ will create it at ``Client``
 initialization.
 
 .. note::
@@ -824,7 +824,7 @@ In this documentation we will use a reference to a temporary directory ``/tmp/de
 Client
 ------
 
-Now open the ``Client`` for interacting with Deker::
+Now open the ``Client`` for interacting with DEKER™::
 
    from deker import Client
 
@@ -918,7 +918,7 @@ some world-wide weather data::
 
 **We did it!**
 
-Now there is a new path ``/tmp/deker/collections/weather`` on your local drive where Deker will
+Now there is a new path ``/tmp/deker/collections/weather`` on your local drive where DEKER™ will
 store the data relative to the ``Collection`` named ``weather``. Each ``Array`` will contain a pack
 of daily 24-hours weather data for each entire latitude and longitude degree: ``temperature``,
 ``humidity``, ``pressure`` and ``wind_speed``.

@@ -1,4 +1,4 @@
-# Deker
+# DEKER™
 
 ![image](docs/deker/images/logo_50.png)
 
@@ -8,22 +8,22 @@
 [![codecov](https://codecov.io/gh/openweathermap/deker/branch/main/graph/badge.svg?token=Z040BQWIOR)](https://codecov.io/gh/openweathermap/deker)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 
-Deker is pure Python implementation of petabyte-scale highly parallel data storage engine for
+DEKER™ is pure Python implementation of petabyte-scale highly parallel data storage engine for
 multidimensional arrays.
 
-Deker name comes from term *dekeract*, the [10-cube](https://en.wikipedia.org/wiki/10-cube).
+DEKER™ name comes from term *dekeract*, the [10-cube](https://en.wikipedia.org/wiki/10-cube).
 
-Deker was made with the following major goals in mind:
+DEKER™ was made with the following major goals in mind:
 
 * provide intuitive interface for storing and accessing **huge data arrays**
 * support **arbitrary number of data dimensions**
 * be **thread and process safe** and as **lean on RAM** use as possible
 
-Deker empowers users to store and access a wide range of data types, virtually anything that can be
+DEKER™ empowers users to store and access a wide range of data types, virtually anything that can be
 represented as arrays, like **geospacial data**, **satellite images**, **machine learning models**,
 **sensors data**, graphs, key-value pairs, tabular data, and more.
 
-Deker does not limit your data complexity and size: it supports virtually unlimited number of data
+DEKER™ does not limit your data complexity and size: it supports virtually unlimited number of data
 dimensions and provides under the hood mechanisms to **partition** huge amounts of data for
 **scalability**.
 
@@ -40,7 +40,7 @@ dimensions and provides under the hood mechanisms to **partition** huge amounts 
 
 ## Code and Documentation
 
-Open source implementation of Deker storage engine is published at
+Open source implementation of DEKER™ storage engine is published at
 
 * https://github.com/openweathermap/deker
 
@@ -52,9 +52,9 @@ API documentation and tutorials for the current release could be found at
 
 ### Dependencies
 
-Minimal Python version for Deker is 3.9.
+Minimal Python version for DEKER™ is 3.9.
 
-Deker depends on the following third-party packages:
+DEKER™ depends on the following third-party packages:
 
 * `numpy` >= 1.18
 * `attrs` >= 23.1.0
@@ -63,7 +63,7 @@ Deker depends on the following third-party packages:
 * `h5py` >= 3.8.0
 * `hdf5plugin` >= 4.0.1
 
-Also please not that for flexibility few internal Deker components are published as separate
+Also please not that for flexibility few internal DEKER™ components are published as separate
 packages:
 
 * [`deker-local-adapters`](https://github.com/openweathermap/deker-local-adapters)
@@ -72,17 +72,17 @@ packages:
 
 ### Install
 
-To install Deker run:
+To install DEKER™ run:
 
    ```bash
    pip install deker
    ```
 Please refer to documentation for advanced topics such as running on Apple silicone or using Xarray
-with Deker API.
+with DEKER™ API.
 
 ### First Steps
 
-Now you can write simple script to jump into Deker development:
+Now you can write simple script to jump into DEKER™ development:
 
 ```python
 from deker import Client, ArraySchema, DimensionSchema, TimeDimensionSchema
