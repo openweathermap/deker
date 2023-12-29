@@ -19,13 +19,15 @@ import os
 
 from logging import Logger
 
-
 _ROOT_DEKER_LOGGER_NAME = "Deker"
 _level = os.getenv("DEKER_LOGLEVEL", "WARNING")
-_format = "%(name)s %(levelname)-4s [%(asctime)s] %(message)s"
+
+format_string = "%(levelname)s | %(asctime)s | %(name)s | %(message)s"
+fmter = logging.Formatter(fmt=format_string)
+
 _logger = logging.getLogger(_ROOT_DEKER_LOGGER_NAME)
 _handler = logging.StreamHandler()
-_handler.setFormatter(logging.Formatter(fmt=_format))
+_handler.setFormatter(fmter)
 _logger.addHandler(_handler)
 
 

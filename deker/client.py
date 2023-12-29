@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Tuple, T
 
 from deker_tools.data import convert_size_to_human
 from deker_tools.path import is_path_valid
+from deker_tools.log import set_logger
 from psutil import swap_memory, virtual_memory
 from tqdm import tqdm
 
@@ -42,7 +43,7 @@ from deker.errors import (
 )
 from deker.integrity import IntegrityChecker
 from deker.locks import META_DIVIDER
-from deker.log import SelfLoggerMixin, set_logging_level
+from deker.log import SelfLoggerMixin, set_logging_level, format_string
 from deker.schemas import ArraySchema, VArraySchema
 from deker.tools import convert_human_memory_to_bytes
 from deker.types import ArrayLockMeta, CollectionLockMeta, LocksExtensions, LocksTypes, StorageSize
@@ -212,6 +213,7 @@ class Client(SelfLoggerMixin):
         :param kwargs: a wildcard, reserved for any extra parameters
         """
         try:
+            set_logger(format_string)
             set_logging_level(loglevel.upper())
             self.__get_plugins()
             total_available_mem = virtual_memory().total + swap_memory().total
