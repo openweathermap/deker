@@ -2,7 +2,6 @@
 Data Access
 ***********
 
-
 Collections
 ===========
 
@@ -287,7 +286,7 @@ slicing parameters::
 
 .. _`official documentation`: https://numpy.org/doc/stable/user/basics.indexing.html
 
-Deker allows you to index and slice its ``Array`` and ``VArray`` not only with integers, but with
+DEKER™ allows you to index and slice its ``Array`` and ``VArray`` not only with integers, but with
 the ``types`` by which the dimensions are described.
 
 But let's start with a **constraint**.
@@ -562,7 +561,7 @@ Read Xarray
 -----------
 
 .. warning::
-   ``xarray`` package is not in the list of the Deker default dependencies. Please, refer to the
+   ``xarray`` package is not in the list of the DEKER™ default dependencies. Please, refer to the
    Installation_ chapter for more details
 
 Xarray_ is a wonderful project, which provides special objects for working with multidimensional
@@ -599,3 +598,29 @@ It provides even more opportunities. Refer to ``xarray.DataArray`` API_ for deta
 .. _Installation: installation.html#extra-dependencies
 .. _Xarray: https://docs.xarray.dev/en/stable/
 .. _API: https://docs.xarray.dev/en/stable/generated/xarray.DataArray.html
+
+Locks
+======
+DEKER™ is thread and process safe. It uses its own locks for the majority of operations.
+DEKER™ locks can be divided into two groups: **read** and **write** locks
+
+**Read locks** can be shared between threads and processes with no risk of data corruption.
+
+**Write locks** are exclusive and are taken for the files with correspondent data content.
+Only the process/thread, which has already acquired a write lock, may produce any changes
+in the data.
+
+It means that if one process is already writing some data into a ``HDF5`` file (or into
+an ``Array``) and some other processes want to read from it or to write some other data
+into the same file, they will receive a ``DekerLockError``.
+
+.. note::
+   Reading data from an ``Array``, which is locked for writing, is impossible.
+
+Speaking about ``VArray`` it means that several processes are able to update data
+in several non-intersecting ``VSubsets``. In case if any updating ``VSubset`` intersects
+with another one, the update operation will be rejected for the ``VSubset``, which met
+the write lock.
+
+Please note that operation of custom attributes updating also locks Array or VArray files
+for writing.

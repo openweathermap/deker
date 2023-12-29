@@ -28,6 +28,7 @@ from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Tuple, T
 
 from deker_tools.data import convert_size_to_human
 from deker_tools.path import is_path_valid
+from deker_tools.log import set_logger
 from psutil import swap_memory, virtual_memory
 from tqdm import tqdm
 
@@ -42,7 +43,7 @@ from deker.errors import (
 )
 from deker.integrity import IntegrityChecker
 from deker.locks import META_DIVIDER
-from deker.log import SelfLoggerMixin, set_logging_level
+from deker.log import SelfLoggerMixin, set_logging_level, format_string
 from deker.schemas import ArraySchema, VArraySchema
 from deker.tools import convert_human_memory_to_bytes
 from deker.types import ArrayLockMeta, CollectionLockMeta, LocksExtensions, LocksTypes, StorageSize
@@ -212,18 +213,23 @@ class Client(SelfLoggerMixin):
         :param kwargs: a wildcard, reserved for any extra parameters
         """
         try:
+            set_logger(format_string)
             set_logging_level(loglevel.upper())
             self.__get_plugins()
-            mem_limit = convert_human_memory_to_bytes(memory_limit)
+            total_available_mem = virtual_memory().total + swap_memory().total
+            memory_limit = convert_human_memory_to_bytes(memory_limit)
+            if memory_limit >= total_available_mem or memory_limit <= 0:
+                mem_limit = total_available_mem
+            else:
+                mem_limit = memory_limit
+
             self.__config = DekerConfig(  # type: ignore[call-arg]
                 uri=uri,
                 workers=workers if workers is not None else cpu_count() + 4,
                 write_lock_timeout=write_lock_timeout,
                 write_lock_check_interval=write_lock_check_interval,
                 loglevel=loglevel.upper(),
-                memory_limit=(
-                    virtual_memory().total + swap_memory().total if mem_limit <= 0 else mem_limit
-                ),
+                memory_limit=mem_limit,
             )
             self.__uri: Uri = Uri.create(self.__config.uri)
             self.__is_closed: bool = True

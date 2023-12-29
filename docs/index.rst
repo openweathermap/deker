@@ -7,7 +7,7 @@
    Data Access <deker/data_access>
    Fine Tuning <deker/fine_tuning>
    Interactive Shell <deker/shell>
-   Deker Tools <deker/tools>
+   DEKER™ Tools <deker/tools>
    Connecting to Server <deker/connecting_to_server>
 
 
@@ -15,8 +15,8 @@
    :hidden:
    :caption: API Reference
 
-   Deker API <deker/api/modules>
-   Deker Tools <deker/api/deker_tools/modules>
+   DEKER™ API <deker/api/modules>
+   DEKER™ Tools <deker/api/deker_tools/modules>
 
 .. toctree::
    :hidden:
@@ -26,32 +26,33 @@
    GitHub Projects <https://github.com/openweathermap>
 
 
-**************
-What is Deker?
-**************
+****************
+What is DEKER™?
+****************
 
 .. image:: deker/images/logo.png
    :align: right
    :scale: 50%
 
-Deker is pure Python implementation of petabyte-scale highly parallel data storage engine for
+DEKER™ is pure Python implementation of petabyte-scale highly parallel data storage engine for
 multidimensional arrays.
 
-Deker name comes from term *dekeract*, the 10-cube_.
+DEKER™ name comes from term *dekeract*, the 10-cube_.
 
-Deker was made with the following major goals in mind:
+DEKER™ was made with the following major goals in mind:
 
    * provide intuitive interface for storing and accessing **huge data arrays**
    * support **arbitrary number of data dimensions**
    * be **thread and process safe** and as **lean on RAM** use as possible
 
-Deker empowers users to store and access a wide range of data types, virtually anything that can be
-represented as arrays, like **geospacial data**, **satellite images**, **machine learning models**,
-**sensors data**, graphs, key-value pairs, tabular data, and more.
+DEKER™ empowers users to store and access a wide range of data types, virtually anything that
+can be represented as arrays, like **geospacial data**, **satellite images**,
+**machine learning models**, **sensors data**, graphs, key-value pairs, tabular data,
+and more.
 
-Deker does not limit your data complexity and size: it supports virtually unlimited number of data
-dimensions and provides under the hood mechanisms to **partition** huge amounts of data for
-**scalability**.
+DEKER™ does not limit your data complexity and size: it supports virtually unlimited number
+of data dimensions and provides under the hood mechanisms to **partition** huge amounts of data
+for **scalability**.
 
 .. _10-cube: https://en.wikipedia.org/wiki/10-cube
 
@@ -75,7 +76,7 @@ Features
 Code and Documentation
 ======================
 
-Open source implementation of Deker storage engine is published at
+Open source implementation of DEKER™ storage engine is published at
 
   * https://github.com/openweathermap/deker
 

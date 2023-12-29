@@ -230,7 +230,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
         schema_class = SchemaTypeEnum[collection_data.get("type")].value
 
         try:
-            dtype = DTypeEnum[data["dtype"].lstrip("numpy.")].value
+            dtype = DTypeEnum[data["dtype"].split("numpy.")[-1]].value
             fill_value = (
                 dtype(data["fill_value"]) if data["fill_value"] is not None else data["fill_value"]
             )

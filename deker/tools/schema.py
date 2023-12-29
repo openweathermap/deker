@@ -93,7 +93,7 @@ def create_attributes_schema(attributes_schemas: List[dict]) -> Tuple["Attribute
     attributes = []
     try:
         for params in attributes_schemas:
-            dtype = DTypeEnum[params["dtype"].lstrip("numpy.")].value
+            dtype = DTypeEnum[params["dtype"].split("numpy.")[-1]].value
             attr_schema = AttributeSchema(**{**params, "dtype": dtype})
             attributes.append(attr_schema)
         return tuple(attributes)

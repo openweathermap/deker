@@ -5,14 +5,15 @@ Connecting to Server
 .. _OpenWeather: https://openweathermap.org
 .. _Installation page: installation.html
 
-To access remotely the data stored on OpenWeather_ managed Deker server infrastructure, you need
+To access remotely the data stored on OpenWeather_ managed DEKER™ server infrastructure, you need
 to use server adapters.
 
 It is an original OpenWeather plugin, based on `httpx <https://www.python-httpx.org/>`_
 with HTTP 2.0 support, that allows your local client to communicate with remote OpenWeather
-public server instances of Deker.
+public server instances of DEKER™.
 
-Deker will automatically find and initialize this plugin if it is installed in current environment.
+DEKER™ will automatically find and initialize this plugin if it is installed in current
+environment.
 
 .. attention::
    You must install ``deker-server-adapters`` package , for details refer to the `Installation page`_
@@ -20,7 +21,7 @@ Deker will automatically find and initialize this plugin if it is installed in c
 
 Usage
 =========
-To use server version, you have to initialize Deker's Client with an uri which contains
+To use server version, you have to initialize DEKER™ Client with an uri which contains
 ``http/https`` scheme.
 
 .. code-block:: python
@@ -28,9 +29,9 @@ To use server version, you have to initialize Deker's Client with an uri which c
     from deker import Client
     client = Client("http://{url-to-deker-server}") # As simple as that
 
-And now the client will communicate with Deker server.
+And now the client will communicate with DEKER™ server.
 
-If authentication is enabled on the Deker server, you can provide credentials by adding it
+If authentication is enabled on the DEKER™ server, you can provide credentials by adding it
 to the url like this:
 
 .. code-block:: python
@@ -41,7 +42,7 @@ to the url like this:
 Configuration
 =============
 Server adapters use ``httpx client`` under the hood. You can configure its behaviour by passing
-keyword arguments to the ``httpx_conf`` parameter of the Deker's Client:
+keyword arguments to the ``httpx_conf`` parameter of the DEKER™ Client:
 
 .. code-block:: python
 

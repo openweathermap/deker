@@ -6,24 +6,29 @@ on Array, VArray and Collection objects concurrently, and it verifies that the l
 correctly.
 """
 import os
+import time
 import traceback
 
 from multiprocessing import Event, Manager, Process, cpu_count
 from multiprocessing.pool import Pool
 from pathlib import Path
+from threading import get_native_id
 from typing import Callable, Dict, Literal
 from unittest.mock import patch
+from uuid import uuid4
 
 import h5py
 import numpy as np
 import pytest
+
+from deker_tools.slices import create_shape_from_slice, slice_converter
 
 from tests.parameters.uri import embedded_uri
 
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerLockError
+from deker.errors import DekerLockError, DekerVSubsetError
 from deker.locks import (
     CollectionLock,
     Flock,
@@ -31,10 +36,11 @@ from deker.locks import (
     UpdateMetaAttributeLock,
     WriteArrayLock,
     WriteVarrayLock,
+    CreateArrayLock,
 )
 from deker.schemas import ArraySchema, DimensionSchema, VArraySchema
 from deker.tools import get_paths
-from deker.types import LocksExtensions
+from deker.types import LocksExtensions, Numeric
 
 
 UPDATED_CUSTOM_ATTR = 20
@@ -74,6 +80,8 @@ def call_array_method(
     is_virtual: bool = False,
     primary_attributes: Dict = None,
     custom_attributes: Dict = None,
+    subset_slice: str = "[:]",
+    fill_value: Numeric = 0,
 ):
     """Call a method on an Array object.
 
@@ -87,14 +95,19 @@ def call_array_method(
     :param is_virtual: VArray flag
     :param primary_attributes: primary attributes dict
     :param custom_attributes: custom attributes dict
+    :param subset_slice: slice string from slice_converter to make a subset from array
+    :param fill_value: value to fill the subset
     """
     client = Client(uri, write_lock_timeout=1, loglevel="ERROR")
     collection = client.get_collection(collection_name)
+    subset_slice = slice_converter[subset_slice]
 
     # Get Array object
     if method == "create":
         with patch.object(
-            Flock, "release", wait_unlock(Flock.release, lock_set, funcs_finished, wait)
+            CreateArrayLock,
+            "release",
+            wait_unlock(CreateArrayLock.release, lock_set, funcs_finished, wait),
         ):
             with patch("deker.ABC.base_array.get_id", lambda *a: id_):
                 try:
@@ -109,6 +122,7 @@ def call_array_method(
         array = collection.filter({"id": id_}).last()
     except DekerLockError:
         return DekerLockError
+
     if is_virtual:
         lock = WriteVarrayLock
         schema = collection.varray_schema
@@ -121,13 +135,24 @@ def call_array_method(
             with patch.object(
                 lock, "release", wait_unlock(lock.release, lock_set, funcs_finished, wait)
             ):
-                array[:].update(np.zeros(shape=schema.shape))
+                data = np.ndarray(
+                    shape=create_shape_from_slice(schema.shape, subset_slice),
+                    dtype=schema.dtype,
+                )
+                try:
+                    if data.shape == ():
+                        data = fill_value
+                    else:
+                        data.fill(fill_value)
+                except Exception:
+                    raise
+                array[subset_slice].update(data)
 
         elif method == "clear":
             with patch.object(
                 lock, "release", wait_unlock(lock.release, lock_set, funcs_finished, wait)
             ):
-                array[:].clear()
+                array[subset_slice].clear()
 
         # Read used in varray only.
         elif method == "read":
@@ -138,7 +163,7 @@ def call_array_method(
                 wait_unlock(ReadArrayLock.release, lock_set, funcs_finished, wait),
             ):
                 # patch timeout time
-                array[:].read()
+                array[subset_slice].read()
 
         elif method == "update_meta_custom_attributes":
             if wait:
@@ -306,7 +331,7 @@ class TestLocks:
     def test_varray_locks_inner_arrays(
         self, inserted_varray: VArray, root_path, varray_collection: Collection
     ):
-        """Test that as we lock varray, inner varrays also locked."""
+        """Test that as we lock varray, inner arrays also locked."""
         manager = Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
@@ -327,13 +352,130 @@ class TestLocks:
         )
         proc.start()
         lock_set.wait()
+        with pytest.raises(DekerLockError):
+            for _ in varray_collection.arrays:
+                pass
+        func_finished.set()
+
+    def test_non_intersecting_vsubsets_update_OK(
+        self, inserted_varray: VArray, root_path, varray_collection: Collection
+    ):
+        """Test varray allows writing into non-intersecting subsets."""
+        manager = Manager()
+        lock_set = manager.Event()
+        func_finished = manager.Event()
+        value = -9999.9
+        slices = (np.index_exp[:2, :2, :2], np.index_exp[8:, 8:, 8:])
+        with Pool(WORKERS) as pool:
+            pool.starmap(
+                call_array_method,
+                [
+                    (
+                        inserted_varray.collection,
+                        str(embedded_uri(root_path)),
+                        inserted_varray.id,
+                        "update",
+                        lock_set,
+                        func_finished,
+                        False,
+                        True,
+                        None,
+                        None,
+                        slice_converter[subset_slice],
+                        value,
+                    )
+                    for subset_slice in slices
+                ],
+            )
+
         try:
-            for array in varray_collection.arrays:
-                with pytest.raises(DekerLockError):
-                    array[:].update(np.zeros(shape=varray_collection.array_schema.shape))
-            func_finished.set()
+            for slice_ in slices:
+                subset = inserted_varray[slice_]
+                data = np.ndarray(shape=subset.shape, dtype=subset.dtype)
+                data.fill(value)
+                result = subset.read()
+                assert np.all(result == data)
+            assert np.all(inserted_varray[2:8].read() != value)
         except Exception:
-            proc.kill()
+            raise
+        # finally:
+        #     print(inserted_varray[:].read(), flush=True)
+
+    def test_intersecting_vsubsets_update_fail(
+        self, inserted_varray: VArray, root_path, varray_collection: Collection
+    ):
+        """Test VArray not allows writing into intersecting subsets."""
+        inserted_varray[:].update(np.ones(shape=inserted_varray.shape, dtype=inserted_varray.dtype))
+        check_data = inserted_varray[:].read()
+        manager = Manager()
+        lock_set = manager.Event()
+        func_finished = manager.Event()
+        blocking_slice = np.index_exp[:4, :4, :4]
+        blocking_value = -9999.9
+        slices = (
+            (np.index_exp[0:2, 1:3, 2:4], 100),  # shall be blocked
+            (np.index_exp[2:3, 0:2, 0], 200),  # shall be blocked
+            (np.index_exp[3, 2, 1], 300),  # shall be blocked
+            (np.index_exp[0:6, 0:6, 0:6], 400),  # shall be blocked
+            (np.index_exp[:5, 3:, :], 500),  # shall be blocked
+            (np.index_exp[8:, 8:, 8:], blocking_value),  # shall proceed as non-locked
+        )
+        # Call read process to lock arrays for reading
+        proc = Process(
+            target=call_array_method,
+            args=(
+                inserted_varray.collection,
+                str(embedded_uri(root_path)),
+                inserted_varray.id,
+                "update",
+                lock_set,
+                func_finished,
+                True,
+                True,
+                None,
+                None,
+                slice_converter[blocking_slice],
+                blocking_value,
+            ),
+        )
+        proc.start()
+        lock_set.wait()
+        result = None
+        try:
+            with Pool(WORKERS) as pool:
+                result = pool.starmap(
+                    call_array_method,
+                    [
+                        (
+                            inserted_varray.collection,
+                            str(embedded_uri(root_path)),
+                            inserted_varray.id,
+                            "update",
+                            lock_set,
+                            func_finished,
+                            False,
+                            True,
+                            None,
+                            None,
+                            slice_converter[subset_slice],
+                            val,
+                        )
+                        for subset_slice, val in slices
+                    ],
+                )
+        except Exception:
+            raise
+        finally:
+            func_finished.set()
+            try:
+                assert result.count(DekerLockError) == len(slices) - 1
+                check_data[blocking_slice].fill(blocking_value)
+                check_data[8:, 8:, 8:].fill(blocking_value)
+                assert np.all(inserted_varray[:].read() == check_data)
+            except Exception:
+                raise
+            finally:
+                inserted_varray.delete()
 
     def test_varray_locks_release_arrays(
         self,
@@ -344,7 +486,6 @@ class TestLocks:
     ):
         """Test that varray lock release all flocks and delete varraylock"""
         # Check that sequential update are fine
-        inserted_varray[:].update(np.zeros(shape=varray_collection.varray_schema.shape))
         inserted_varray[:].update(np.zeros(shape=varray_collection.varray_schema.shape))
 
         # Check that there is no flocks or extra files.
@@ -518,10 +659,27 @@ class TestMethods:
         manager = Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
+        proc = Process(
+            target=call_array_method,
+            args=(
+                array_with_attributes.collection,
+                str(embedded_uri(root_path)),
+                array_with_attributes.id,
+                "create",
+                lock_set,
+                func_finished,
+                True,
+                False,
+                array_with_attributes.primary_attributes,
+                array_with_attributes.custom_attributes,
+            ),
+        )
+        proc.start()
+        lock_set.wait()
 
         methods = ["create"] * 3
         with Pool(WORKERS - 1) as pool:
-            pool.starmap(
+            result = pool.starmap(
                 call_array_method,
                 [
                     (
@@ -540,6 +698,7 @@ class TestMethods:
                 ],
             )
         lock_set.wait()
+        assert result.count(DekerLockError) == len(methods)
         func_finished.set()
 
         paths = get_paths(

@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from threading import get_native_id
 from time import sleep
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Union, Tuple
 from uuid import uuid4
 
 from deker.ABC.base_locks import BaseLock
@@ -94,7 +94,14 @@ class ReadArrayLock(BaseLock):
 
         dir_path = get_main_path(id_, self.instance.collection_path / self.instance.data_dir)
         path = dir_path / (id_ + self.instance.file_ext)
-
+        for file in dir_path.iterdir():
+            # Skip lock from current process.
+            if file.name.endswith(f"{os.getpid()}{LocksExtensions.varray_lock.value}"):
+                self.is_locked_with_varray = True
+                return
+            # If we've found another varray lock, that not from current process.
+            if file.name.endswith(LocksExtensions.varray_lock.value):  # type: ignore
+                raise DekerLockError(f"Array {array} is locked with {file.name}")
         try:
             with open(path, "r") as f:
                 fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
@@ -129,6 +136,8 @@ class WriteArrayLock(BaseLock):
 
     ALLOWED_TYPES = ["LocalArrayAdapter"]
 
+    is_locked_with_varray: bool = False
+
     def get_path(self, func_args: Sequence, func_kwargs: Dict) -> Path:
         """Get path to the file for locking.
 
@@ -147,9 +156,6 @@ class WriteArrayLock(BaseLock):
         :param func_args: arguments of method call
         :param func_kwargs: keyword arguments of method call
         """
-        # Increment write lock, to prevent more read locks coming.
-        self.acquire(self.get_path(func_args, func_kwargs))
-
         # Check current read locks
         array = func_kwargs.get("array") or func_args[1]  # zero arg is 'self'
         dir_path = get_main_path(array.id, self.instance.collection_path / self.instance.data_dir)
@@ -159,10 +165,14 @@ class WriteArrayLock(BaseLock):
             for file in dir_path.iterdir():
                 # Skip lock from current process.
                 if file.name.endswith(f"{os.getpid()}{LocksExtensions.varray_lock.value}"):
-                    continue
+                    self.is_locked_with_varray = True
+                    return
                 # If we've found another varray lock, that not from current process.
                 if file.name.endswith(LocksExtensions.varray_lock.value):  # type: ignore
                     raise DekerLockError(f"Array {array} is locked with {file.name}")
+
+        # Increment write lock, to prevent more read locks coming.
+        self.acquire(self.get_path(func_args, func_kwargs))
 
         # Pattern that has to find any read locks
         glob_pattern = f"{array.id}:*{LocksExtensions.array_read_lock.value}"
@@ -179,14 +189,41 @@ class WriteArrayLock(BaseLock):
         self.release()
         raise DekerLockError(f"Array {array} is locked with read locks")
 
+    def release(self, e: Optional[Exception] = None) -> None:
+        """Release Flock.
+
+        If array is locked from Varary from current Process, do nothing
+        :param e: exception that might have been raised
+        """
+        if self.is_locked_with_varray:
+            return
+
+        super().release(e)
+
+    def acquire(self, path: Optional[Path]) -> None:
+        """Make lock using flock.
+
+        If array is locked from Varary from current Process, do nothing
+        :param path: Path to file that should be flocked
+        """
+        if self.is_locked_with_varray:
+            return
+        super().acquire(path)
+
 
 class WriteVarrayLock(BaseLock):
-    """Write lock for VArrays."""
+    """Write lock for VArrays.
+
+    VArray shall not be locked itself when writing data.
+    Only inner Arrays shall be locked.
+    If updating subsets do not intersect - it's OK, otherwise the first,
+    which managed to obtain all Array locks, will survive.
+    """
 
     ALLOWED_TYPES = ["VSubset"]
 
     # Locks that have been acquired by varray
-    locks: List[Path] = []
+    locks: List[Tuple[Flock, Path]] = []
     skip_lock: bool = False  # shows that we must skip this lock (e.g server adapters for subset)
 
     def check_type(self) -> None:
@@ -222,9 +259,9 @@ class WriteVarrayLock(BaseLock):
         """
         # Check read lock first
         array_id = filename.name.split(".")[0]
-        glob_pattern = f"{array_id}:*{LocksExtensions.array_read_lock.value}"
+        glob_pattern = f"{array_id}:*"
         for _ in filename.parent.rglob(glob_pattern):
-            raise DekerLockError(f"Array {array_id} is locked on read")
+            raise DekerLockError(f"Array {array_id} is locked")
 
         # Check write lock and set it
         lock = Flock(filename)
@@ -261,8 +298,8 @@ class WriteVarrayLock(BaseLock):
             # Path to the main file (not symlink)
             filename = filename.resolve()
             try:
-                self.check_locks_for_array_and_set_flock(filename)
-                self.locks.append(filename)
+                lock = self.check_locks_for_array_and_set_flock(filename)
+                self.locks.append((lock, filename))
             except DekerLockError:
                 currently_locked.append(filename)
 
@@ -286,14 +323,15 @@ class WriteVarrayLock(BaseLock):
         # Iterate over Arrays in VArray and try to lock them. If locking fails - wait.
         # If it fails again - release all locks.
         currently_locked = self.check_arrays_locks(arrays_positions, adapter, varray)
-        if not currently_locked and len(self.locks) == len(arrays_positions):
+        if not currently_locked and (len(self.locks) == len(arrays_positions)):
+            # Release array locks
             return
+
         # Wait till there are no more read locks
         start_time = time.monotonic()
         while (time.monotonic() - start_time) <= adapter.ctx.config.write_lock_timeout:
             if not self.check_arrays_locks(arrays_positions, adapter, varray):
                 return
-
             sleep(adapter.ctx.config.write_lock_check_interval)
         # Release all locks
         self.release()
@@ -305,10 +343,19 @@ class WriteVarrayLock(BaseLock):
         :param e: Exception that may have been raised.
         """
         # Release array locks
-        for lock in self.locks:
-            Flock(lock).release()
-            Path(f"{lock}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink(missing_ok=True)
+        for lock, filename in self.locks:
+            lock.release()
+            Path(f"{filename}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink(
+                missing_ok=True
+            )
         super().release()
+
+    def acquire(self, path: Optional[Path]) -> None:
+        """VArray shall not lock itself.
+
+        :param path: path to the file to be locked
+        """
+        pass
 
     @staticmethod
     def _inner_method_logic(
@@ -316,12 +363,14 @@ class WriteVarrayLock(BaseLock):
     ) -> Any:
         """Logic of acquiring lock and getting result.
 
+        When writing in VArray
+
         :param lock: The lock that will be acquired
         :param func: decorated function
         :param args: arguments of decorated function
         :param kwargs: keyword arguments of decorated function
         """
-        # If we want to skip logic of lock (e.g when we use server adapters)
+        # If we want to skip logic of lock (e.g. when we use server adapters)
         if lock.skip_lock:
             return lock.get_result(func, args, kwargs)
         return super()._inner_method_logic(lock, args, kwargs, func)
@@ -331,6 +380,8 @@ class CreateArrayLock(BaseLock):
     """Lock that we set when we want to create an array."""
 
     ALLOWED_TYPES = ["LocalArrayAdapter", "LocalVArrayAdapter"]
+
+    path: Optional[Path] = None
 
     def get_path(self, func_args: Sequence, func_kwargs: Dict) -> Path:
         """Return path to the file that should be locked.
@@ -342,7 +393,7 @@ class CreateArrayLock(BaseLock):
         array = func_kwargs.get("array") or func_args[1]  # zero arg is 'self'
 
         # Get file directory path
-        dir_path = get_main_path(array.id, self.instance.collection_path / self.instance.data_dir)
+        dir_path = self.instance.collection_path
         filename = META_DIVIDER.join(
             [
                 f"{array.id}",
@@ -351,8 +402,12 @@ class CreateArrayLock(BaseLock):
                 f"{get_native_id()}",
             ]
         )
-        # Create read lock file
+        # Create lock file
         path = dir_path / f"{filename}{LocksExtensions.array_lock.value}"
+        if not path.exists():
+            path.open("w").close()
+
+        self.path = path
         self.logger.debug(f"got path for array.id {array.id} lock file: {path}")
         return path
 
@@ -375,7 +430,7 @@ class CreateArrayLock(BaseLock):
             array_type = Array if adapter == self.ALLOWED_TYPES[0] else VArray
             array = array_type(**array)
 
-        dir_path = get_main_path(array.id, self.instance.collection_path / self.instance.data_dir)
+        dir_path = self.instance.collection_path
 
         # Pattern that has to find any create locks
         glob_pattern = f"{array.id}:*{LocksExtensions.array_lock.value}"
@@ -399,6 +454,14 @@ class CreateArrayLock(BaseLock):
         else:
             result = func(*args, **kwargs)
         return result
+
+    def release(self, e: Optional[Exception] = None) -> None:
+        """Release Flock.
+
+        :param e: exception that might have been raised
+        """
+        self.path.unlink(missing_ok=True)
+        super().release(e)
 
 
 class UpdateMetaAttributeLock(BaseLock):
