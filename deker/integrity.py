@@ -26,11 +26,11 @@ from deker.collection import Collection
 from deker.errors import (
     DekerBaseApplicationError,
     DekerCollectionNotExistsError,
-    DekerIntegrityError,
+    DekerIntegrityError, DekerMetaDataError,
 )
+from deker.managers import ArrayManager, VArrayManager
 from deker.tools import get_main_path, get_symlink_path
 from deker.types.private.enums import LocksExtensions
-
 
 if TYPE_CHECKING:
     from deker.client import Client
@@ -64,7 +64,7 @@ class PathsChecker(BaseChecker):
     CHECKER_LEVEL = 3
 
     def _validate_path_array_without_key_attributes(
-        self, main_path: Path, symlink_path: Path, files: list
+            self, main_path: Path, symlink_path: Path, files: list
     ) -> None:
         """Validate symlinks in array without key attributes.
 
@@ -170,8 +170,31 @@ class ArraysChecker(BaseChecker):
         if self.stop_on_error and self.errors:
             raise DekerIntegrityError(self._parse_errors())
 
+    def _check_v_arrays(self, collection: Collection, v_arrays: ArrayManager | VArrayManager):
+        """Check if Arrays or VArray in Collection are initializing.
+
+        :param collection: Collection to be checked
+        """
+        try:
+            for array in v_arrays:
+                try:
+                    if self.next_checker:
+                        self.next_checker.check(array, collection)
+                except DekerBaseApplicationError as e:
+                    if not self.stop_on_error:
+                        self.errors[f"Collection {collection.name} arrays integrity errors:"].append(
+                            str(e)
+                        )
+                    else:
+                        raise DekerIntegrityError(str(e))
+        except DekerMetaDataError as e:
+            if not self.stop_on_error:
+                self.errors[f"Collection {collection.name} (V)Arrays initialization errors:"].append(str(e))
+            else:
+                raise e
+
     def check(self, collection: Collection) -> None:
-        """Check if Arrays or VArray in Collection are valid.
+        """Check if Arrays or VArrays and their locks in Collection are valid.
 
         :param collection: Collection to be checked
         """
@@ -179,29 +202,10 @@ class ArraysChecker(BaseChecker):
             return
         self.check_arrays_locks(collection)
 
-        for array in collection.arrays:
-            try:
-                if self.next_checker:
-                    self.next_checker.check(array, collection)
-            except DekerBaseApplicationError as e:
-                if not self.stop_on_error:
-                    self.errors[f"Collection {collection.name} arrays integrity errors:"].append(
-                        str(e)
-                    )
-                else:
-                    raise DekerIntegrityError(str(e))
+        self._check_v_arrays(collection, collection.arrays)
         if collection.varray_schema:
-            for varray in collection.varrays:
-                try:
-                    if self.next_checker:
-                        self.next_checker.check(varray, collection)
-                except DekerBaseApplicationError as e:
-                    if not self.stop_on_error:
-                        self.errors[
-                            f"Collection {collection.name} varrays integrity errors:"
-                        ].append(str(e))
-                    else:
-                        raise DekerIntegrityError(str(e))
+            self._check_v_arrays(collection, collection.varrays)
+        return
 
 
 class CollectionsChecker(BaseChecker):
@@ -216,7 +220,7 @@ class CollectionsChecker(BaseChecker):
         for directory in Path(self.root_path).iterdir():
             try:
                 if directory.is_file() and directory.name.endswith(
-                    LocksExtensions.collection_lock.value
+                        LocksExtensions.collection_lock.value
                 ):
                     locks.append(directory.name[: -len(LocksExtensions.collection_lock.value)])
                 collection = self.client.get_collection(directory.name)
@@ -247,23 +251,14 @@ class CollectionsChecker(BaseChecker):
         :param collection_name: optional collection to be checked
         """
         if collection_name:
-            # skipping collections checker
-            self.next_checker: Optional[BaseChecker] = (
-                self.next_checker.next_checker if self.next_checker else None
-            )
-            try:
-                collection: Collection = self.client.get_collection(collection_name)
-                if not collection:
-                    raise DekerCollectionNotExistsError(
-                        f"Collection {collection_name} does not exist at this storage"
-                    )
+            collection: Collection = self.client.get_collection(collection_name)
+            if not collection:
+                raise DekerCollectionNotExistsError(
+                    f"Collection {collection_name} does not exist at this storage"
+                )
+            if self.level > self.CHECKER_LEVEL:
                 if self.next_checker:
                     self.next_checker.check(collection)
-            except DekerCollectionNotExistsError:
-                raise
-            except Exception as e:
-                self.errors["Collections initialization errors:"].append(str(e))
-                return
         collections = self.check_collections()
         if self.level > self.CHECKER_LEVEL:
             collections_pbar = tqdm.tqdm(collections)
