@@ -75,8 +75,14 @@ class TestIntegrityChecker:
         with pytest.raises(DekerCollectionNotExistsError):
             integrity_checker.check("collection_does_not_exist")
 
+    @pytest.mark.parametrize("check_params", [None, "test_integrity_locks"])
     def test_check_locks(
-        self, client: Client, root_path: Path, array_schema: ArraySchema, ctx: CTX
+        self,
+        client: Client,
+        root_path: Path,
+        array_schema: ArraySchema,
+        ctx: CTX,
+        check_params: str,
     ):
         """Tests if function returns error if lock is not found."""
 
@@ -89,7 +95,7 @@ class TestIntegrityChecker:
         try:
             filename = collection.path.parent / (collection.name + ".lock")
             os.remove(filename)
-            errors = integrity_checker.check()
+            errors = integrity_checker.check(check_params)
             assert (
                 errors
                 == f"Collections locks errors:\n\t- BaseLock for {collection.name} not found\n"
@@ -127,6 +133,7 @@ class TestIntegrityChecker:
             os.remove(filename)
             collection.delete()
 
+    @pytest.mark.parametrize("check_params", [None, "test_return"])
     def test_check_return(
         self,
         array_schema_with_attributes: ArraySchema,
@@ -135,6 +142,7 @@ class TestIntegrityChecker:
         ctx: CTX,
         uri: Uri,
         storage_adapter: Type[BaseStorageAdapter],
+        check_params: str,
     ):
         """Tests if function returns errors."""
         integrity_checker = IntegrityChecker(
@@ -169,7 +177,7 @@ class TestIntegrityChecker:
         Path.unlink(symlink_path / files[0])
 
         try:
-            errors = integrity_checker.check()
+            errors = integrity_checker.check(check_params)
             error_1 = f"Symlink {symlink_path} not found\n"
             error_2 = f"Array {array_1.id} data is corrupted: Index (9) out of range for (0-1)\n"
 
@@ -177,6 +185,7 @@ class TestIntegrityChecker:
         finally:
             collection.delete()
 
+    @pytest.mark.parametrize("check_params", [None, "test_check_array_raises_on_init"])
     def test_check_array_raises_on_init(
         self,
         array_schema_with_attributes: ArraySchema,
@@ -185,6 +194,7 @@ class TestIntegrityChecker:
         ctx: CTX,
         uri: Uri,
         storage_adapter: Type[BaseStorageAdapter],
+        check_params: str,
     ):
         """Tests if function raises exception if array file is incorrect."""
         collection = client.create_collection(
@@ -220,8 +230,9 @@ class TestIntegrityChecker:
             f.flush()
         try:
             with pytest.raises(DekerMetaDataError):
-                assert integrity_checker.check()
+                integrity_checker.check(check_params)
         finally:
+            collection.delete()
             array.delete()
 
 
