@@ -171,7 +171,7 @@ class ArraysChecker(BaseChecker):
         if self.stop_on_error and self.errors:
             raise DekerIntegrityError(self._parse_errors())
 
-    def _check_v_arrays(
+    def _check_varrays_or_arrays(
         self, collection: Collection, data_manager: Union[ArrayManager, Optional[VArrayManager]]
     ) -> None:
         """Check if Arrays or VArrays in Collection are initializing.
@@ -206,9 +206,9 @@ class ArraysChecker(BaseChecker):
             return
         self.check_arrays_locks(collection)
 
-        self._check_v_arrays(collection, collection.arrays)
+        self._check_varrays_or_arrays(collection, collection.arrays)
         if collection.varray_schema:
-            self._check_v_arrays(collection, collection.varrays)
+            self._check_varrays_or_arrays(collection, collection.varrays)
         return
 
 
