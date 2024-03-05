@@ -287,7 +287,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         self.__is_deleted = False
         self._validate(id_, primary_attributes, custom_attributes)
         self.__collection: "Collection" = collection
-        self.__id: str = id_ if id_ else get_id(self)
+        self.__id: str = id_ if id_ else get_id()
         self.__adapter = adapter
         self.__array_adapter = array_adapter
 

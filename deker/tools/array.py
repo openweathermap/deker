@@ -16,17 +16,14 @@
 
 import uuid
 
-from functools import singledispatch
-from typing import Any, Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 
 from deker_tools.data import convert_size_to_human
-from deker_tools.time import get_utc
 from psutil import swap_memory, virtual_memory
 
 from deker.errors import DekerMemoryError, DekerValidationError
-from deker.types.private.enums import ArrayType
 
 
 def calculate_total_cells_in_array(seq: Union[Tuple[int, ...], List[int]]) -> int:
@@ -110,47 +107,6 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
         )
 
 
-def generate_uid(array_type: ArrayType) -> str:
-    """Generate uuid5 for given array_type.
-
-    :param array_type: Either array or varray
-    """
-    if not isinstance(array_type, ArrayType):
-        raise TypeError("Invalid argument type. Array type is required")
-
-    namespace = uuid.NAMESPACE_X500 if array_type == ArrayType.array else uuid.NAMESPACE_OID
-    return str(uuid.uuid5(namespace, array_type.value + get_utc().isoformat()))
-
-
-def get_id(array: Any) -> str:
-    """Generate unique id by object type and datetime.
-
-    :param array: any object
-    """
-    from deker.arrays import Array, VArray
-
-    @singledispatch
-    def generate_id(arr: Any) -> str:
-        """Generate unique id by object type and datetime.
-
-        :param arr: any object
-        """
-        raise TypeError(f"Invalid object type: {type(arr)}")
-
-    @generate_id.register(Array)
-    def array_id(arr: Array) -> str:  # noqa[ARG001]
-        """Generate id for Array.
-
-        :param arr: Array type
-        """
-        return generate_uid(ArrayType.array)
-
-    @generate_id.register(VArray)
-    def varray_id(arr: VArray) -> str:  # noqa[ARG001]
-        """Generate id for VArray.
-
-        :param arr: VArray type
-        """
-        return generate_uid(ArrayType.varray)
-
-    return generate_id(array)
+def get_id() -> str:
+    """Generate unique id with uuid4."""
+    return str(uuid.uuid4())
