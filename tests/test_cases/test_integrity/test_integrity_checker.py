@@ -77,7 +77,12 @@ class TestIntegrityChecker:
 
     @pytest.mark.parametrize("check_params", [None, "test_integrity_locks"])
     def test_check_locks(
-        self, client: Client, root_path: Path, array_schema: ArraySchema, ctx: CTX, check_params: str
+        self,
+        client: Client,
+        root_path: Path,
+        array_schema: ArraySchema,
+        ctx: CTX,
+        check_params: str,
     ):
         """Tests if function returns error if lock is not found."""
 
@@ -137,7 +142,7 @@ class TestIntegrityChecker:
         ctx: CTX,
         uri: Uri,
         storage_adapter: Type[BaseStorageAdapter],
-        check_params: str
+        check_params: str,
     ):
         """Tests if function returns errors."""
         integrity_checker = IntegrityChecker(
@@ -189,7 +194,7 @@ class TestIntegrityChecker:
         ctx: CTX,
         uri: Uri,
         storage_adapter: Type[BaseStorageAdapter],
-        check_params: str
+        check_params: str,
     ):
         """Tests if function raises exception if array file is incorrect."""
         collection = client.create_collection(
