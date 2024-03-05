@@ -174,6 +174,7 @@ class ArraysChecker(BaseChecker):
         """Check if Arrays or VArray in Collection are initializing.
 
         :param collection: Collection to be checked
+        :param v_arrays: DataManager to get arrays or varrays from collection
         """
         try:
             for array in v_arrays:

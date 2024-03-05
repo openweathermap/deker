@@ -16,17 +16,14 @@
 
 import uuid
 
-from functools import singledispatch
-from typing import Any, Dict, List, Tuple, Union
+from typing import Dict, List, Tuple, Union
 
 import numpy as np
 
 from deker_tools.data import convert_size_to_human
-from deker_tools.time import get_utc
 from psutil import swap_memory, virtual_memory
 
 from deker.errors import DekerMemoryError, DekerValidationError
-from deker.types.private.enums import ArrayType
 
 
 def calculate_total_cells_in_array(seq: Union[Tuple[int, ...], List[int]]) -> int:
