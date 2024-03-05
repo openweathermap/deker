@@ -170,7 +170,7 @@ class ArraysChecker(BaseChecker):
         if self.stop_on_error and self.errors:
             raise DekerIntegrityError(self._parse_errors())
 
-    def _check_v_arrays(self, collection: Collection, v_arrays: ArrayManager | VArrayManager):
+    def _check_v_arrays(self, collection: Collection, v_arrays: ArrayManager | Optional[VArrayManager]):
         """Check if Arrays or VArray in Collection are initializing.
 
         :param collection: Collection to be checked
