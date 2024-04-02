@@ -19,6 +19,7 @@ import os
 
 from logging import Logger
 
+
 _ROOT_DEKER_LOGGER_NAME = "Deker"
 _level = os.getenv("DEKER_LOGLEVEL", "WARNING")
 

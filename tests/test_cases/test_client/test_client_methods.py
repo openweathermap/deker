@@ -382,7 +382,10 @@ class TestClientMethods:
         try:
             client.check_integrity(2, stop_on_error=False, collection=collection_1.name)
         except Exception as e:
-            assert str(e) == f"Collection \"{collection_1.name}\" metadata is invalid/corrupted: 'test'"
+            assert (
+                str(e)
+                == f"Collection \"{collection_1.name}\" metadata is invalid/corrupted: 'test'"
+            )
         errors = capsys.readouterr().out
         collection_1.delete()
         collection_2.delete()

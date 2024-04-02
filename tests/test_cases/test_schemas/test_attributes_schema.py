@@ -4,6 +4,7 @@ from collections import OrderedDict, namedtuple
 from datetime import datetime
 from typing import FrozenSet
 
+import numpy as np
 import pytest
 
 from deker_local_adapters import LocalArrayAdapter
@@ -12,7 +13,7 @@ from deker import Client, DimensionSchema
 from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerValidationError
+from deker.errors import DekerCollectionAlreadyExistsError, DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema
 from deker.types.private.typings import NumericDtypes
 
@@ -167,10 +168,150 @@ class TestAttributesSchemaPrimaryValidation:
             assert AttributeSchema(name="some_attr", dtype=float, primary=primary)
 
     @pytest.mark.parametrize("primary", [True, False])
-    def test_attributes_schema_primary_ok(self, primary):
+    def test_attributes_schema_primary_param_ok(self, primary):
         a = AttributeSchema(name="some_attr", dtype=int, primary=primary)
         assert a
         assert a.primary == primary
+
+    @pytest.mark.parametrize("primary", [False, True])
+    @pytest.mark.parametrize(
+        ("dtype", "value"),
+        [
+            (str, "123"),
+            (np.int8, np.int8(1)),
+            (np.int16, np.int16(-130)),
+            (np.int32, np.int32(-9999)),
+            (np.int64, np.int64(99999999)),
+            (int, 1),
+            (int, 0),
+            (int, -1),
+            (float, 0.1),
+            (float, -0.1),
+            (np.float16, np.float16(1.0)),
+            (np.float32, np.float32(-130)),
+            (np.float64, np.float64(-9999)),
+            (np.float128, np.float128(99999999)),
+            (complex, complex(0.0000000000001)),
+            (complex, complex(-0.0000000000001)),
+            (np.complex64, np.complex64(1.0)),
+            (np.complex128, np.complex128(-130)),
+            (np.complex256, np.complex256(-9999)),
+            (tuple, tuple("abc")),
+            (tuple, tuple({"abc", "def"})),
+            (tuple, (1, 2, 3, 4)),
+            (tuple, (1, 0.1, complex(0.0000000000001), complex(-0.0000000000001), -0.1, -1)),
+            (
+                tuple,
+                (
+                    (1, 0.1, complex(0.0000000000001), complex(-0.0000000000001), -0.1, -1),
+                    (1, 0.1, complex(0.0000000000001), complex(-0.0000000000001), -0.1, -1),
+                ),
+            ),
+            (
+                tuple,
+                (
+                    (
+                        1,
+                        0.1,
+                        complex(0.0000000000001),
+                        complex(-0.0000000000001),
+                        -0.1,
+                        -1,
+                    ),
+                    (1, 0.1, complex(0.0000000000001), complex(-0.0000000000001), -0.1, -1),
+                ),
+            ),
+            (
+                tuple,
+                (
+                    np.int8(1),
+                    np.int16(-130),
+                    np.int32(-9999),
+                    np.int64(99999999),
+                    np.float16(1.0),
+                    np.float32(-130),
+                    np.float64(-9999),
+                    np.float128(99999999),
+                    np.complex64(1.0),
+                    np.complex128(-130),
+                    np.complex256(-9999),
+                ),
+            ),
+        ],
+    )
+    def test_attributes_values_serialize_deserialize_ok(self, client, primary, dtype, value):
+        schema = ArraySchema(
+            dimensions=[DimensionSchema(name="x", size=1)],
+            dtype=int,
+            attributes=[AttributeSchema(name="some_attr", dtype=dtype, primary=primary)],
+        )
+        col_name = "test_attrs_values_validation"
+        try:
+            col = client.create_collection(col_name, schema)
+        except DekerCollectionAlreadyExistsError:
+            col = client.get_collection(col_name)
+            col.clear()
+        try:
+            if primary:
+                key = "primary_attributes"
+            else:
+                key = "custom_attributes"
+            attrs = {key: {schema.attributes[0].name: value}}
+            array = col.create(**attrs)
+            assert array
+            attr = getattr(array, key)
+            assert attr[schema.attributes[0].name] == value
+        except Exception:
+            raise
+        finally:
+            col.delete()
+
+    @pytest.mark.parametrize("primary", [False, True])
+    @pytest.mark.parametrize(
+        ("dtype", "value"),
+        [
+            (tuple, set("abc")),
+            (tuple, list({"abc", "def"})),
+            (tuple, ({1: 2}, {3: 4})),
+            (tuple, ({1, 2}, {3, 4})),
+            (tuple, ([1, 2], [3, 4])),
+            (tuple, ([1, 2], [3, 4])),
+        ],
+    )
+    def test_attributes_schema_raise_on_tuples_values(self, client, primary, dtype, value):
+        schema = ArraySchema(
+            dimensions=[DimensionSchema(name="x", size=1)],
+            dtype=int,
+            attributes=[AttributeSchema(name="some_attr", dtype=dtype, primary=primary)],
+        )
+        col_name = "test_attrs_values_validation"
+        try:
+            col = client.create_collection(col_name, schema)
+        except DekerCollectionAlreadyExistsError:
+            col = client.get_collection(col_name)
+            col.clear()
+
+        try:
+            if primary:
+                key = "primary_attributes"
+            else:
+                key = "custom_attributes"
+
+            attrs = {key: {"some_attr": value}}
+            with pytest.raises(DekerValidationError):
+                assert col.create(**attrs)
+
+        finally:
+            col.delete()
+
+    @pytest.mark.parametrize("primary", [False, True])
+    @pytest.mark.parametrize(
+        "dtype",
+        [set, dict, None, list],
+    )
+    def test_attributes_schema_raises_on_dtype(self, primary, dtype):
+        with pytest.raises(DekerValidationError):
+            AttributeSchema(name="some_attr", dtype=dtype, primary=primary)
 
 
 @pytest.mark.parametrize("primary", (True, False))

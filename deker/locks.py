@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from threading import get_native_id
 from time import sleep
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Union, Tuple
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple, Union
 from uuid import uuid4
 
 from deker.ABC.base_locks import BaseLock

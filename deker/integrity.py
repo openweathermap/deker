@@ -33,6 +33,7 @@ from deker.managers import ArrayManager, VArrayManager
 from deker.tools import get_main_path, get_symlink_path
 from deker.types.private.enums import LocksExtensions
 
+
 if TYPE_CHECKING:
     from deker.client import Client
 
@@ -187,15 +188,15 @@ class ArraysChecker(BaseChecker):
                 except DekerBaseApplicationError as e:
                     if self.stop_on_error:
                         raise DekerIntegrityError(str(e))
-                    self.errors[
-                        f"Collection {collection.name} arrays integrity errors:"
-                    ].append(str(e))
+                    self.errors[f"Collection {collection.name} arrays integrity errors:"].append(
+                        str(e)
+                    )
         except DekerMetaDataError as e:
             if self.stop_on_error:
                 raise e
-            self.errors[
-                f"Collection {collection.name} (V)Arrays initialization errors:"
-            ].append(str(e))
+            self.errors[f"Collection {collection.name} (V)Arrays initialization errors:"].append(
+                str(e)
+            )
 
     def check(self, collection: Collection) -> None:
         """Check if Arrays or VArrays and their locks in Collection are valid.

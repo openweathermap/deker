@@ -26,6 +26,5 @@ def attributes_validation_params() -> List[dict]:
                 "time_attr_name": datetime.now(),
             },
         },
-        {"custom_attributes": {"time_attr_name": None}, **default_attributes},
         {"custom_attributes": {"time_attr_name": "word"}, **default_attributes},
     ]

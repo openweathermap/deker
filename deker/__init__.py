@@ -17,11 +17,6 @@
 # nopycln: file
 # isort: skip_file
 
-from deker_local_adapters.storage_adapters.hdf5.hdf5_options import (
-    HDF5Options,
-    HDF5CompressionOpts,
-)
-
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
@@ -36,6 +31,10 @@ from deker.schemas import (
 )
 from deker.subset import Subset, VSubset
 from deker.types.public.classes import Scale
+from deker_local_adapters.storage_adapters.hdf5.hdf5_options import (
+    HDF5Options,
+    HDF5CompressionOpts,
+)
 
 __all__ = (
     # deker.adapters.hdf5

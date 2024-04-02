@@ -6,7 +6,7 @@ import pytest
 
 from tests.parameters.schemas_params import ArraySchemaCreationParams
 
-from deker.errors import DekerValidationError
+from deker.errors import DekerCollectionAlreadyExistsError, DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema
 
 
@@ -149,6 +149,62 @@ def test_array_schema_shape_is_python_int(array_schema: ArraySchema):
     shape = array_schema.shape
     for i in shape:
         assert type(i) == int
+
+
+@pytest.mark.parametrize("primary", [False, True])
+def test_schema_with_TD_and_start_value_link_fail_on_attr_is_None(client, primary):
+    schema = ArraySchema(
+        dimensions=[
+            TimeDimensionSchema(name="x", size=1, start_value="$some_attr", step=timedelta(1))
+        ],
+        dtype=int,
+        attributes=[AttributeSchema(name="some_attr", dtype=datetime, primary=primary)],
+    )
+    col_name = "test_TD_start_value_linked_attr_value_can_not_be_None"
+    try:
+        col = client.create_collection(col_name, schema)
+    except DekerCollectionAlreadyExistsError:
+        col = client.get_collection(col_name)
+        col.clear()
+    try:
+        if primary:
+            key = "primary_attributes"
+        else:
+            key = "custom_attributes"
+        attrs = {key: {schema.attributes[0].name: None}}
+        with pytest.raises(DekerValidationError):
+            assert col.create(**attrs)
+    finally:
+        col.delete()
+
+
+def test_schema_with_TD_and_start_value_link_fail_on_custom_attr_is_set_to_None(client):
+    schema = ArraySchema(
+        dimensions=[
+            TimeDimensionSchema(name="x", size=1, start_value="$some_attr", step=timedelta(1))
+        ],
+        dtype=int,
+        attributes=[AttributeSchema(name="some_attr", dtype=datetime, primary=False)],
+    )
+    col_name = "test_TD_start_value_linked_attr_value_can_not_be_set_to_None"
+    try:
+        col = client.create_collection(col_name, schema)
+    except DekerCollectionAlreadyExistsError:
+        col = client.get_collection(col_name)
+        col.clear()
+    try:
+        key = "custom_attributes"
+        attrs = {key: {schema.attributes[0].name: datetime(2024, 1, 1, tzinfo=timezone.utc)}}
+        array = col.create(**attrs)
+        assert array
+        assert (
+            array.custom_attributes[schema.attributes[0].name]
+            == attrs[key][schema.attributes[0].name]
+        )
+        with pytest.raises(DekerValidationError):
+            assert array.update_custom_attributes({schema.attributes[0].name: None})
+    finally:
+        col.delete()
 
 
 if __name__ == "__main__":

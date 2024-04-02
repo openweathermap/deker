@@ -4,7 +4,6 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
 import hdf5plugin
-import numpy as np
 import pytest
 
 from deker_local_adapters import HDF5StorageAdapter, LocalCollectionAdapter
