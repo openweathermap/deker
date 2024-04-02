@@ -178,6 +178,8 @@ class TestAttributesSchemaPrimaryValidation:
         ("dtype", "value"),
         [
             (str, "123"),
+            (str, str(complex(-125.000000000001 - 0.123456789j))),
+            (str, "-125.000000000001-0.123456789j"),
             (np.int8, np.int8(1)),
             (np.int16, np.int16(-130)),
             (np.int32, np.int32(-9999)),
