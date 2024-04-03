@@ -13,19 +13,18 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-
 import logging
-import os
 
-from logging import Logger
+from typing import Optional
+
 
 _ROOT_DEKER_LOGGER_NAME = "Deker"
-_level = os.getenv("DEKER_LOGLEVEL", "WARNING")
 
 format_string = "%(levelname)s | %(asctime)s | %(name)s | %(message)s"
 fmter = logging.Formatter(fmt=format_string)
 
 _logger = logging.getLogger(_ROOT_DEKER_LOGGER_NAME)
+_logger.propagate = False
 _handler = logging.StreamHandler()
 _handler.setFormatter(fmter)
 _logger.addHandler(_handler)
@@ -34,10 +33,10 @@ _logger.addHandler(_handler)
 class SelfLoggerMixin(object):
     """Mixin with a logger object with a possibility to log its actions."""
 
-    __logger: Logger = None
+    __logger: Optional[logging.Logger] = None
 
     @property
-    def logger(self) -> Logger:
+    def logger(self) -> logging.Logger:
         """Lazy deker logger property."""
         if not self.__logger:
             self.__logger = _logger.getChild(self.__class__.__name__)
