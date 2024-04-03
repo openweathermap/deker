@@ -35,6 +35,7 @@ from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, VArraySchema
 from deker.subset import Subset, VSubset
 from deker.tools.array import check_memory, get_id
+from deker.tools.attributes import deserialize_attribute_value, serialize_attribute_value
 from deker.tools.schema import create_dimensions
 from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
@@ -393,52 +394,12 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
     def _create_meta(self) -> str:
         """Serialize array into metadata JSON string."""
-
-        def serialize_value(
-            val: Any,
-        ) -> Union[Tuple[str, int, float, tuple], str, int, float, tuple]:
-            """Jsonify attribute value.
-
-            :param val: complex number
-            """
-            if isinstance(val, datetime):
-                return val.isoformat()
-            if isinstance(val, np.ndarray):
-                return val.tolist()  # type: ignore[attr-defined]
-            if isinstance(val, complex):
-                return str(val)
-            if isinstance(val, np.integer):
-                return int(val)
-            if isinstance(val, np.floating):
-                return float(val)
-            if isinstance(val, np.complexfloating):
-                return str(complex(val))
-            if isinstance(val, (list, tuple)):
-                return serialize_nested_tuples(val)  # type: ignore[arg-type]
-
-            return val
-
-        def serialize_nested_tuples(
-            attr: tuple,
-        ) -> Tuple[Union[Tuple[str, int, float, tuple], str, int, float, tuple], ...]:
-            """Jsonify nested tuples.
-
-            :param attr: tuple instance
-            """
-            elements = []
-            for val in attr:
-                if isinstance(val, tuple):
-                    elements.append(serialize_nested_tuples(val))
-                else:
-                    elements.append(serialize_value(val))  # type: ignore[arg-type]
-            return tuple(elements)
-
         primary_attrs, custom_attrs = deepcopy(self.primary_attributes), deepcopy(
             self.custom_attributes
         )
         for attrs in (primary_attrs, custom_attrs):
             for key, value in attrs.items():
-                attrs[key] = serialize_value(value)
+                attrs[key] = serialize_attribute_value(value)
 
         return json.dumps(
             {
@@ -505,20 +466,11 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
                 )
 
                 value = attributes[attr.name]
+                if value is None and not attr.primary:
+                    attributes[attr.name] = value
+                    continue
 
-                if attr.dtype == datetime:
-                    attributes[attr.name] = get_utc(value)
-                if attr.dtype == tuple:
-                    if (
-                        attr.primary or (not attr.primary and value is not None)
-                    ) and not isinstance(value, list):
-                        raise DekerMetaDataError(
-                            f"Collection '{collection.name}' metadata is corrupted: "
-                            f"attribute '{attr.name}' has invalid type '{type(value)}'; '{attr.dtype}' expected"
-                        )
-
-                    if attr.primary or (not attr.primary and value is not None):
-                        attributes[attr.name] = tuple(value)
+                attributes[attr.name] = deserialize_attribute_value(value, attr.dtype, False)
 
             arr_params = {
                 "collection": collection,

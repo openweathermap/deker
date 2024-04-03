@@ -54,10 +54,11 @@ def __validate_attribute_type(attribute: object) -> None:
             __validate_attribute_type(attr)
 
     dtype = type(attribute)
-    try:
-        DTypeEnum(dtype).value
-    except (ValueError, KeyError):
-        raise DekerValidationError(f"Invalid dtype value {dtype}")
+    if attribute is not None:
+        try:
+            DTypeEnum(dtype).value
+        except (ValueError, KeyError):
+            raise DekerValidationError(f"Invalid dtype value {dtype}")
 
 
 def __process_attributes_types(
