@@ -323,7 +323,7 @@ class WriteVarrayLock(BaseLock):
         # Iterate over Arrays in VArray and try to lock them. If locking fails - wait.
         # If it fails again - release all locks.
         currently_locked = self.check_arrays_locks(arrays_positions, adapter, varray)
-        if not currently_locked and (len(self.locks) == len(arrays_positions)):
+        if not currently_locked:
             # Release array locks
             return
 
