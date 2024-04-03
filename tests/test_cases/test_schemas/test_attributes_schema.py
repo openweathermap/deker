@@ -261,6 +261,7 @@ class TestAttributesSchemaPrimaryValidation:
             attrs = {key: {schema.attributes[0].name: value}}
             array = col.create(**attrs)
             assert array
+            array = [a for a in col][0]
             attr = getattr(array, key)
             assert attr[schema.attributes[0].name] == value
         except Exception:
