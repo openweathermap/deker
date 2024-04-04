@@ -417,7 +417,7 @@ class TestLocks:
             (np.index_exp[:5, 3:, :], 500),  # shall be blocked
             (np.index_exp[8:, 8:, 8:], blocking_value),  # shall proceed as non-locked
         )
-        # Call read process to lock arrays for reading
+        # Call read process to lock arrays
         proc = Process(
             target=call_array_method,
             args=(
