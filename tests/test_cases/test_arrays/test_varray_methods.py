@@ -292,7 +292,6 @@ class TestVArrayMethods:
                 "time_attr_name": datetime.now(timezone.utc),
             },
             {"custom_attribute": 0.6, "time_attr_name": datetime.now(timezone.utc).isoformat()},
-            {"custom_attribute": 0.6, "time_attr_name": None},
             {"custom_attribute": 0.6, "time_attr_name": timezone.utc},
             {"custom_attribute": 0.6, "time_attr_name": ""},
             {"custom_attribute": 0.6, "time_attr_name": " "},
