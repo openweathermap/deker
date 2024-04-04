@@ -202,6 +202,7 @@ per-file-ignores = [
     "deker/private/types/shell.py: D205, D400",
     "deker/collection.py: D401",
     "deker/subset.py: DAR101, E203",
+    "deker/errors.py: D301",
 ]
 ignore = [
     "B012",

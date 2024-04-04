@@ -1,5 +1,10 @@
+import time
+import traceback
+
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
+from random import randint
 from typing import Tuple
 
 import hdf5plugin
@@ -10,15 +15,15 @@ from deker_local_adapters import HDF5CompressionOpts, HDF5Options
 
 from tests.parameters.index_exp_params import valid_index_exp_params
 
-from deker import Scale
 from deker.arrays import VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerArrayError, DekerSubsetError
+from deker.errors import DekerArrayError, DekerSubsetError, DekerVSubsetError
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.subset import VSubset
 from deker.types.private.classes import ArrayPosition
 from deker.types.private.typings import Slice
+from deker.types.public.classes import Scale
 
 
 class TestVArraySubset:
@@ -522,6 +527,38 @@ class TestVArraySubset:
         assert varray[one].read() == value
 
         coll.delete()
+
+    def test_DekerVSubsetError_exception_group(
+        self, inserted_varray: VArray, root_path, varray_collection: Collection
+    ):
+        """Test raise of DekerVSubsetError."""
+        excs = [ValueError, TypeError, FileExistsError, FileNotFoundError, EOFError]
+        sleep_time = randint(1, 5)
+
+        def raise_exc(exc):
+            time.sleep(sleep_time)
+            raise exc(f"This is {exc.__name__}")
+
+        def catch_errors(threads_results):
+            exceptions = []
+            for result in threads_results:
+                try:
+                    result.result()
+                except Exception as e:
+                    exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
+            if exceptions:
+                raise DekerVSubsetError("ExceptionGroup works", exceptions)
+
+        timer = time.monotonic()
+        with ThreadPoolExecutor(len(excs)) as pool:
+            futures = [pool.submit(raise_exc, exc) for exc in excs]
+
+        with pytest.raises(DekerVSubsetError):
+            assert catch_errors(threads_results=futures)
+        # catch_errors(threads_results=futures)
+
+        test_time = int(time.monotonic() - timer)
+        assert test_time <= sleep_time
 
 
 class TestVSubsetForXArray:
