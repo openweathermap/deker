@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
+# TODO: MOVED
 class DekerBaseApplicationError(Exception):
     """Base attribute exception."""
 
@@ -83,6 +84,7 @@ class DekerIntegrityError(DekerBaseApplicationError):
     pass
 
 
+# TODO: MOVED
 class DekerLockError(DekerBaseApplicationError):
     """If a Collection or a Array or VArray instance is locked."""
 
@@ -110,5 +112,6 @@ class DekerVSubsetError(DekerSubsetError):
     """If something goes wrong while VSubset managing."""
 
 
+# TODO: MOVED
 class DekerMemoryError(DekerBaseApplicationError, MemoryError):
     """Early memory overflow exception."""

@@ -88,6 +88,7 @@ class DimensionType(str, Enum):
     time = "time"
 
 
+# TODO: MOVED
 class LocksExtensions(str, Enum):
     """Extensions for lock files."""
 
@@ -97,6 +98,7 @@ class LocksExtensions(str, Enum):
     varray_lock = ".varraylock"
 
 
+# TODO: MOVED
 class LocksTypes(str, Enum):
     """Locks enum."""
 

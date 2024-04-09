@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Abstract interfaces for locks."""
-
+# TODO: MOVED
 from abc import ABC, abstractmethod
 from functools import wraps
 from pathlib import Path
@@ -31,16 +31,15 @@ class BaseLock(SelfLoggerMixin, ABC):
     ALLOWED_TYPES: List[str] = []
     lock: Optional[Union[Flock, Path]] = None
     instance: Optional[Any] = None
+    args: Optional[List[Any]] = None
+    kwargs: Optional[Dict] = None
 
     @abstractmethod
-    def get_path(self, func_args: Sequence, func_kwargs: Dict) -> Optional[Path]:
+    def get_path(self) -> Optional[Path]:
         """Get path to the lock file.
 
         For Arrays it shall be .arrlock (array read lock) or path to the file (array write lock)
         For VArrays there are no specific locks for reading, for writing - lock on .json
-
-        :param func_args: Arguments of method call
-        :param func_kwargs: Keyword arguments of method call
         """
         pass
 
@@ -98,7 +97,7 @@ class BaseLock(SelfLoggerMixin, ABC):
         :param kwargs: Keyword arguments of decorated function
         """
         lock.check_existing_lock(args, kwargs)
-        path = lock.get_path(args, kwargs)
+        path = lock.get_path()
         lock.acquire(path)
         try:
             # Logic is in the separate method, so we can override its behavior
@@ -129,7 +128,8 @@ class BaseLock(SelfLoggerMixin, ABC):
             lock = self.__class__()
             # as we wrap methods, we should have access to 'self' objects
             lock.instance = kwargs.get("self") or args[0]
-
+            lock.args = args
+            lock.kwargs = kwargs
             # Check that we don't have lock on anything that besides methods that require lock
             lock.check_type()
 
