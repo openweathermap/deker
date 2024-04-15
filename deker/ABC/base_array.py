@@ -470,34 +470,45 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             attrs_schema = collection.varray_schema.attributes
         else:
             attrs_schema = collection.array_schema.attributes
+
         try:
-            for attr in attrs_schema:
-                attributes = (
-                    meta["primary_attributes"] if attr.primary else meta["custom_attributes"]
-                )
+            # To ensure the order of attributes
+            primary_attributes, custom_attributes = OrderedDict(), OrderedDict()
 
-                value = attributes[attr.name]
+            # Iterate over every attribute in schema:
+            for attr_schema in attrs_schema:
+                if attr_schema.primary:
+                    attributes_from_meta = meta["primary_attributes"]
+                    result_attributes = primary_attributes
+                else:
+                    attributes_from_meta = meta["custom_attributes"]
+                    result_attributes = custom_attributes
 
-                if attr.dtype == datetime:
-                    attributes[attr.name] = get_utc(value)
-                if attr.dtype == tuple:
+                value = attributes_from_meta[attr_schema.name]
+
+                if attr_schema.dtype == datetime:
+                    result_attributes[attr_schema.name] = get_utc(value)
+                elif attr_schema.dtype == tuple:
                     if (
-                        attr.primary or (not attr.primary and value is not None)
+                        attr_schema.primary or (not attr_schema.primary and value is not None)
                     ) and not isinstance(value, list):
                         raise DekerMetaDataError(
                             f"Collection '{collection.name}' metadata is corrupted: "
-                            f"attribute '{attr.name}' has invalid type '{type(value)}'; '{attr.dtype}' expected"
+                            f"attribute '{attr_schema.name}' has invalid type '{type(value)}';"
+                            f"'{attr_schema.dtype}' expected"
                         )
 
-                    if attr.primary or (not attr.primary and value is not None):
-                        attributes[attr.name] = tuple(value)
+                    if attr_schema.primary or (not attr_schema.primary and value is not None):
+                        result_attributes[attr_schema.name] = tuple(value)
+                else:
+                    result_attributes[attr_schema.name] = value
 
             arr_params = {
                 "collection": collection,
                 "adapter": array_adapter,
                 "id_": meta["id"],
-                "primary_attributes": meta.get("primary_attributes"),
-                "custom_attributes": meta.get("custom_attributes"),
+                "primary_attributes": primary_attributes,
+                "custom_attributes": custom_attributes,
             }
             if varray_adapter:
                 arr_params.update({"adapter": varray_adapter, "array_adapter": array_adapter})

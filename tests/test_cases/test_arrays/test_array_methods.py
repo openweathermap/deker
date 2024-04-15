@@ -1,17 +1,20 @@
 import os
 import string
+from copy import deepcopy
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from random import shuffle
 from typing import Any
 
 import numpy as np
 import pytest
 
-from deker_local_adapters import HDF5StorageAdapter
+from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter, LocalVArrayAdapter
 from deker_local_adapters.factory import AdaptersFactory
 from numpy import ndarray
 
+from deker.types import ArrayMeta
 from tests.parameters.array_params import attributes_validation_params
 from tests.parameters.index_exp_params import invalid_index_params, valid_index_exp_params
 from tests.parameters.uri import embedded_uri
@@ -716,6 +719,40 @@ class TestArrayMethods:
     def test_step_validator(self, array: Array, index_exp):
         with pytest.raises(IndexError):
             array[index_exp]
+
+    def test_create_from_meta_ordered(
+        self,
+        array_collection_with_attributes: Collection,
+        local_array_adapter: LocalArrayAdapter,
+        local_varray_adapter: LocalVArrayAdapter,
+        array_with_attributes: Array,
+    ):
+        meta: ArrayMeta = array_with_attributes.as_dict
+
+        primary_attribute_keys = list(meta["primary_attributes"].keys())
+        shuffle(primary_attribute_keys)
+
+        custom_attribute_keys = list(meta["custom_attributes"].keys())
+        shuffle(custom_attribute_keys)
+
+        primary_attributes, custom_attributes = {}, {}
+        for key in primary_attribute_keys:
+            primary_attributes[key] = meta["primary_attributes"][key]
+
+        for key in custom_attribute_keys:
+            custom_attributes[key] = meta["custom_attributes"][key]
+
+        meta["primary_attributes"] = primary_attributes
+        meta["custom_attributes"] = custom_attributes
+
+        array = Array._create_from_meta(
+            array_collection_with_attributes,
+            meta=meta,
+            array_adapter=local_array_adapter,
+            varray_adapter=None,
+        )
+        assert array.primary_attributes == array_with_attributes.primary_attributes
+        assert array.custom_attributes == array_with_attributes.custom_attributes
 
 
 if __name__ == "__main__":

@@ -19,7 +19,6 @@ from __future__ import annotations
 import fcntl
 import os
 import time
-from contextlib import contextmanager
 
 from pathlib import Path
 from threading import get_native_id
@@ -50,7 +49,6 @@ if TYPE_CHECKING:
     from deker_local_adapters import LocalArrayAdapter
 
     from deker.arrays import Array, VArray
-    from deker.types.private.classes import ArrayPositionedData
 
 META_DIVIDER = ":"
 ArrayFromArgs = Union[Path, Union["Array", "VArray"]]
@@ -94,8 +92,14 @@ class LockWithArrayMixin(Generic[T]):
 
     @property
     def array_id(self) -> str:
-        """Return id of an Array"""
-        return self.array.id
+        """Get if from Array, or Path to the array."""
+        # Get instance of the array
+        if isinstance(self.array, Path):
+            path = self.array
+            id_ = path.name.split(".")[0]
+        else:
+            id_ = self.array.id
+        return id_
 
     @property
     def array(self) -> T:
@@ -127,19 +131,6 @@ def wait_for_unlock(check_func: Callable, check_func_args: tuple, timeout, inter
 
 class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
     """Read lock for Array."""
-
-    ALLOWED_TYPES = ["LocalArrayAdapter"]
-
-    @property
-    def array_id(self) -> str:
-        """Get if from Array, or Path to the array."""
-        # Get instance of the array
-        if isinstance(self.array, Path):
-            path = self.array
-            id_ = path.name.split(".")[0]
-        else:
-            id_ = self.array.id
-        return id_
 
     def get_path(self) -> Path:
         """Get path to read-lock file.
@@ -206,11 +197,9 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
 class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
     """Write lock for arrays."""
 
-    ALLOWED_TYPES = ["LocalArrayAdapter"]
-
     def get_path(self) -> Path:
         """Get path to the file for locking."""
-        path = self.dir_path / (self.array.id + self.instance.file_ext)
+        path = self.dir_path / (self.array_id + self.instance.file_ext)
         self.logger.debug(f"Got path for array.id {self.array.id} lock file: {path}")
         return path
 
@@ -221,8 +210,7 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         :param func_kwargs: keyword arguments of method call
         """
         # If array belongs to varray, we should check if varray is also locked
-        if self.array._vid:
-            self.is_locked_with_varray = _check_write_locks(self.dir_path, self.array.id)
+        self.is_locked_with_varray = _check_write_locks(self.dir_path, self.array_id)
 
         # Increment write lock, to prevent more read locks coming.
         self.acquire(self.get_path())
@@ -274,8 +262,6 @@ class WriteVarrayLock(BaseLock):
     If updating subsets do not intersect - it's OK, otherwise the first,
     which managed to obtain all Array locks, will survive.
     """
-
-    ALLOWED_TYPES = ["VSubset"]
 
     # Locks that have been acquired by varray
     locks: List[Tuple[Flock, Path]] = []
