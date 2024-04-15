@@ -23,6 +23,8 @@ from deker_tools.time import get_utc
 
 from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerValidationError
+from deker.types import DTypeEnum
+
 
 if TYPE_CHECKING:
     from deker.schemas import ArraySchema, AttributeSchema, VArraySchema
@@ -42,17 +44,38 @@ def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.d
     return time_attribute
 
 
+def __validate_attribute_type(attribute: object) -> None:
+    """Validate attribute type over allowed types.
+
+    :param attribute: attribute object
+    """
+    if isinstance(attribute, tuple):
+        for attr in attribute:
+            __validate_attribute_type(attr)
+
+    dtype = type(attribute)
+    if attribute is not None:
+        try:
+            DTypeEnum(dtype).value
+        except (ValueError, KeyError):
+            raise DekerValidationError(f"Invalid dtype value {dtype}")
+
+
 def __process_attributes_types(
     attrs_schema: Tuple["AttributeSchema", ...],
     primary_attributes: dict,
     custom_attributes: dict,
+    dimensions: list,
 ) -> None:
     """Validate attributes types over schema and update dicts if needed.
 
     :param attrs_schema: attributes schema
     :param primary_attributes: primary attributes to validate
     :param custom_attributes: custom attributes to validate
+    :param dimensions: list of dimensions
     """
+    from deker.schemas import TimeDimensionSchema
+
     attributes = {**primary_attributes, **custom_attributes}
     for attr in attrs_schema:
         if attr.primary:
@@ -65,6 +88,10 @@ def __process_attributes_types(
                     f"expected {attr.dtype}"
                 )
 
+            # validate tuples contents type
+            if isinstance(primary_attributes[attr.name], tuple):
+                __validate_attribute_type(primary_attributes[attr.name])
+
         else:
             # check if custom attribute is not missing and its type
             custom_attribute = custom_attributes.get(attr.name)
@@ -76,11 +103,27 @@ def __process_attributes_types(
 
             if custom_attribute is None:
                 if attr.dtype == datetime.datetime:
-                    raise DekerValidationError(f'Custom attribute "{attr.name}" cannot be None')
+                    for d in dimensions:
+                        if (
+                            isinstance(d, TimeDimensionSchema)
+                            and isinstance(d.start_value, str)
+                            and d.start_value.startswith("$" + attr.name)
+                        ):
+                            raise DekerValidationError(
+                                f'Custom attribute "{attr.name}" cannot be None'
+                            )
                 custom_attributes[attr.name] = None
 
-        # convert attribute with datetime to utc if needed
-        if attr.dtype == datetime.datetime and attr.name in attributes:
+            # validate tuples
+            if isinstance(custom_attributes[attr.name], tuple):
+                __validate_attribute_type(custom_attributes[attr.name])
+
+        # convert datetime attribute with set datetime value to utc if needed
+        if (
+            attr.dtype == datetime.datetime
+            and attr.name in attributes
+            and attributes[attr.name] is not None
+        ):
             try:
                 utc = get_utc(attributes[attr.name])
                 if attr.primary:
@@ -138,7 +181,7 @@ def process_attributes(
             f"Invalid attributes: {sorted(extra_names)}"
         )
     __process_attributes_types(
-        attrs_schema, primary_attributes, custom_attributes  # type: ignore[arg-type]
+        attrs_schema, primary_attributes, custom_attributes, schema.dimensions  # type: ignore[arg-type]
     )
     return primary_attributes, custom_attributes
 

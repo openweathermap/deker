@@ -35,10 +35,11 @@ from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, VArraySchema
 from deker.subset import Subset, VSubset
 from deker.tools.array import check_memory, get_id
+from deker.tools.attributes import deserialize_attribute_value, serialize_attribute_value
 from deker.tools.schema import create_dimensions
 from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
-from deker.validators import process_attributes, is_valid_uuid, validate_custom_attributes_update
+from deker.validators import is_valid_uuid, process_attributes, validate_custom_attributes_update
 
 
 if TYPE_CHECKING:
@@ -392,26 +393,14 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         self.logger.info(f"{self!s} custom attributes updated: {attributes}")
 
     def _create_meta(self) -> str:
-        """Serialize array into metadata string."""
+        """Serialize array into metadata JSON string."""
         primary_attrs, custom_attrs = deepcopy(self.primary_attributes), deepcopy(
             self.custom_attributes
         )
         for attrs in (primary_attrs, custom_attrs):
             for key, value in attrs.items():
-                if isinstance(value, datetime):
-                    attrs[key] = value.isoformat()
-                elif isinstance(value, np.ndarray):
-                    attrs[key] = value.tolist()
-                elif isinstance(value, (list, tuple)):
-                    elements = []
-                    for element in value:
-                        if isinstance(element, np.integer):
-                            elements.append(int(element))
-                        else:
-                            elements.append(element)
-                    attrs[key] = tuple(elements)
-                else:
-                    attrs[key] = value
+                attrs[key] = serialize_attribute_value(value)
+
         return json.dumps(
             {
                 "id": self.id,
@@ -485,23 +474,13 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
                     result_attributes = custom_attributes
 
                 value = attributes_from_meta[attr_schema.name]
-
-                if attr_schema.dtype == datetime:
-                    result_attributes[attr_schema.name] = get_utc(value)
-                elif attr_schema.dtype == tuple:
-                    if (
-                        attr_schema.primary or (not attr_schema.primary and value is not None)
-                    ) and not isinstance(value, list):
-                        raise DekerMetaDataError(
-                            f"Collection '{collection.name}' metadata is corrupted: "
-                            f"attribute '{attr_schema.name}' has invalid type '{type(value)}';"
-                            f"'{attr_schema.dtype}' expected"
-                        )
-
-                    if attr_schema.primary or (not attr_schema.primary and value is not None):
-                        result_attributes[attr_schema.name] = tuple(value)
-                else:
+                if value is None and not attr_schema.primary:
                     result_attributes[attr_schema.name] = value
+                    continue
+
+                result_attributes[attr_schema.name] = deserialize_attribute_value(
+                    value, attr_schema.dtype, False
+                )
 
             arr_params = {
                 "collection": collection,

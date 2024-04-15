@@ -6,16 +6,13 @@ on Array, VArray and Collection objects concurrently, and it verifies that the l
 correctly.
 """
 import os
-import time
 import traceback
 
 from multiprocessing import Event, Manager, Process, cpu_count
 from multiprocessing.pool import Pool
 from pathlib import Path
-from threading import get_native_id
 from typing import Callable, Dict, Literal
 from unittest.mock import patch
-from uuid import uuid4
 
 import h5py
 import numpy as np
@@ -28,15 +25,15 @@ from tests.parameters.uri import embedded_uri
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerLockError, DekerVSubsetError
+from deker.errors import DekerLockError
 from deker.locks import (
     CollectionLock,
+    CreateArrayLock,
     Flock,
     ReadArrayLock,
     UpdateMetaAttributeLock,
     WriteArrayLock,
     WriteVarrayLock,
-    CreateArrayLock,
 )
 from deker.schemas import ArraySchema, DimensionSchema, VArraySchema
 from deker.tools import get_paths
@@ -420,7 +417,7 @@ class TestLocks:
             (np.index_exp[:5, 3:, :], 500),  # shall be blocked
             (np.index_exp[8:, 8:, 8:], blocking_value),  # shall proceed as non-locked
         )
-        # Call read process to lock arrays for reading
+        # Call read process to lock arrays
         proc = Process(
             target=call_array_method,
             args=(

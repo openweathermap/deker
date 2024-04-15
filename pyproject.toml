@@ -173,7 +173,7 @@ disallow_untyped_defs = false
 # https://pypi.org/project/flake8-pytest-style/
 # https://pypi.org/project/pep8-naming/
 min_python_version = 3.9
-max-complexity = 15
+max-complexity = 16
 max-doc-length = 120
 max-line-length = 120
 strictness = "full"
@@ -202,6 +202,7 @@ per-file-ignores = [
     "deker/private/types/shell.py: D205, D400",
     "deker/collection.py: D401",
     "deker/subset.py: DAR101, E203",
+    "deker/errors.py: D301",
 ]
 ignore = [
     "B012",

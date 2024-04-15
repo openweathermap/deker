@@ -13,6 +13,7 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+from typing import List
 
 
 # TODO: MOVED
@@ -109,7 +110,38 @@ class DekerSubsetError(DekerArrayError):
 
 
 class DekerVSubsetError(DekerSubsetError):
-    """If something goes wrong while VSubset managing."""
+    """If something goes wrong while VSubset managing.
+
+    Regarding that VSubset's inner Subsets' processing
+    is made in an Executor, this exception actually is
+    an `exceptions messages group`.
+
+    If one or more threads finished with any exception,
+    name, message and reasonable tracebacks of all
+    of these exceptions shall be collected in a list
+    and passed to this class along with some message.
+
+    ```
+    futures = [executor.submit(func, arg) for arg in iterable]
+
+    exceptions = []
+    for future in futures:
+        try:
+            future.result()
+        except Exception as e:
+            exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
+    ```
+    """
+
+    def __init__(self, message: str, exceptions: List[str]):
+        self.message = message
+        self.exceptions = exceptions
+        super().__init__(message)
+
+    def __str__(self) -> str:
+        enumerated = [f"{num}) {e}" for num, e in enumerate(self.exceptions, start=1)]
+        joined = "\n".join(str(e) for e in enumerated)
+        return f"{self.message}; exceptions:\n\n{joined} "
 
 
 # TODO: MOVED

@@ -263,6 +263,8 @@ class WriteVarrayLock(BaseLock):
     which managed to obtain all Array locks, will survive.
     """
 
+    ALLOWED_TYPES = ["VSubset"]
+
     # Locks that have been acquired by varray
     locks: List[Tuple[Flock, Path]] = []
     skip_lock: bool = False  # shows that we must skip this lock (e.g server adapters for subset)
