@@ -132,6 +132,8 @@ def wait_for_unlock(check_func: Callable, check_func_args: tuple, timeout, inter
 class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
     """Read lock for Array."""
 
+    ALLOWED_TYPES = ["LocalArrayAdapter"]
+
     def get_path(self) -> Path:
         """Get path to read-lock file.
 
@@ -196,6 +198,8 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
 
 class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
     """Write lock for arrays."""
+
+    ALLOWED_TYPES = ["LocalArrayAdapter"]
 
     def get_path(self) -> Path:
         """Get path to the file for locking."""
