@@ -56,7 +56,7 @@ T = TypeVar("T")
 
 
 def _get_lock_filename(id_: str, lock_ext: LocksExtensions) -> str:
-    """Get filename for lockfile
+    """Get filename for lockfile.
 
     :param id_: ID of array
     :param lock_ext: Extension of lock
@@ -70,6 +70,7 @@ def _check_write_locks(dir_path: Path, id_: str) -> bool:
     """Checks write locks from VArrays that differs from current.
 
     :param dir_path: Dir where locks are stored (the one with hdf file)
+    :param id_: Id of array
     """
     for file in dir_path.iterdir():
         # Skip lock from current process.
@@ -113,12 +114,15 @@ class LockWithArrayMixin(Generic[T]):
         return get_main_path(self.array_id, self.instance.collection_path / self.instance.data_dir)
 
 
-def wait_for_unlock(check_func: Callable, check_func_args: tuple, timeout, interval: float) -> bool:
+def wait_for_unlock(
+    check_func: Callable, check_func_args: tuple, timeout: int, interval: float
+) -> bool:
     """Waiting while there is no locks
 
-    :param instance:
-    :param check_func:
-    :param check_func_args:
+    :param check_func: Func that check if lock has been releases
+    :param check_func_args: Args for func
+    :param timeout: For how long we should wait lock release
+    :param interval: How often we check locks
     :return:
     """
     start_time = time.monotonic()
@@ -138,10 +142,7 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
         """Get path to read-lock file.
 
         It's only the case for arrays, varrays don't have read locks.
-        :param func_args: arguments of method call
-        :param func_kwargs: keyword arguments of method call
         """
-
         # Get file directory
         filename = _get_lock_filename(self.array_id, LocksExtensions.array_read_lock)
 
