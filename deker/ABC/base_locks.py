@@ -15,7 +15,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Abstract interfaces for locks."""
-# TODO: MOVED
 from abc import ABC, abstractmethod
 from functools import wraps
 from pathlib import Path

@@ -16,7 +16,6 @@
 from typing import List
 
 
-# TODO: MOVED
 class DekerBaseApplicationError(Exception):
     """Base attribute exception."""
 
@@ -85,7 +84,6 @@ class DekerIntegrityError(DekerBaseApplicationError):
     pass
 
 
-# TODO: MOVED
 class DekerLockError(DekerBaseApplicationError):
     """If a Collection or a Array or VArray instance is locked."""
 
@@ -144,6 +142,5 @@ class DekerVSubsetError(DekerSubsetError):
         return f"{self.message}; exceptions:\n\n{joined} "
 
 
-# TODO: MOVED
 class DekerMemoryError(DekerBaseApplicationError, MemoryError):
     """Early memory overflow exception."""

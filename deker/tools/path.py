@@ -54,7 +54,6 @@ def get_symlink_path(
     return symlink_path
 
 
-# TODO: MOVED
 def get_main_path(array_id: str, data_directory: Path) -> Path:
     """Generate main path for the given array id by its type.
 
