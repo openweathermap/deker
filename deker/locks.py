@@ -28,13 +28,13 @@ from typing import (
     Any,
     Callable,
     Dict,
+    Generic,
     List,
     Optional,
     Sequence,
-    Union,
     Tuple,
     TypeVar,
-    Generic,
+    Union,
 )
 from uuid import uuid4
 
@@ -99,7 +99,7 @@ class LockWithArrayMixin(Generic[T]):
             path = self.array
             id_ = path.name.split(".")[0]
         else:
-            id_ = self.array.id
+            id_ = self.array.id  # type: ignore[attr-defined]
         return id_
 
     @property
@@ -117,7 +117,7 @@ class LockWithArrayMixin(Generic[T]):
 def wait_for_unlock(
     check_func: Callable, check_func_args: tuple, timeout: int, interval: float
 ) -> bool:
-    """Waiting while there is no locks
+    """Waiting while there is no locks.
 
     :param check_func: Func that check if lock has been releases
     :param check_func_args: Args for func
@@ -286,11 +286,7 @@ class WriteVarrayLock(BaseLock):
             self.skip_lock = True
 
     def get_path(self) -> Optional[Path]:  # noqa[ARG002]
-        """Path of json Varray file.
-
-        :param func_args: arguments of the function that has been called.
-        :param func_kwargs: keyword arguments of the function that has been called.
-        """
+        """Path of json Varray file."""
         array = self.instance._VSubset__array
         adapter = self.instance._VSubset__adapter
         path = get_main_path(
@@ -303,7 +299,6 @@ class WriteVarrayLock(BaseLock):
         """Check if there is no read lock.
 
         :param filename: Path to file that should be flocked
-        :return:
         """
         # Check read lock first
         array_id = filename.name.split(".")[0]
@@ -326,7 +321,6 @@ class WriteVarrayLock(BaseLock):
     ) -> List[Path]:
         """Check all Arrays that are in current VArray.
 
-        :param arrays_positions: Arrays' positions in VArray
         :param adapter: Array Adapter instance
         :param varray: VArray
         """
@@ -503,12 +497,7 @@ class UpdateMetaAttributeLock(LockWithArrayMixin[Union["Array", "VArray"]], Base
     ALLOWED_TYPES = ["LocalArrayAdapter", "LocalVArrayAdapter"]
 
     def get_path(self) -> Path:
-        """Return path to the file that should be locked.
-
-        :param func_args: arguments for called method
-        :param func_kwargs: keyword arguments for called method
-        :return:
-        """
+        """Return path to the file that should be locked."""
         # Get directory where file locates
         dir_path = get_main_path(
             self.array.id, self.instance.collection_path / self.instance.data_dir
@@ -524,11 +513,7 @@ class CollectionLock(BaseLock):
     ALLOWED_TYPES = ["LocalCollectionAdapter"]
 
     def get_path(self) -> Path:  # noqa[ARG002]
-        """Return path to collection lock file.
-
-        :param func_args: arguments for called method
-        :param func_kwargs: keyword arguments for called method
-        """
+        """Return path to collection lock file."""
         collection = self.args[1]
         path = self.instance.collections_resource / (collection.name + ".lock")
         self.logger.debug(f"Got path for collection {collection.name} lock file: {path}")

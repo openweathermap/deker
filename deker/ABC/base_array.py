@@ -462,7 +462,8 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
         try:
             # To ensure the order of attributes
-            primary_attributes, custom_attributes = OrderedDict(), OrderedDict()
+            primary_attributes: OrderedDict = OrderedDict()
+            custom_attributes: OrderedDict = OrderedDict()
 
             # Iterate over every attribute in schema:
             for attr_schema in attrs_schema:
