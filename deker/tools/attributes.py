@@ -15,12 +15,17 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import re
 
+from collections import OrderedDict
 from datetime import datetime
-from typing import Any, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, Union
 
 import numpy as np
 
 from deker_tools.time import get_utc
+
+
+if TYPE_CHECKING:
+    from deker import AttributeSchema
 
 
 def serialize_attribute_value(
@@ -112,3 +117,39 @@ def deserialize_attribute_nested_tuples(value: Tuple[Any, ...]) -> Tuple[Any, ..
             value = deserialize_attribute_value(el, type(el), True)
         deserialized.append(value)
     return tuple(deserialized)
+
+
+def make_ordered_dict(
+    primary_attributes: Optional[dict],
+    custom_attributes: Optional[dict],
+    attrs_schema: Union[List["AttributeSchema"], Tuple[AttributeSchema, ...]],
+) -> Tuple[OrderedDict, OrderedDict]:
+    """Ensure that attributes in dict are located in correct order (Based on schema).
+
+    :param primary_attributes:  Primary attributes dict
+    :param custom_attributes: Custom attributes dict
+    :param attrs_schema: Schema of attributes to get order
+    """
+    # To ensure the order of attributes
+    ordered_primary_attributes: OrderedDict = OrderedDict()
+    ordered_custom_attributes: OrderedDict = OrderedDict()
+
+    # Iterate over every attribute in schema:
+    for attr_schema in attrs_schema:
+        if attr_schema.primary:
+            attributes_from_meta = primary_attributes
+            result_attributes = ordered_primary_attributes
+        else:
+            attributes_from_meta = custom_attributes
+            result_attributes = ordered_custom_attributes
+
+        value = attributes_from_meta[attr_schema.name]
+        if value is None and not attr_schema.primary:
+            result_attributes[attr_schema.name] = value
+            continue
+
+        result_attributes[attr_schema.name] = deserialize_attribute_value(
+            value, attr_schema.dtype, False
+        )
+
+    return ordered_primary_attributes, ordered_custom_attributes
