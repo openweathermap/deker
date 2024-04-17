@@ -19,7 +19,6 @@
 import json
 
 from abc import ABC, abstractmethod
-from collections import OrderedDict
 from copy import deepcopy
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, Union
@@ -35,7 +34,7 @@ from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, VArraySchema
 from deker.subset import Subset, VSubset
 from deker.tools.array import check_memory, get_id
-from deker.tools.attributes import deserialize_attribute_value, serialize_attribute_value
+from deker.tools.attributes import make_ordered_dict, serialize_attribute_value
 from deker.tools.schema import create_dimensions
 from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
@@ -296,10 +295,9 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             self.schema, primary_attributes, custom_attributes
         )
 
-        self.primary_attributes: OrderedDict = (
-            OrderedDict({**primary_attributes}) if primary_attributes else OrderedDict()
+        self.primary_attributes, self.custom_attributes = make_ordered_dict(
+            primary_attributes, custom_attributes, self.schema.attributes  # type: ignore[arg-type]
         )
-        self.custom_attributes: dict = custom_attributes if custom_attributes else {}
 
     def __del__(self) -> None:
         del self.__adapter
@@ -459,25 +457,21 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             attrs_schema = collection.varray_schema.attributes
         else:
             attrs_schema = collection.array_schema.attributes
+
         try:
-            for attr in attrs_schema:
-                attributes = (
-                    meta["primary_attributes"] if attr.primary else meta["custom_attributes"]
-                )
-
-                value = attributes[attr.name]
-                if value is None and not attr.primary:
-                    attributes[attr.name] = value
-                    continue
-
-                attributes[attr.name] = deserialize_attribute_value(value, attr.dtype, False)
+            # To ensure the order of attributes
+            primary_attributes, custom_attributes = make_ordered_dict(
+                meta["primary_attributes"],
+                meta["custom_attributes"],
+                attrs_schema,  # type: ignore[arg-type]
+            )
 
             arr_params = {
                 "collection": collection,
                 "adapter": array_adapter,
                 "id_": meta["id"],
-                "primary_attributes": meta.get("primary_attributes"),
-                "custom_attributes": meta.get("custom_attributes"),
+                "primary_attributes": primary_attributes,
+                "custom_attributes": custom_attributes,
             }
             if varray_adapter:
                 arr_params.update({"adapter": varray_adapter, "array_adapter": array_adapter})

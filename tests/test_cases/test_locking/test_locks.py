@@ -93,9 +93,9 @@ class TestReadArrayLock:
                 )
             )
         )
-        assert pattern.match(
-            str(read_array_lock.get_path(func_args=[], func_kwargs={"array": inserted_array}))
-        )
+        read_array_lock.args = []
+        read_array_lock.kwargs = {"array": inserted_array}
+        assert pattern.match(str(read_array_lock.get_path()))
 
     def test_read_array_check_existing_lock(
         self,
@@ -110,6 +110,7 @@ class TestReadArrayLock:
         hdf_path = dir_path / (inserted_array.id + local_array_adapter.file_ext)
         with Flock(hdf_path):
             with pytest.raises(DekerLockError):
+                read_array_lock.kwargs = {"array": inserted_array}
                 read_array_lock.check_existing_lock(
                     func_args=[], func_kwargs={"array": inserted_array}
                 )
@@ -128,7 +129,8 @@ class TestReadArrayLock:
         mocker.patch("deker.locks.uuid4", lambda: uuid)
 
         # Get path of the file that should be created
-        filepath = read_array_lock.get_path(func_args=[], func_kwargs={"array": inserted_array})
+        read_array_lock.kwargs = {"array": inserted_array}
+        filepath = read_array_lock.get_path()
 
         # Mocked method to test
         def check_file(self, *args, **kwargs):
@@ -175,10 +177,8 @@ class TestWriteArrayLock:
             inserted_array.id, local_array_adapter.collection_path / local_array_adapter.data_dir
         )
         hdf_path = dir_path / (inserted_array.id + local_array_adapter.file_ext)
-
-        assert hdf_path == write_array_lock.get_path(
-            func_args=[], func_kwargs={"array": inserted_array}
-        )
+        write_array_lock.kwargs = {"array": inserted_array}
+        assert hdf_path == write_array_lock.get_path()
 
     def test_write_array_lock_check_existing_lock_no_read_locks(
         self,
@@ -191,7 +191,7 @@ class TestWriteArrayLock:
         # Mock acquire as we do not want to lock file here.
         acquire = mocker.patch.object(write_array_lock, "acquire", autospec=True)
         release = mocker.patch.object(write_array_lock, "release", autospec=True)
-
+        write_array_lock.kwargs = {"array": inserted_array}
         write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
         acquire.assert_called()
         release.assert_not_called()
@@ -213,7 +213,8 @@ class TestWriteArrayLock:
         release = mocker.patch.object(write_array_lock, "release", autospec=True)
 
         # Make read lock
-        filepath = write_array_lock.get_path(func_args=[], func_kwargs={"array": inserted_array})
+        write_array_lock.kwargs = {"array": inserted_array}
+        filepath = write_array_lock.get_path()
         process = Process(target=make_read_lock, args=(filepath, inserted_array.id, file_created))
         process.start()
 
@@ -242,12 +243,14 @@ class TestWriteArrayLock:
         release = mocker.patch.object(write_array_lock, "release", autospec=True)
 
         # Make read lock
-        filepath = write_array_lock.get_path(func_args=[], func_kwargs={"array": inserted_array})
+        write_array_lock.kwargs = {"array": inserted_array}
+        filepath = write_array_lock.get_path()
         process = Process(target=make_read_lock, args=(filepath, inserted_array.id, file_created))
         process.start()
 
         # Call check existing
         with pytest.raises(DekerLockError):
+            write_array_lock.kwargs = {"array": inserted_array}
             write_array_lock.check_existing_lock(
                 func_args=[], func_kwargs={"array": inserted_array}
             )
@@ -308,7 +311,8 @@ class TestWriteVarrayLock:
         path = get_main_path(
             inserted_varray.id, varray_collection.path / local_varray_adapter.data_dir
         ) / (inserted_varray.id + local_varray_adapter.file_ext)
-        assert path == write_varray_lock.get_path([], {})
+        write_varray_lock.kwargs = {"array": inserted_varray}
+        assert path == write_varray_lock.get_path()
 
     def test_check_existing_locks_fail(
         self,

@@ -774,7 +774,9 @@ class TestGetLocks:
         self, client: Client, params, read_array_lock, inserted_array
     ):
         client.create_collection(**params)
-        file = read_array_lock.get_path(func_args=[], func_kwargs={"array": inserted_array})
+        read_array_lock.args = []
+        read_array_lock.kwargs = {"array": inserted_array}
+        file = read_array_lock.get_path()
         file.touch()
         meta = file.name.split(":")
         assert {
@@ -799,7 +801,9 @@ class TestGetLocks:
         self, client: Client, params, read_array_lock, inserted_array
     ):
         client.create_collection(**params)
-        file = read_array_lock.get_path(func_args=[], func_kwargs={"array": inserted_array})
+        read_array_lock.args = []
+        read_array_lock.kwargs = {"array": inserted_array}
+        file = read_array_lock.get_path()
         file.touch()
         meta = file.name.split(":")
         assert [
@@ -826,7 +830,9 @@ class TestGetLocks:
         self, client: Client, params, read_array_lock, inserted_array
     ):
         client.create_collection(**params)
-        file = read_array_lock.get_path(func_args=[], func_kwargs={"array": inserted_array})
+        read_array_lock.args = []
+        read_array_lock.kwargs = {"array": inserted_array}
+        file = read_array_lock.get_path()
         open(f"{file}:{os.getpid()}{LocksExtensions.varray_lock.value}", "w").close()
         assert not client._get_locks(lock_type=LocksTypes.varray_lock)
 
@@ -852,7 +858,9 @@ class TestClearLocks:
     def test_client_clear_locks_inserted_array(
         self, client: Client, root_path, read_array_lock, inserted_array
     ):
-        filepath = read_array_lock.get_path(func_args=[], func_kwargs={"array": inserted_array})
+        read_array_lock.args = []
+        read_array_lock.kwargs = {"array": inserted_array}
+        filepath = read_array_lock.get_path()
         filepath.touch()
         assert list(Path.rglob(root_path, f"*{LocksExtensions.array_read_lock.value}"))
         client.clear_locks()
@@ -861,7 +869,8 @@ class TestClearLocks:
     def test_client_clear_locks_inserted_array_multiple_locks(
         self, client: Client, root_path, read_array_lock, inserted_array
     ):
-        filepath = read_array_lock.get_path(func_args=[], func_kwargs={"array": inserted_array})
+        read_array_lock.kwargs = {"array": inserted_array}
+        filepath = read_array_lock.get_path()
         open(f"{filepath}:{os.getpid()}{LocksExtensions.varray_lock.value}", "w").close()
         filepath.touch()
         assert list(Path.rglob(root_path, f"*{LocksExtensions.array_read_lock.value}"))
