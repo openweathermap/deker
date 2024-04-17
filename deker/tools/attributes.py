@@ -122,7 +122,7 @@ def deserialize_attribute_nested_tuples(value: Tuple[Any, ...]) -> Tuple[Any, ..
 def make_ordered_dict(
     primary_attributes: Optional[dict],
     custom_attributes: Optional[dict],
-    attrs_schema: Union[List["AttributeSchema"], Tuple[AttributeSchema, ...]],
+    attrs_schema: Union[List["AttributeSchema"], Tuple["AttributeSchema", ...]],
 ) -> Tuple[OrderedDict, OrderedDict]:
     """Ensure that attributes in dict are located in correct order (Based on schema).
 
