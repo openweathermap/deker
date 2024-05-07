@@ -1,6 +1,5 @@
 import os
 import string
-from copy import deepcopy
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -14,7 +13,6 @@ from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter, LocalVAr
 from deker_local_adapters.factory import AdaptersFactory
 from numpy import ndarray
 
-from deker.types import ArrayMeta
 from tests.parameters.array_params import attributes_validation_params
 from tests.parameters.index_exp_params import invalid_index_params, valid_index_exp_params
 from tests.parameters.uri import embedded_uri
@@ -26,6 +24,7 @@ from deker.dimensions import TimeDimension
 from deker.errors import DekerCollectionAlreadyExistsError, DekerMemoryError, DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema
 from deker.tools import get_paths
+from deker.types import ArrayMeta
 from deker.types.private.typings import FancySlice, NumericDtypes, Slice
 
 
