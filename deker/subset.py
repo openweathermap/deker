@@ -610,8 +610,7 @@ class VSubset(BaseSubset):
                     },
                     "custom_attributes": custom_attributes,
                 }
-                array = Array(**kwargs)  # type: ignore[arg-type]
-                self.__array_adapter.create(array)
+                array = self.__array_adapter.create(Array(**kwargs))  # type: ignore[arg-type]
             subset = array[array_data.bounds]
             subset.update(array_data.data)
 
