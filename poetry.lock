@@ -499,12 +499,12 @@ optimize = ["orjson"]
 
 [[package]]
 name = "deker-local-adapters"
-version = "1.1.1b1"
+version = "1.1.1"
 description = "Plugin with local adapters for deker"
 optional = false
-python-versions = ">=3.9,<4.0"
+python-versions = "<4.0,>=3.9"
 files = [
-    {file = "deker_local_adapters-1.1.1b1.tar.gz", hash = "sha256:532c0f732fb0f47b4a14ecc7dbbb2ec32761fb00e322262e39fcdddd525fc86d"},
+    {file = "deker_local_adapters-1.1.1.tar.gz", hash = "sha256:c3d5ec08bf479e5c7852a263f127e6896b38507ec34f7337eb6bc41305cb1143"},
 ]
 
 [package.dependencies]
@@ -512,11 +512,6 @@ deker-tools = ">=1.0.0,<2.0.0"
 h5py = ">=3.8.0,<4.0.0"
 hdf5plugin = ">=4.0.1,<5.0.0"
 numpy = ">=1.18,<2.0"
-
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "testpypi"
 
 [[package]]
 name = "deker-server-adapters"
@@ -2708,4 +2703,4 @@ xarray = ["xarray"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "f68067cb2c72456d22a10c64da6512d49d0c29e11569cd22a6b97b158d9ab09f"
+content-hash = "a94291f635fab7ce16a9164c854bd3150468072cc9c9d400da90b204bc05595d"
