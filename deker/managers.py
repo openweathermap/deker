@@ -132,11 +132,11 @@ class DataManager(BaseManager):
                     "array_adapter": self.__array_adapter,  # type: ignore[dict-item]
                 }
             )
-            obj = VArray
+            array = VArray(**arr_params)  # type: ignore[arg-type]
         else:
             arr_params.update({"adapter": self.__array_adapter})  # type: ignore[dict-item]
-            obj = Array
-        array = self._adapter.create(obj(**arr_params))  # type: ignore[arg-type]
+            array = Array(**arr_params)  # type: ignore[arg-type]
+        self._adapter.create(array)
         return array
 
     def create(
