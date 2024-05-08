@@ -1,9 +1,11 @@
 import random
 
+import numpy as np
 import pytest
 
 from tests.parameters.collection_params import ClientParams
 
+from deker import ArraySchema, AttributeSchema, DimensionSchema
 from deker.client import Client
 from deker.collection import Collection
 from deker.errors import DekerCollectionAlreadyExistsError, DekerValidationError
@@ -615,6 +617,110 @@ class TestNoAttributes:
             assert array
         finally:
             collection.delete()
+
+
+class TestAttributesValues:
+    @pytest.mark.parametrize("primary", [False, True])
+    @pytest.mark.parametrize(
+        ("dtype", "value"),
+        [
+            (str, "123"),
+            (
+                str,
+                "-125.000000000001-0.123456789j",
+            ),  # it's not an exact string representation of a complex number
+            (np.int8, np.int8(1)),
+            (np.int16, np.int16(-130)),
+            (np.int32, np.int32(-9999)),
+            (np.int64, np.int64(99999999)),
+            (int, 1),
+            (int, 0),
+            (int, -1),
+            (float, 0.1),
+            (float, -0.1),
+            (np.float16, np.float16(1.0)),
+            (np.float32, np.float32(-130)),
+            (np.float64, np.float64(-9999)),
+            (np.float128, np.float128(99999999)),
+            (complex, complex(0.0000000000001, 9.000000005)),
+            (complex, complex(-0.0000000000001, -1.000000009)),
+            (np.complex64, np.complex64(1.0)),
+            (np.complex128, np.complex128(-130)),
+            (np.complex256, np.complex256(-9999)),
+            (tuple, tuple("abc")),
+            (tuple, tuple({"abc", "def"})),
+            (tuple, (1, 2, 3, 4)),
+            (
+                tuple,
+                (
+                    np.int8(1),
+                    np.int16(-130),
+                    np.int32(-9999),
+                    np.int64(99999999),
+                    np.float16(1.0),
+                    np.float32(-130),
+                    np.float64(-9999),
+                    np.float128(99999999),
+                    np.complex64(1.0),
+                    np.complex128(-130),
+                    np.complex256(-9999),
+                ),
+            ),
+            (
+                tuple,
+                (
+                    1,
+                    0.1,
+                    complex(0.0000000000001, 0.0000000000001),
+                    complex(-0.00000000000012567, -0.0000000000001),
+                    -0.1,
+                    -1,
+                ),
+            ),
+            (tuple, (1, 0.1, complex(0.0000000000001), complex(-0.0000000000001), -0.1, -1)),
+            (
+                tuple,
+                (
+                    (1, 0.1, complex(0.0000000000001), complex(-0.0000000000001), -0.1, -1),
+                    (1, 0.1, complex(0.0000000000001), complex(-0.0000000000001), -0.1, -1),
+                ),
+            ),
+            (
+                tuple,
+                (
+                    (1, 0.1, complex(0.0000000000001), complex(-0.0000000000001), -0.1, -1),
+                    (1, 0.1, complex(0.0000000000001), complex(-0.0000000000001), -0.1, -1),
+                ),
+            ),
+        ],
+    )
+    def test_attributes_values_serialize_deserialize_ok(self, client, primary, dtype, value):
+        schema = ArraySchema(
+            dimensions=[DimensionSchema(name="x", size=1)],
+            dtype=int,
+            attributes=[AttributeSchema(name="some_attr", dtype=dtype, primary=primary)],
+        )
+        col_name = "test_attrs_values_validation"
+        try:
+            col = client.create_collection(col_name, schema)
+        except DekerCollectionAlreadyExistsError:
+            col = client.get_collection(col_name)
+            col.clear()
+        try:
+            if primary:
+                key = "primary_attributes"
+            else:
+                key = "custom_attributes"
+            attrs = {key: {schema.attributes[0].name: value}}
+            array = col.create(**attrs)
+            assert array
+            array = [a for a in col][0]
+            attr = getattr(array, key)
+            assert attr[schema.attributes[0].name] == value
+        except Exception:
+            raise
+        finally:
+            col.delete()
 
 
 if __name__ == "__main__":

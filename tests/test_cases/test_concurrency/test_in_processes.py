@@ -6,18 +6,14 @@ on Array, VArray and Collection objects concurrently, and it verifies that the l
 correctly.
 """
 import os
-import time
 import traceback
 
 from multiprocessing import Event, Manager, Process, cpu_count
 from multiprocessing.pool import Pool
 from pathlib import Path
-from threading import get_native_id
 from typing import Callable, Dict, Literal
 from unittest.mock import patch
-from uuid import uuid4
 
-import h5py
 import numpy as np
 import pytest
 
@@ -28,7 +24,7 @@ from tests.parameters.uri import embedded_uri
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerLockError, DekerVSubsetError
+from deker.errors import DekerLockError
 from deker.locks import (
     CollectionLock,
     Flock,
@@ -36,10 +32,8 @@ from deker.locks import (
     UpdateMetaAttributeLock,
     WriteArrayLock,
     WriteVarrayLock,
-    CreateArrayLock,
 )
 from deker.schemas import ArraySchema, DimensionSchema, VArraySchema
-from deker.tools import get_paths
 from deker.types import LocksExtensions, Numeric
 
 
@@ -103,21 +97,6 @@ def call_array_method(
     subset_slice = slice_converter[subset_slice]
 
     # Get Array object
-    if method == "create":
-        with patch.object(
-            CreateArrayLock,
-            "release",
-            wait_unlock(CreateArrayLock.release, lock_set, funcs_finished, wait),
-        ):
-            with patch("deker.ABC.base_array.get_id", lambda *a: id_):
-                try:
-                    array = collection.create(primary_attributes, custom_attributes)
-                except DekerLockError:
-                    return DekerLockError
-                except Exception:
-                    traceback.print_exc()
-                    return None
-        return
     try:
         array = collection.filter({"id": id_}).last()
     except DekerLockError:
@@ -420,7 +399,7 @@ class TestLocks:
             (np.index_exp[:5, 3:, :], 500),  # shall be blocked
             (np.index_exp[8:, 8:, 8:], blocking_value),  # shall proceed as non-locked
         )
-        # Call read process to lock arrays for reading
+        # Call read process to lock arrays
         proc = Process(
             target=call_array_method,
             args=(
@@ -554,60 +533,6 @@ class TestLocks:
         finally:
             proc.kill()
 
-    def test_varray_with_attributes_create_lock(
-        self,
-        client: Client,
-        array_schema_with_attributes: ArraySchema,
-        root_path,
-        varray_with_attributes: VArray,
-    ):
-        """Test create lock."""
-        manager = Manager()
-        lock_set = manager.Event()
-        func_finished = manager.Event()
-        proc = Process(
-            target=call_array_method,
-            args=(
-                varray_with_attributes.collection,
-                str(embedded_uri(root_path)),
-                varray_with_attributes.id,
-                "create",
-                lock_set,
-                func_finished,
-                True,
-                True,
-                varray_with_attributes.primary_attributes,
-                varray_with_attributes.custom_attributes,
-            ),
-        )
-        proc.start()
-        lock_set.wait()
-        try:
-            methods = ["create"] * 3
-            with Pool(WORKERS) as pool:
-                result = pool.starmap(
-                    call_array_method,
-                    [
-                        (
-                            varray_with_attributes.collection,
-                            str(embedded_uri(root_path)),
-                            varray_with_attributes.id,
-                            method,
-                            lock_set,
-                            func_finished,
-                            False,
-                            True,
-                            varray_with_attributes.primary_attributes,
-                            varray_with_attributes.custom_attributes,
-                        )
-                        for method in methods
-                    ],
-                )
-                assert result.count(DekerLockError) == len(methods)
-                func_finished.set()
-        finally:
-            proc.kill()
-
     def test_collection_create(self, client: Client, root_path):
         """Test if collection is locked on creation."""
         manager = Manager()
@@ -641,79 +566,6 @@ class TestLocks:
                 func_finished.set()
         finally:
             proc.kill()
-
-
-class TestMethods:
-    """Test if methods work correctly with multiple processes."""
-
-    def test_array_with_attributes_create_multiple_processes(
-        self,
-        client: Client,
-        array_schema_with_attributes: ArraySchema,
-        root_path,
-        array_with_attributes: Array,
-        array_data: np.ndarray,
-        storage_adapter,
-        ctx,
-    ):
-        manager = Manager()
-        lock_set = manager.Event()
-        func_finished = manager.Event()
-        proc = Process(
-            target=call_array_method,
-            args=(
-                array_with_attributes.collection,
-                str(embedded_uri(root_path)),
-                array_with_attributes.id,
-                "create",
-                lock_set,
-                func_finished,
-                True,
-                False,
-                array_with_attributes.primary_attributes,
-                array_with_attributes.custom_attributes,
-            ),
-        )
-        proc.start()
-        lock_set.wait()
-
-        methods = ["create"] * 3
-        with Pool(WORKERS - 1) as pool:
-            result = pool.starmap(
-                call_array_method,
-                [
-                    (
-                        array_with_attributes.collection,
-                        str(embedded_uri(root_path)),
-                        array_with_attributes.id,
-                        method,
-                        lock_set,
-                        func_finished,
-                        False,
-                        False,
-                        array_with_attributes.primary_attributes,
-                        array_with_attributes.custom_attributes,
-                    )
-                    for method in methods
-                ],
-            )
-        lock_set.wait()
-        assert result.count(DekerLockError) == len(methods)
-        func_finished.set()
-
-        paths = get_paths(
-            array_with_attributes,
-            root_path / ctx.config.collections_directory / array_with_attributes.collection,
-        )
-        filename = str(array_with_attributes.id) + storage_adapter.file_ext
-        file_path = paths.main / filename
-        symlink = paths.symlink / filename
-        assert file_path.exists()
-        assert symlink.exists()
-        array_with_attributes[:].update(array_data)
-
-        with h5py.File(file_path) as f:
-            assert np.allclose(f["data"][:], np.asarray(array_data), equal_nan=True)
 
 
 if __name__ == "__main__":

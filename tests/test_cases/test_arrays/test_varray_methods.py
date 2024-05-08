@@ -3,12 +3,13 @@ import string
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from random import shuffle
 from typing import Any
 
 import numpy as np
 import pytest
 
-from deker_local_adapters import HDF5StorageAdapter
+from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter, LocalVArrayAdapter
 from deker_local_adapters.factory import AdaptersFactory
 from deker_tools.path import is_empty
 from numpy import ndarray
@@ -24,6 +25,7 @@ from deker.dimensions import TimeDimension
 from deker.errors import DekerMemoryError, DekerValidationError
 from deker.schemas import DimensionSchema, VArraySchema
 from deker.tools import get_paths
+from deker.types import ArrayMeta
 from deker.types.private.typings import FancySlice, Slice
 
 
@@ -292,7 +294,6 @@ class TestVArrayMethods:
                 "time_attr_name": datetime.now(timezone.utc),
             },
             {"custom_attribute": 0.6, "time_attr_name": datetime.now(timezone.utc).isoformat()},
-            {"custom_attribute": 0.6, "time_attr_name": None},
             {"custom_attribute": 0.6, "time_attr_name": timezone.utc},
             {"custom_attribute": 0.6, "time_attr_name": ""},
             {"custom_attribute": 0.6, "time_attr_name": " "},
@@ -783,6 +784,40 @@ class TestVArrayMethods:
     def test_step_validaor(self, varray: VArray, index_exp):
         with pytest.raises(IndexError):
             varray[index_exp]
+
+    def test_create_from_meta_ordered(
+        self,
+        varray_collection_with_attributes: Collection,
+        local_array_adapter: LocalArrayAdapter,
+        local_varray_adapter: LocalVArrayAdapter,
+        varray_with_attributes: VArray,
+    ):
+        meta: ArrayMeta = varray_with_attributes.as_dict
+
+        primary_attribute_keys = list(meta["primary_attributes"].keys())
+        shuffle(primary_attribute_keys)
+
+        custom_attribute_keys = list(meta["custom_attributes"].keys())
+        shuffle(custom_attribute_keys)
+
+        primary_attributes, custom_attributes = {}, {}
+        for key in primary_attribute_keys:
+            primary_attributes[key] = meta["primary_attributes"][key]
+
+        for key in custom_attribute_keys:
+            custom_attributes[key] = meta["custom_attributes"][key]
+
+        meta["primary_attributes"] = primary_attributes
+        meta["custom_attributes"] = custom_attributes
+
+        array = VArray._create_from_meta(
+            varray_collection_with_attributes,
+            meta=meta,
+            array_adapter=local_array_adapter,
+            varray_adapter=local_varray_adapter,
+        )
+        assert array.primary_attributes == varray_with_attributes.primary_attributes
+        assert array.custom_attributes == varray_with_attributes.custom_attributes
 
 
 if __name__ == "__main__":

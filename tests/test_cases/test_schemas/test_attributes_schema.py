@@ -12,7 +12,7 @@ from deker import Client, DimensionSchema
 from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerValidationError
+from deker.errors import DekerCollectionAlreadyExistsError, DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema
 from deker.types.private.typings import NumericDtypes
 
@@ -167,10 +167,57 @@ class TestAttributesSchemaPrimaryValidation:
             assert AttributeSchema(name="some_attr", dtype=float, primary=primary)
 
     @pytest.mark.parametrize("primary", [True, False])
-    def test_attributes_schema_primary_ok(self, primary):
+    def test_attributes_schema_primary_param_ok(self, primary):
         a = AttributeSchema(name="some_attr", dtype=int, primary=primary)
         assert a
         assert a.primary == primary
+
+    @pytest.mark.parametrize("primary", [False, True])
+    @pytest.mark.parametrize(
+        ("dtype", "value"),
+        [
+            (tuple, set("abc")),
+            (tuple, list({"abc", "def"})),
+            (tuple, ({1: 2}, {3: 4})),
+            (tuple, ({1, 2}, {3, 4})),
+            (tuple, ([1, 2], [3, 4])),
+            (tuple, ([1, 2], [3, 4])),
+        ],
+    )
+    def test_attributes_schema_raise_on_tuples_values(self, client, primary, dtype, value):
+        schema = ArraySchema(
+            dimensions=[DimensionSchema(name="x", size=1)],
+            dtype=int,
+            attributes=[AttributeSchema(name="some_attr", dtype=dtype, primary=primary)],
+        )
+        col_name = "test_attrs_values_validation"
+        try:
+            col = client.create_collection(col_name, schema)
+        except DekerCollectionAlreadyExistsError:
+            col = client.get_collection(col_name)
+            col.clear()
+
+        try:
+            if primary:
+                key = "primary_attributes"
+            else:
+                key = "custom_attributes"
+
+            attrs = {key: {"some_attr": value}}
+            with pytest.raises(DekerValidationError):
+                assert col.create(**attrs)
+
+        finally:
+            col.delete()
+
+    @pytest.mark.parametrize("primary", [False, True])
+    @pytest.mark.parametrize(
+        "dtype",
+        [set, dict, None, list],
+    )
+    def test_attributes_schema_raises_on_dtype(self, primary, dtype):
+        with pytest.raises(DekerValidationError):
+            AttributeSchema(name="some_attr", dtype=dtype, primary=primary)
 
 
 @pytest.mark.parametrize("primary", (True, False))

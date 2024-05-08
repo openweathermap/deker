@@ -3,12 +3,13 @@ import string
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from random import shuffle
 from typing import Any
 
 import numpy as np
 import pytest
 
-from deker_local_adapters import HDF5StorageAdapter
+from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter, LocalVArrayAdapter
 from deker_local_adapters.factory import AdaptersFactory
 from numpy import ndarray
 
@@ -20,10 +21,11 @@ from deker.arrays import Array
 from deker.client import Client
 from deker.collection import Collection
 from deker.dimensions import TimeDimension
-from deker.errors import DekerMemoryError, DekerValidationError
-from deker.schemas import ArraySchema, DimensionSchema
+from deker.errors import DekerCollectionAlreadyExistsError, DekerMemoryError, DekerValidationError
+from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema
 from deker.tools import get_paths
-from deker.types.private.typings import FancySlice, Slice
+from deker.types import ArrayMeta
+from deker.types.private.typings import FancySlice, NumericDtypes, Slice
 
 
 @pytest.mark.asyncio()
@@ -192,7 +194,7 @@ class TestArrayMethods:
         assert (data == update).all()
 
     def test_update_custom_attributes(self, inserted_array_with_attributes: Array):
-        """Tests array update method.
+        """Tests array update_custom_attributes method.
 
         :param inserted_array_with_attributes: Array object
         """
@@ -214,6 +216,74 @@ class TestArrayMethods:
         for d in inserted_array_with_attributes.dimensions:
             if isinstance(d, TimeDimension):
                 assert d.start_value == new_custom_attributes["time_attr_name"]
+
+    @pytest.mark.parametrize("dtype", [datetime, str, tuple] + NumericDtypes)
+    def test_custom_attributes_set_to_none(self, client: Client, dtype: object):
+        """Tests array is created with custom attribute set to None.
+
+        :param client: Deker Client instance
+        """
+        schema = ArraySchema(
+            dimensions=[DimensionSchema(name="x", size=1)],
+            dtype=int,
+            attributes=[AttributeSchema(name="some_attr", dtype=dtype, primary=False)],
+        )
+        col_name = "test_custom_attrs_values_are_None"
+        try:
+            col = client.create_collection(col_name, schema)
+        except DekerCollectionAlreadyExistsError:
+            col = client.get_collection(col_name)
+            col.clear()
+        try:
+            key = "custom_attributes"
+            attrs = {key: {schema.attributes[0].name: None}}
+            array = col.create(**attrs)
+            assert array
+            attr = getattr(array, key)
+            assert attr[schema.attributes[0].name] is None
+        except Exception:
+            raise
+        finally:
+            col.delete()
+
+    @pytest.mark.parametrize("dtype", NumericDtypes + [str, tuple, datetime])
+    def test_custom_attributes_updated_to_none(self, client: Client, dtype: object):
+        """Tests array custom attribute is updated to None.
+
+        :param client: Deker Client instance
+        """
+        schema = ArraySchema(
+            dimensions=[DimensionSchema(name="x", size=1)],
+            dtype=int,
+            attributes=[AttributeSchema(name="some_attr", dtype=dtype, primary=False)],
+        )
+        col_name = "test_custom_attrs_values_are_None"
+        try:
+            col = client.create_collection(col_name, schema)
+        except DekerCollectionAlreadyExistsError:
+            col = client.get_collection(col_name)
+            col.clear()
+
+        try:
+            key = "custom_attributes"
+            if dtype is tuple:
+                val = (1,)
+            elif dtype is datetime:
+                val = datetime(2024, 1, 1, 0, 0, tzinfo=timezone.utc)
+            else:
+                val = dtype(1)  # type: ignore
+            attrs = {key: {schema.attributes[0].name: val}}
+            array = col.create(**attrs)
+            assert array
+            attr = getattr(array, key)
+            assert attr[schema.attributes[0].name] == val
+            array.update_custom_attributes({schema.attributes[0].name: None})
+            attr = getattr(array, key)
+            assert attr[schema.attributes[0].name] is None
+        except Exception:
+            raise
+        finally:
+            col.delete()
 
     @pytest.mark.parametrize(
         "new_custom_attributes",
@@ -237,7 +307,6 @@ class TestArrayMethods:
                 "time_attr_name": datetime.now(timezone.utc),
             },
             {"custom_attribute": 0.6, "time_attr_name": datetime.now(timezone.utc).isoformat()},
-            {"custom_attribute": 0.6, "time_attr_name": None},
             {"custom_attribute": 0.6, "time_attr_name": timezone.utc},
             {"custom_attribute": 0.6, "time_attr_name": ""},
             {"custom_attribute": 0.6, "time_attr_name": " "},
@@ -716,6 +785,40 @@ class TestArrayMethods:
     def test_step_validator(self, array: Array, index_exp):
         with pytest.raises(IndexError):
             array[index_exp]
+
+    def test_create_from_meta_ordered(
+        self,
+        array_collection_with_attributes: Collection,
+        local_array_adapter: LocalArrayAdapter,
+        local_varray_adapter: LocalVArrayAdapter,
+        array_with_attributes: Array,
+    ):
+        meta: ArrayMeta = array_with_attributes.as_dict
+
+        primary_attribute_keys = list(meta["primary_attributes"].keys())
+        shuffle(primary_attribute_keys)
+
+        custom_attribute_keys = list(meta["custom_attributes"].keys())
+        shuffle(custom_attribute_keys)
+
+        primary_attributes, custom_attributes = {}, {}
+        for key in primary_attribute_keys:
+            primary_attributes[key] = meta["primary_attributes"][key]
+
+        for key in custom_attribute_keys:
+            custom_attributes[key] = meta["custom_attributes"][key]
+
+        meta["primary_attributes"] = primary_attributes
+        meta["custom_attributes"] = custom_attributes
+
+        array = Array._create_from_meta(
+            array_collection_with_attributes,
+            meta=meta,
+            array_adapter=local_array_adapter,
+            varray_adapter=None,
+        )
+        assert array.primary_attributes == array_with_attributes.primary_attributes
+        assert array.custom_attributes == array_with_attributes.custom_attributes
 
 
 if __name__ == "__main__":

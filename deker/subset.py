@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import builtins
+import traceback
 
 from typing import TYPE_CHECKING, Iterator, List, Optional, Tuple, Union
 
@@ -24,7 +25,7 @@ from deker_tools.slices import create_shape_from_slice, match_slice_size, slice_
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
-from deker.errors import DekerArrayError, DekerLockError, DekerVSubsetError
+from deker.errors import DekerArrayError, DekerVSubsetError
 from deker.locks import WriteVarrayLock
 from deker.schemas import TimeDimensionSchema
 from deker.tools import not_deleted
@@ -577,6 +578,7 @@ class VSubset(BaseSubset):
 
         :param data: new data which shall match subset slicing
         """
+        from deker.arrays import Array
 
         def _update(array_data: ArrayPositionedData) -> None:
             """If there is a need in the future to calculate Array's time dimension start value.  # noqa: DAR101, D400
@@ -599,17 +601,17 @@ class VSubset(BaseSubset):
                         pos = array_data.vposition[n]
                         custom_attributes[attr_name] = dim.start_value + dim.step * pos  # type: ignore[operator]
 
-                array = self.__array_adapter.create(
-                    {
-                        "collection": self.__collection,
-                        "adapter": self.__array_adapter,
-                        "primary_attributes": {
-                            "vid": self.__array.id,
-                            "v_position": array_data.vposition,
-                        },
-                        "custom_attributes": custom_attributes,
-                    }
-                )
+                kwargs = {
+                    "collection": self.__collection,
+                    "adapter": self.__array_adapter,
+                    "primary_attributes": {
+                        "vid": self.__array.id,
+                        "v_position": array_data.vposition,
+                    },
+                    "custom_attributes": custom_attributes,
+                }
+                array = Array(**kwargs)  # type: ignore[arg-type]
+                self.__array_adapter.create(array)
             subset = array[array_data.bounds]
             subset.update(array_data.data)
 
@@ -621,20 +623,23 @@ class VSubset(BaseSubset):
             self.__array.dtype, self.__array.shape, data, self.__bounds
         )
 
-        results = self.__adapter.executor.map(
-            _update,
-            [
-                ArrayPositionedData(vpos, array_bounds, data[data_bounds])
-                for vpos, array_bounds, data_bounds in self.__arrays
-            ],
-        )
-        try:
-            list(results)
-        except Exception as e:
-            if isinstance(e, DekerLockError):
-                raise e
-            else:
-                raise DekerVSubsetError(
-                    f"ATTENTION: Data in {self!s} IS NOW CORRUPTED due to the exception above"
-                ).with_traceback(e.__traceback__)
+        positions = [
+            ArrayPositionedData(vpos, array_bounds, data[data_bounds])
+            for vpos, array_bounds, data_bounds in self.__arrays
+        ]
+        futures = [self.__adapter.executor.submit(_update, position) for position in positions]
+
+        exceptions = []
+        for future in futures:
+            try:
+                future.result()
+            except Exception as e:
+                exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
+
+        if exceptions:
+            raise DekerVSubsetError(
+                f"ATTENTION: Data in {self!s} MAY BE NOW CORRUPTED due to the exceptions occurred in threads",
+                exceptions,
+            )
+
         self.logger.info(f"{self!s} data updated OK")
