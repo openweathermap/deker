@@ -578,6 +578,7 @@ class VSubset(BaseSubset):
 
         :param data: new data which shall match subset slicing
         """
+        from deker.arrays import Array
 
         def _update(array_data: ArrayPositionedData) -> None:
             """If there is a need in the future to calculate Array's time dimension start value.  # noqa: DAR101, D400
@@ -600,17 +601,17 @@ class VSubset(BaseSubset):
                         pos = array_data.vposition[n]
                         custom_attributes[attr_name] = dim.start_value + dim.step * pos  # type: ignore[operator]
 
-                array = self.__array_adapter.create(
-                    {
-                        "collection": self.__collection,
-                        "adapter": self.__array_adapter,
-                        "primary_attributes": {
-                            "vid": self.__array.id,
-                            "v_position": array_data.vposition,
-                        },
-                        "custom_attributes": custom_attributes,
-                    }
-                )
+                kwargs = {
+                    "collection": self.__collection,
+                    "adapter": self.__array_adapter,
+                    "primary_attributes": {
+                        "vid": self.__array.id,
+                        "v_position": array_data.vposition,
+                    },
+                    "custom_attributes": custom_attributes,
+                }
+                array = Array(**kwargs)  # type: ignore[arg-type]
+                self.__array_adapter.create(array)
             subset = array[array_data.bounds]
             subset.update(array_data.data)
 

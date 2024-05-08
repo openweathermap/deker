@@ -14,7 +14,6 @@ from deker_local_adapters.factory import AdaptersFactory
 from deker_tools.path import is_empty
 from numpy import ndarray
 
-from deker.types import ArrayMeta
 from tests.parameters.array_params import attributes_validation_params
 from tests.parameters.index_exp_params import invalid_index_params, valid_index_exp_params
 from tests.parameters.uri import embedded_uri
@@ -26,6 +25,7 @@ from deker.dimensions import TimeDimension
 from deker.errors import DekerMemoryError, DekerValidationError
 from deker.schemas import DimensionSchema, VArraySchema
 from deker.tools import get_paths
+from deker.types import ArrayMeta
 from deker.types.private.typings import FancySlice, Slice
 
 

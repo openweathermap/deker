@@ -4,7 +4,6 @@ from collections import OrderedDict, namedtuple
 from datetime import datetime
 from typing import FrozenSet
 
-import numpy as np
 import pytest
 
 from deker_local_adapters import LocalArrayAdapter
