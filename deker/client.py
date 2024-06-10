@@ -192,7 +192,7 @@ class Client(SelfLoggerMixin):
         write_lock_check_interval: int = 1,
         loglevel: str = "ERROR",
         memory_limit: Union[int, str] = 0,
-        skip_memory_check: bool = False,
+        skip_collection_create_memory_check: bool = False,
         **kwargs: Any,
     ) -> None:
         """Deker client constructor.
@@ -210,7 +210,7 @@ class Client(SelfLoggerMixin):
           converted into bytes. If result is ``<= 0`` - total RAM + total swap is used
 
           .. note:: This parameter is used for early runtime break in case of potential memory overflow
-        :param skip_memory_check: If we don't want to check size during collection creation
+        :param skip_collection_create_memory_check: If we don't want to check size during collection creation
         :param kwargs: a wildcard, reserved for any extra parameters
         """
         try:
@@ -231,7 +231,7 @@ class Client(SelfLoggerMixin):
                 write_lock_check_interval=write_lock_check_interval,
                 loglevel=loglevel.upper(),
                 memory_limit=mem_limit,
-                skip_memory_check=skip_memory_check,
+                skip_collection_create_memory_check=skip_collection_create_memory_check,
             )
             self.__uri: Uri = Uri.create(self.__config.uri)
             self.__is_closed: bool = True
