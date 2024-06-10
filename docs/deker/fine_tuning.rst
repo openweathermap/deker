@@ -93,8 +93,11 @@ If you need to change it on the fly, you may use the following function::
    set_logging_level("INFO")  # now DEKER™ logs starting from "INFO" level
 
 
+
 ``memory_limit``
 ----------------
+
+.. _memory_limit:
 
 This parameter is used for the early run time break in case of potential memory overflow.
 
@@ -141,6 +144,21 @@ suffix is ignored: ``"1024k"``, ``"512m"``, ``"8g"``, ``"1t"`` will work.
 
    If you set a memory limit to your container, you'd better limit DEKER™ to the same value.
    Otherwise your container may be killed because of memory overflow.
+
+``skip_collection_create_memory_check``
+---------------------------------------
+Currently deker has 3 places, where memory check, described in `memory_limit`_:
+
+ * On collection creation via ``client.create_collection()``
+ * On getting subset e.g ``array[:]``
+ * On reading array as ``XArray`` e.g ``array[:].read_xarray()``
+
+While the last two prevent memory overflow and are required,
+sometimes you may need to be able to skip the first one
+
+You can do so by providing
+``skip_collection_create_memory_check=True`` as argument to
+the :meth:`Client <deker.client.Client>` constructor
 
 HDF5 Options
 ============

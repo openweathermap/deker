@@ -43,6 +43,7 @@ class DekerConfig:
     varray_data_directory: str = "varray_data"
     array_symlinks_directory: str = "array_symlinks"
     varray_symlinks_directory: str = "varray_symlinks"
+    skip_collection_create_memory_check: bool = False
 
     @property
     def as_dict(self) -> dict:
