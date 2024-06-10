@@ -153,11 +153,10 @@ Currently deker has 3 places, where memory check, described in `memory_limit`_:
  * On getting subset e.g ``array[:]``
  * On reading array as ``XArray`` e.g ``array[:].read_xarray()``
 
-While, last two prevents memory overflow and are required,
-sometimes you may need to be able to skip
-first one (e.g when you work with cluster)
+While the last two prevent memory overflow and are required,
+sometimes you may need to be able to skip the first one
 
-You can do so, by providing
+You can do so by providing
 ``skip_collection_create_memory_check=True`` as argument to
 the :meth:`Client <deker.client.Client>` constructor
 
