@@ -502,12 +502,12 @@ optimize = ["orjson"]
 
 [[package]]
 name = "deker-local-adapters"
-version = "1.1.2b1"
+version = "1.1.2b2"
 description = "Plugin with local adapters for deker"
 optional = false
 python-versions = ">=3.9,<4.0"
 files = [
-    {file = "deker_local_adapters-1.1.2b1.tar.gz", hash = "sha256:2e1bb0695459cf939b5f56744b8f62be2fb620dafda0de7c3f28c3c02bba5581"},
+    {file = "deker_local_adapters-1.1.2b2.tar.gz", hash = "sha256:8b9d78d6331483720dcc59c6df0f5ebca85e5db954caf14e8691703b27012e49"},
 ]
 
 [package.dependencies]
@@ -1701,13 +1701,13 @@ virtualenv = ">=20.10.0"
 
 [[package]]
 name = "prompt-toolkit"
-version = "3.0.46"
+version = "3.0.47"
 description = "Library for building powerful interactive command lines in Python"
 optional = true
 python-versions = ">=3.7.0"
 files = [
-    {file = "prompt_toolkit-3.0.46-py3-none-any.whl", hash = "sha256:45abe60a8300f3c618b23c16c4bb98c6fc80af8ce8b17c7ae92db48db3ee63c1"},
-    {file = "prompt_toolkit-3.0.46.tar.gz", hash = "sha256:869c50d682152336e23c4db7f74667639b5047494202ffe7670817053fd57795"},
+    {file = "prompt_toolkit-3.0.47-py3-none-any.whl", hash = "sha256:0d7bfa67001d5e39d02c224b663abc33687405033a8c422d0d675a5a13361d10"},
+    {file = "prompt_toolkit-3.0.47.tar.gz", hash = "sha256:1e1b29cb58080b1e69f207c893a1a7bf16d127a5c30c9d17a25a5d77792e5360"},
 ]
 
 [package.dependencies]
@@ -2718,4 +2718,4 @@ xarray = ["xarray"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.9"
-content-hash = "220e947a32e5a33dc17cc31f0d5c068549313f3abb389bd05a55e273199c591d"
+content-hash = "0e267e1b9daa9381a79d65543c5d6e4a4ceaa80e776fbbad35b8fc99e61cf1de"
