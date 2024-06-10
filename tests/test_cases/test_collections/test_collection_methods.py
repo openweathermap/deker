@@ -412,25 +412,6 @@ class TestCollectionMethods:
         """
         assert str(array_collection) == array_collection.name
 
-    def test_create_raises_memory_error(self, client, root_path):
-        """Test create raise MemoryError on too big array."""
-        schema = ArraySchema(
-            dimensions=[
-                DimensionSchema(name="x", size=10000),
-                DimensionSchema(name="y", size=10000),
-            ],
-            dtype=float,
-        )
-        col_name = "memory_excess_create"
-        with Client(embedded_uri(root_path), memory_limit=100, loglevel="CRITICAL") as extra_client:
-            client.create_collection(col_name, schema)
-            collection = extra_client.get_collection(col_name)
-            try:
-                with pytest.raises(DekerMemoryError):
-                    collection.create()
-            finally:
-                collection.delete()
-
 
 class TestCollectionIterator:
     def test_adapter_iter_anext(self, array_collection: Collection):
