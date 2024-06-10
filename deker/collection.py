@@ -37,7 +37,7 @@ from deker.schemas import (
     TimeDimensionSchema,
     VArraySchema,
 )
-from deker.tools import check_memory, not_deleted
+from deker.tools import not_deleted
 from deker.types import Serializer
 
 
@@ -278,9 +278,6 @@ class Collection(SelfLoggerMixin, Serializer):
         :param custom_attributes: ``Array`` or ``VArray`` custom attributes
         :param id_: ``Array`` or ``VArray`` unique UUID string
         """
-        schema = self.array_schema
-        shape = schema.arrays_shape if hasattr(schema, "arrays_shape") else schema.shape
-        check_memory(shape, schema.dtype, self.__adapter.ctx.config.memory_limit)
         array = self.__manager.create(primary_attributes, custom_attributes, id_)
         self.logger.debug(
             f"{array.__class__.__name__} id={array.id} {primary_attributes=}, {custom_attributes=} created"
