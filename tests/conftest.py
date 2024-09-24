@@ -3,7 +3,7 @@ import os
 import platform
 import shutil
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from multiprocessing import cpu_count
 from pathlib import Path
 from random import choices
@@ -114,6 +114,7 @@ def client(
     :param workers: Number of workers for pool
     """
     with Client(
+        # executor=ProcessPoolExecutor(),
         uri=str(embedded_uri(root_path)),
         workers=workers,
         loglevel="ERROR",

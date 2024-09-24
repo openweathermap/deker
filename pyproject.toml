@@ -64,7 +64,10 @@ psutil = "^5.9.5"
 deker-server-adapters = {version = "^1.0.0", optional = true}
 deker-shell = { version = "^1.0.0", optional = true }
 xarray = {version = "^2023.5.0", optional = true}
-deker-local-adapters = { version = "^1.1.2b-2", source = "testpypi", allow-prereleases = true }
+#deker-local-adapters = { version = "^1.1.2b-2", source = "testpypi", allow-prereleases = true }
+#deker-local-adapters = {path = "/home/serge/owm/deker/deker-local-adapters", develop = false}
+
+deker-local-adapters = {git = "https://github.com/openweathermap/deker-local-adapters.git", branch="feature/process-pool"}
 
 [tool.poetry.group.dev.dependencies]
 black = "23.1.0"
