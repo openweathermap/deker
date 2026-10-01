@@ -20,9 +20,11 @@ from typing import TYPE_CHECKING, List, Tuple, Type, Union
 
 import numpy as np
 
-from numpy.lib.index_tricks import IndexExpression
-
 from .classes import ArrayPosition, ArraysCoordinatesWithOffset
+
+
+# numpy.lib.index_tricks is private in numpy 2; np.s_ is public in numpy 1.26 and 2.x
+IndexExpression = type(np.s_)
 
 
 __all__ = (
@@ -70,21 +72,21 @@ NumericDtypes = [
     np.uintp,
     np.ulonglong,
     np.float16,
-    np.cfloat,
+    np.complex128,
     np.cdouble,
     np.float32,
-    np.clongfloat,
+    np.clongdouble,
     np.float64,
     np.double,
     np.float128,
-    np.longfloat,
+    np.longdouble,
     np.longdouble,
     np.complex64,
-    np.singlecomplex,
+    np.complex64,
     np.complex128,
-    np.complex_,
+    np.complex128,
     np.complex256,
-    np.longcomplex,
+    np.clongdouble,
 ]
 
 Numeric = Union[
@@ -112,27 +114,27 @@ Numeric = Union[
     np.uintp,
     np.ulonglong,
     np.float16,
-    np.cfloat,
+    np.complex128,
     np.cdouble,
     np.float32,
-    np.clongfloat,
+    np.clongdouble,
     np.float64,
     np.double,
     np.float128,
-    np.longfloat,
+    np.longdouble,
     np.longdouble,
     np.complex64,
-    np.singlecomplex,
+    np.complex64,
     np.complex128,
-    np.complex_,
+    np.complex128,
     np.complex256,
-    np.longcomplex,
+    np.clongdouble,
 ]
 
 Data = Union[list, tuple, np.ndarray, Numeric]
 MetaDataType = Union[int, float, str, datetime, Data]
 Slice = Union[
-    IndexExpression,
+    IndexExpression,  # type: ignore[valid-type]
     slice,
     EllipsisType,  # type: ignore
     int,
@@ -140,7 +142,7 @@ Slice = Union[
 ]
 
 FancySlice = Union[
-    IndexExpression,
+    IndexExpression,  # type: ignore[valid-type]
     slice,
     EllipsisType,  # type: ignore
     int,

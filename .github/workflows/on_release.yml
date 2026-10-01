@@ -16,7 +16,7 @@ jobs:
     needs: tox_tests
     uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
     with:
-      python-version: '3.9'
+      python-version: '3.11'
 
   build_sdist:
     needs: [tox_tests, build_docs]

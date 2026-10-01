@@ -569,7 +569,7 @@ class VArraySchemaCreationParams(SchemaParams, TypedSchemaParams):
             *cls._generate_types(
                 base_dict={"dtype": dtype, "dimensions": dimensions, "vgrid": vgrid},
                 key="attributes",
-                exception_types=[tuple, list, None],
+                exception_types=[tuple, list, NoneType],
             ),
             # wrong vgrid
             *cls._generate_types(

@@ -499,7 +499,7 @@ class TestVArraySubset:
         )
         coll = client.create_collection(name="3dim", schema=array_schema)
         varray = coll.create()
-        data = np.asarray(range(6 * 6 * 6), dtype=np.int8).reshape((6, 6, 6))
+        data = np.arange(-108, 108, dtype=np.int8).reshape((6, 6, 6))
         varray[:].update(data)
 
         # Check full
