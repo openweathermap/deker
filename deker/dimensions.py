@@ -75,7 +75,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
                 except TypeError as e:
                     raise DekerValidationError(e)
 
-            for attr in scale.__annotations__:
+            for attr in scale._fields:
                 value = getattr(scale, attr)
                 if attr == "name":
                     if value is not None and (

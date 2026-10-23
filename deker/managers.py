@@ -21,7 +21,6 @@ from deker.arrays import Array, VArray
 from deker.log import SelfLoggerMixin
 from deker.schemas import VArraySchema
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.ABC.base_schemas import BaseArraysSchema

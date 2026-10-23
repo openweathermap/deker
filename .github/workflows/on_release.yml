@@ -7,21 +7,22 @@ on:
 
 jobs:
   tox_tests:
-    uses: openweathermap/deker-actions/.github/workflows/tox.yml@master
+    uses: openweathermap/deker-actions/.github/workflows/tox.yml@feature/python-versions-input
     with:
       package-name: ${{ vars.PACKAGE_NAME }}
       min-coverage: 96
+      python-versions: '["3.10", "3.11", "3.12", "3.13", "3.14"]'
 
   build_docs:
     needs: tox_tests
     uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@master
     with:
-      python-version: '3.9'
+      python-version: '3.10'
 
   build_sdist:
     needs: [tox_tests, build_docs]
     name: Build source distribution
-    uses: openweathermap/deker-actions/.github/workflows/build.yml@master
+    uses: openweathermap/deker-actions/.github/workflows/build.yml@feature/python-versions-input
 
   publish_docs:
     needs: [build_docs, build_sdist]

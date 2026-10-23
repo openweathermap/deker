@@ -21,7 +21,6 @@ from typing import List, NamedTuple, Optional, Tuple, Union
 from deker.errors import DekerValidationError
 from deker.log import SelfLoggerMixin
 
-
 Labels = Union[Tuple[Union[str, int, float], ...], List[Union[str, int, float]]]
 
 

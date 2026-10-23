@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Optional, Union
 from deker.ABC.base_schemas import BaseArraysSchema
 from deker.schemas import VArraySchema
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.ABC.base_array import BaseArray
@@ -30,7 +29,7 @@ if TYPE_CHECKING:
     from deker.managers import FilteredManager
 
 
-class BaseAbstractManager(ABC):
+class BaseAbstractManager(ABC):  # noqa: B024
     """Data manager interface."""
 
     __slots__ = ("__collection", "__array_adapter", "__varray_adapter", "_schema")

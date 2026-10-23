@@ -40,7 +40,6 @@ from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
 from deker.validators import is_valid_uuid, process_attributes, validate_custom_attributes_update
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter, IArrayAdapter
     from deker.arrays import Array, VArray

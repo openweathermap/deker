@@ -29,9 +29,11 @@ classifiers = [
     "Operating System :: MacOS :: MacOS X",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
 ]
 
 [tool.poetry.extras]
@@ -56,50 +58,50 @@ priority = "supplemental"
 
 
 [tool.poetry.dependencies]
-python = "^3.9"
-attrs = "^23.1.0"
+python = "^3.10"
+attrs = ">=23.1.0,<27"
 typing-extensions = "^4.4.0"
 tqdm = "^4.64.1"
-psutil = "^5.9.5"
+psutil = ">=5.9.5,<8"
 deker-server-adapters = {version = "^1.0.0", optional = true}
 deker-shell = { version = "^1.0.0", optional = true }
-xarray = {version = "^2023.5.0", optional = true}
-deker-local-adapters = "^1.1.2"
+xarray = {version = ">=2024.6.0", optional = true}
+deker-local-adapters = ">=1.2.0b1,<2"
 
 [tool.poetry.group.dev.dependencies]
-black = "23.1.0"
-coverage = "7.1.0"
+black = "26.10.1"
+coverage = "7.16.2"
 darglint = "1.8.1"
-Flake8-pyproject = "1.2.3"
-flake8 = "5.0.4"
-flake8-bugbear = "23.1.20"
+Flake8-pyproject = "1.2.4"
+flake8 = "7.4.1"
+flake8-bugbear = "26.9.30"
 flake8-docstrings = "1.7.0"
-flake8-import-order = "0.18.2"
-flake8-pytest-style = "1.7.0"
-isort = "5.12.0"
-mypy = "1.0.0"
-mypy-extensions = "1.0.0"
-pep8-naming = "0.13.3"
-pre-commit = "3.0.4"
-pycln = "2.1.3"
-pytest = "7.2.1"
-pytest-cov = "4.0.0"
-pytest-sugar = "0.9.6"
-pytest-random-order = "1.1.0"
-ssort = "0.11.6"
-deepdiff = "6.3.0"
-pytest-mock = "3.10.0"
-bandit = "1.7.5"
-xarray = "^2023.5.0"
+flake8-import-order = "0.19.2"
+flake8-pytest-style = "2.2.0"
+isort = "9.0.2"
+mypy = "2.4.0"
+mypy-extensions = "1.1.0"
+pep8-naming = "0.15.1"
+pre-commit = "4.6.2"
+pycln = "2.6.0"
+pytest = "9.1.1"
+pytest-cov = "7.1.0"
+pytest-sugar = "1.1.1"
+pytest-random-order = "1.2.0"
+ssort = "0.17.0"
+deepdiff = "9.1.0"
+pytest-mock = "3.17.0"
+bandit = "1.9.4"
+xarray = ">=2024.6.0"
 
 
 [tool.poetry.group.docs.dependencies]
-docutils = "0.17"
-m2r2 = "0.3.2"
-sphinx-rtd-theme = "1.2.2"
-enum_tools = "0.10.0"
-sphinx_toolbox = "3.5.0"
-doc8 = "0.11.2"
+docutils = "0.21.2"
+m2r2 = "2.1.0"
+sphinx-rtd-theme = "3.1.0"
+enum_tools = "0.13.0"
+sphinx_toolbox = "4.3.1"
+doc8 = "2.0.0"
 
                                     #############
                                     ### TOOLS ###
@@ -110,18 +112,17 @@ doc8 = "0.11.2"
         ##############
 
 [tool.black]  # code formatter
-target-version = ['py39']
+target-version = ['py310']
 line-length = 100
 
 [tool.isort]  # imports sorter
 # https://pycqa.github.io/isort/
-py_version = 39
+py_version = 310
 sections = ['FUTURE', 'STDLIB', 'THIRDPARTY', 'FIRSTPARTY', 'LOCALFOLDER']
 profile = "black"
 atomic = true
 include_trailing_comma = true
 line_length = 100
-lines_after_imports = 2
 lines_between_types = 1
 multi_line_output = 3
 extend_skip = [".md", ".json"]
@@ -137,7 +138,7 @@ use_parentheses = true
 [tool.mypy]  # code linter
 # https://mypy.readthedocs.io/en/stable/
 # https://pypi.org/project/mypy-extensions/
-python_version = "3.9"
+python_version = "3.10"
 ignore_missing_imports = true
 scripts_are_modules = true
 allow_redefinition = true
@@ -172,7 +173,7 @@ disallow_untyped_defs = false
 # https://pypi.org/project/flake8-import-order/
 # https://pypi.org/project/flake8-pytest-style/
 # https://pypi.org/project/pep8-naming/
-min_python_version = 3.9
+min_python_version = 3.10
 max-complexity = 16
 max-doc-length = 120
 max-line-length = 120
@@ -250,7 +251,7 @@ skips = ["B324"]
 
 [tool.ruff]  # code linter
 # https://github.com/astral-sh/ruff
-target-version = "py39"
+target-version = "py310"
 line-length = 120
 select = ["ALL"]
 ignore = [

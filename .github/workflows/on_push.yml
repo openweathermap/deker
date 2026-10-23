@@ -6,9 +6,9 @@ on:
       - 'refs/tags/v'
 
 jobs:
-  checks:
-    uses: openweathermap/deker-actions/.github/workflows/checks.yml@master
+  tox_tests:
+    uses: openweathermap/deker-actions/.github/workflows/tox.yml@feature/python-versions-input
     with:
       package-name: ${{ vars.PACKAGE_NAME }}
-      python-version: '3.9'
       min-coverage: 96
+      python-versions: '["3.10", "3.11", "3.12", "3.13", "3.14"]'

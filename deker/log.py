@@ -17,7 +17,6 @@ import logging
 
 from typing import Optional
 
-
 _ROOT_DEKER_LOGGER_NAME = "Deker"
 
 format_string = "%(levelname)s | %(asctime)s | %(name)s | %(message)s"

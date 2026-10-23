@@ -20,7 +20,6 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Type
 
-
 if TYPE_CHECKING:
     from deker.client import Client
 
