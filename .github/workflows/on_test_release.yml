@@ -8,7 +8,7 @@ on:
 jobs:
   build_sdist:
     name: Build test source distribution
-    uses: openweathermap/deker-actions/.github/workflows/build.yml@feature/python-versions-input
+    uses: openweathermap/deker-actions/.github/workflows/build.yml@master
 
   upload_test_pypi:
     name: Upload test source distribution

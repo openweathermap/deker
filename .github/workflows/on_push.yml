@@ -7,7 +7,7 @@ on:
 
 jobs:
   tox_tests:
-    uses: openweathermap/deker-actions/.github/workflows/tox.yml@feature/python-versions-input
+    uses: openweathermap/deker-actions/.github/workflows/tox.yml@master
     with:
       package-name: ${{ vars.PACKAGE_NAME }}
       min-coverage: 96
