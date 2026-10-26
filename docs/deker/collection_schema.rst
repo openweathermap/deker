@@ -557,11 +557,11 @@ and NumPy data types:
         - 64
         - 8
         - -1.7976931348623157*10^308 ... |br| 1.7976931348623157*10^308
-      * - ``numpy.float16`` |br| ``numpy.cfloat`` |br| ``numpy.cdouble``
+      * - ``numpy.float16`` |br| ``numpy.half``
         - 16
         - 2
         - -65500.0 ... 65500.0
-      * - ``numpy.float32`` |br| ``numpy.clongfloat``
+      * - ``numpy.float32`` |br| ``numpy.single``
         - 32
         - 4
         - -3.4028235*10^38 ... 3.4028235*10^38
@@ -569,7 +569,7 @@ and NumPy data types:
         - 64
         - 8
         - -1.7976931348623157*10^308 ... |br| 1.7976931348623157*10^308
-      * - ``numpy.float128`` |br| ``numpy.longfloat`` |br| ``numpy.longdouble``
+      * - ``numpy.float128`` |br| ``numpy.longdouble``
         - 128
         - 16
         - -1.189731495357231765*10^4932 ... |br| 1.189731495357231765*10^4932
@@ -590,17 +590,17 @@ and NumPy data types:
         - 16
         - -1.189731495357231765*10^4932-1.189731495357231765*10^4932j ... |br|
           1.189731495357231765*10^4932+1.189731495357231765*10^4932j
-      * - ``numpy.complex64`` |br| ``numpy.singlecomplex``
+      * - ``numpy.complex64`` |br| ``numpy.csingle``
         - 64
         - 8
         - -1.7976931348623157*10^308-1.7976931348623157*10^308j ... |br|
           1.7976931348623157*10^308+1.7976931348623157*10^308j
-      * - ``numpy.complex128`` |br| ``numpy.complex_``
+      * - ``numpy.complex128`` |br| ``numpy.cdouble``
         - 128
         - 16
         - -1.189731495357231765*10^4932-1.189731495357231765*10^4932j ... |br|
           1.189731495357231765*10^4932+1.189731495357231765*10^4932j
-      * - ``numpy.complex256`` |br| ``numpy.longcomplex``
+      * - ``numpy.complex256`` |br| ``numpy.clongdouble``
         - 256
         - 32
         - `even more`
