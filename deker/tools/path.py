@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Optional, Tuple, Union
 from deker.types import Paths
 from deker.types.private.enums import LocksExtensions
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_schemas import BaseAttributeSchema
     from deker.arrays import Array, VArray
@@ -94,9 +93,9 @@ def get_paths(array: Union["Array", "VArray"], collection_path: Union[Path, str]
         main_path = get_main_path(arr.id, base_path / arr._adapter.data_dir)  # type: ignore[operator, attr-defined]
 
         # symlink
-        primary_attributes: Optional[
-            Tuple["BaseAttributeSchema", ...]
-        ] = arr.schema.primary_attributes
+        primary_attributes: Optional[Tuple["BaseAttributeSchema", ...]] = (
+            arr.schema.primary_attributes
+        )
         symlink_path = get_symlink_path(
             path_to_symlink_dir=base_path / arr._adapter.symlinks_dir,  # type: ignore[operator, attr-defined]
             primary_attributes_schema=primary_attributes,

@@ -19,7 +19,6 @@ from typing import TYPE_CHECKING, Optional, Tuple
 from deker.ABC.base_array import BaseArray
 from deker.schemas import ArraySchema, VArraySchema
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.collection import Collection

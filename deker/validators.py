@@ -25,7 +25,6 @@ from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerValidationError
 from deker.types import DTypeEnum
 
-
 if TYPE_CHECKING:
     from deker.schemas import ArraySchema, AttributeSchema, VArraySchema
 

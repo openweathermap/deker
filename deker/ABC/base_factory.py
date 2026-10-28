@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any, Tuple
 
 from deker.log import SelfLoggerMixin
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseCollectionAdapter, BaseVArrayAdapter
     from deker.ctx import CTX

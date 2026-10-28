@@ -25,7 +25,6 @@ from deker.errors import DekerInvalidSchemaError
 from deker.types import DTypeEnum, Numeric
 from deker.validators import process_time_dimension_attrs
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_schemas import BaseDimensionSchema
     from deker.schemas import AttributeSchema, TimeDimensionSchema

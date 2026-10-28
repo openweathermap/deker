@@ -37,7 +37,6 @@ from deker.types.private.classes import (
 )
 from deker.types.private.typings import Arrays, ArraysCoordinates, Data, Numeric, Slice
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.arrays import Array, VArray

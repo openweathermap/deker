@@ -50,7 +50,6 @@ from deker.types import ArrayLockMeta, CollectionLockMeta, LocksExtensions, Lock
 from deker.uri import Uri
 from deker.warnings import DekerWarning
 
-
 if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
 

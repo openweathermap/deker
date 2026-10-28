@@ -98,13 +98,13 @@ def test_array_schema_custom_attributes(array_schema_with_attributes):
         (np.float32, np.nan),
         (np.float64, np.nan),
         (np.float128, np.nan),
-        (np.longfloat, np.nan),
+        (np.longdouble, np.nan),
         (np.double, np.nan),
         (np.longdouble, np.nan),
         (np.complex64, np.nan),
         (np.complex128, np.nan),
         (np.complex256, np.nan),
-        (np.longcomplex, np.nan),
+        (np.clongdouble, np.nan),
     ],
 )
 def test_array_schema_fill_value(dimensions, dtype, fill_value):

@@ -129,7 +129,7 @@ class DekerExceptionGroup(DekerBaseApplicationError):
     def __init__(self, message: str, exceptions: List[str]):
         self.message = message
         self.exceptions = exceptions
-        super().__init__(message)
+        super().__init__(message, exceptions)
 
     def __str__(self) -> str:
         enumerated = [f"{num}) {e}" for num, e in enumerate(self.exceptions, start=1)]
