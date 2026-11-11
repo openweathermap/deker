@@ -52,18 +52,21 @@ API documentation and tutorials for the current release could be found at
 
 ### Dependencies
 
-Minimal Python version for DEKER™ is 3.9.
+Minimal Python version for DEKER™ is 3.10. Supported versions are 3.10 - 3.14.
+
+> **Note:** Python 3.9 is not supported since DEKER™ 1.2.0 (the same applies to `deker-tools`, `deker-local-adapters`,
+> `deker-server-adapters` and `deker-shell` 1.2.0). If you are on Python 3.9, use `deker<1.2`.
 
 DEKER™ depends on the following third-party packages:
 
-* `numpy` >= 1.18
+* `numpy` >= 1.26 (NumPy 2 is supported)
 * `attrs` >= 23.1.0
 * `tqdm` >= 4.64.1
 * `psutil` >= 5.9.5
-* `h5py` >= 3.8.0
+* `h5py` >= 3.11
 * `hdf5plugin` >= 4.0.1
 
-Also please not that for flexibility few internal DEKER™ components are published as separate
+Also please note that for flexibility few internal DEKER™ components are published as separate
 packages:
 
 * [`deker-local-adapters`](https://github.com/openweathermap/deker-local-adapters)

@@ -25,7 +25,6 @@ from deker_tools.path import is_path_valid
 
 from deker.errors import DekerValidationError
 
-
 ParseResultWithServers = namedtuple("ParseResultWithServers", ParseResult._fields + ("servers",))
 
 

@@ -17,7 +17,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any, Optional, Type
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseStorageAdapter
     from deker.config import DekerConfig

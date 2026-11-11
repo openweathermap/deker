@@ -23,7 +23,6 @@ import numpy as np
 
 from deker_tools.time import get_utc
 
-
 if TYPE_CHECKING:
     from deker import AttributeSchema
 

@@ -45,7 +45,6 @@ from deker.types import DTypeEnum
 from deker.types.private.classes import ArrayMeta
 from deker.types.private.typings import Data, EllipsisType, Numeric, Slice
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_array import BaseArray
     from deker.ABC.base_collection import BaseCollectionOptions

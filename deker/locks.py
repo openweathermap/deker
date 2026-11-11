@@ -44,7 +44,6 @@ from deker.flock import Flock
 from deker.tools.path import get_main_path
 from deker.types.private.enums import LocksExtensions
 
-
 if TYPE_CHECKING:
     from deker_local_adapters import LocalArrayAdapter
 

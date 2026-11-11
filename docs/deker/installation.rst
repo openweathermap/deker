@@ -10,7 +10,12 @@ DEKER™ was developed and tested on x86_64 Linux and both x86_64 and Apple sili
 to be running in production environments on x86_64 Linux servers.
 
 .. note::
-   Minimal Python version for DEKER™ is ``3.9``.
+   Minimal Python version for DEKER™ is ``3.10``. Supported versions are ``3.10`` - ``3.14``.
+
+.. warning::
+   Python ``3.9`` is not supported since DEKER™ ``1.2.0`` (the same applies to ``deker-tools``,
+   ``deker-local-adapters``, ``deker-server-adapters`` and ``deker-shell`` ``1.2.0``). If you are on
+   Python ``3.9``, use ``deker<1.2``.
 
 .. attention::
    DEKER™ uses NumPy, and some NumPy types are unsupported on current NumPy arm64 version. So if you
@@ -29,11 +34,11 @@ Dependencies
 
 DEKER™ depends on the following third-party packages:
 
-    * ``numpy`` >= 1.18
+    * ``numpy`` >= 1.26 (NumPy 2 is supported)
     * ``attrs`` >= 23.1.0
     * ``tqdm`` >= 4.64.1
     * ``psutil`` >= 5.9.5
-    * ``h5py`` >= 3.8.0
+    * ``h5py`` >= 3.11
     * ``hdf5plugin`` >= 4.0.1
 
 Also please note that for flexibility few internal DEKER™ components are published as separate
@@ -55,7 +60,7 @@ Optional Packages
 
 DEKER™ also supports output of its data as Xarray_ via the following package:
 
-    * ``xarray`` >= 2023.5.0
+    * ``xarray`` >= 2024.6.0
 
 To install it with ``xarray`` optional dependency:
 

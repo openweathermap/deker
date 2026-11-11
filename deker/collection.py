@@ -40,7 +40,6 @@ from deker.schemas import (
 from deker.tools import not_deleted
 from deker.types import Serializer
 
-
 if TYPE_CHECKING:
     from deker.ABC.base_factory import BaseAdaptersFactory
 
@@ -234,12 +233,12 @@ class Collection(SelfLoggerMixin, Serializer):
         """Serialize ``Collection`` to dictionary."""
         dic: dict = {
             "name": self.name,
-            "type": SchemaTypeEnum.varray.name
-            if self.__varray_schema
-            else SchemaTypeEnum.array.name,
-            "schema": self.varray_schema.as_dict
-            if self.__varray_schema
-            else self.array_schema.as_dict,
+            "type": (
+                SchemaTypeEnum.varray.name if self.__varray_schema else SchemaTypeEnum.array.name
+            ),
+            "schema": (
+                self.varray_schema.as_dict if self.__varray_schema else self.array_schema.as_dict
+            ),
             "options": self.options.as_dict if self.options else self.options,
             "storage_adapter": self.__storage_adapter.__name__,
             "metadata_version": self.__adapter.metadata_version,

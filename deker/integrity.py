@@ -33,7 +33,6 @@ from deker.managers import ArrayManager, VArrayManager
 from deker.tools import get_main_path, get_symlink_path
 from deker.types.private.enums import LocksExtensions
 
-
 if TYPE_CHECKING:
     from deker.client import Client
 
