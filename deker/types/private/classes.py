@@ -20,7 +20,6 @@ from typing import TYPE_CHECKING, NamedTuple, Tuple, Union
 
 from typing_extensions import NotRequired, TypedDict
 
-
 if TYPE_CHECKING:
     from deker.types import Data
 

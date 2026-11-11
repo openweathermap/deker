@@ -158,7 +158,7 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
                     self.scale = Scale(**self.scale)
                 except AttributeError as e:
                     raise DekerValidationError(e)
-            for attr in self.scale.__annotations__:
+            for attr in self.scale._fields:
                 value = getattr(self.scale, attr)
                 if attr == "name":
                     if value is not None and (

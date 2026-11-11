@@ -15,15 +15,19 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 """Module for using in type annotations. Not for direct initialization."""
+
 from datetime import datetime
 from typing import TYPE_CHECKING, List, Tuple, Type, Union
 
 import numpy as np
 
-from numpy.lib.index_tricks import IndexExpression
-
 from .classes import ArrayPosition, ArraysCoordinatesWithOffset
 
+if TYPE_CHECKING:
+    from numpy.lib._index_tricks_impl import IndexExpression
+else:
+    # numpy 2 made numpy.lib.index_tricks private; this works on numpy 1.26 and 2.x
+    IndexExpression = type(np.index_exp)
 
 __all__ = (
     "EllipsisType",
@@ -70,21 +74,21 @@ NumericDtypes = [
     np.uintp,
     np.ulonglong,
     np.float16,
-    np.cfloat,
+    np.cdouble,
     np.cdouble,
     np.float32,
-    np.clongfloat,
+    np.clongdouble,
     np.float64,
     np.double,
     np.float128,
-    np.longfloat,
+    np.longdouble,
     np.longdouble,
     np.complex64,
-    np.singlecomplex,
+    np.csingle,
     np.complex128,
-    np.complex_,
+    np.complex128,
     np.complex256,
-    np.longcomplex,
+    np.clongdouble,
 ]
 
 Numeric = Union[
@@ -112,21 +116,21 @@ Numeric = Union[
     np.uintp,
     np.ulonglong,
     np.float16,
-    np.cfloat,
+    np.cdouble,
     np.cdouble,
     np.float32,
-    np.clongfloat,
+    np.clongdouble,
     np.float64,
     np.double,
     np.float128,
-    np.longfloat,
+    np.longdouble,
     np.longdouble,
     np.complex64,
-    np.singlecomplex,
+    np.csingle,
     np.complex128,
-    np.complex_,
+    np.complex128,
     np.complex256,
-    np.longcomplex,
+    np.clongdouble,
 ]
 
 Data = Union[list, tuple, np.ndarray, Numeric]

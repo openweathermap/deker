@@ -207,13 +207,13 @@ def test_varray_schema_custom_attributes(varray_schema_with_attributes: VArraySc
         (np.float32, np.nan),
         (np.float64, np.nan),
         (np.float128, np.nan),
-        (np.longfloat, np.nan),
+        (np.longdouble, np.nan),
         (np.double, np.nan),
         (np.longdouble, np.nan),
         (np.complex64, np.nan),
         (np.complex128, np.nan),
         (np.complex256, np.nan),
-        (np.longcomplex, np.nan),
+        (np.clongdouble, np.nan),
     ],
 )
 @pytest.mark.parametrize(

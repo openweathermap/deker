@@ -25,7 +25,6 @@ from deker.schemas import (
 )
 from deker.types import Scale
 
-
 __all__ = (  # F405
     "Client",
     "DimensionSchema",

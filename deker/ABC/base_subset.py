@@ -24,7 +24,6 @@ import numpy as np
 
 from deker_tools.slices import slice_converter
 
-
 try:
     from xarray import DataArray
 
@@ -41,7 +40,6 @@ from deker.errors import DekerSubsetError
 from deker.log import SelfLoggerMixin
 from deker.tools import check_memory
 from deker.types.private.typings import Data, Numeric
-
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
