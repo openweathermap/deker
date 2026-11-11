@@ -37,8 +37,8 @@ executor, based on ``ThreadPoolExecutor``) instance. In this case DEKER™ will 
 This is a parameter for the native DEKER™ executor mentioned above.
 
 By default, it is ``None`` and in this case DEKER™ uses the maximum number of threads from the
-formula, provided by `Python documentation`_ : ``min(32, cpu_count() + 4)`` (``process_cpu_count()``
-is used instead of ``cpu_count()`` since Python 3.13).
+formula, provided by `Python documentation`_ : ``min(32, cpu_count() + 4)``
+(``process_cpu_count()`` is used instead of ``cpu_count()`` since Python 3.13).
 
 You may increase or reduce it, if you need::
 
