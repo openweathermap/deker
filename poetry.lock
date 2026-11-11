@@ -1002,85 +1002,65 @@ test = ["pytest (>=9.0.3,<9.1.0)", "pytest-benchmark (>=5.2.3,<5.3.0)", "pytest-
 
 [[package]]
 name = "deker-local-adapters"
-version = "1.2.0b1"
+version = "1.2.0"
 description = "Plugin with local adapters for deker"
 optional = false
-python-versions = ">=3.10,<4.0"
+python-versions = "<4.0,>=3.10"
 groups = ["main"]
 files = [
-    {file = "deker_local_adapters-1.2.0b1.tar.gz", hash = "sha256:fde0235d2a0d32ffac58d6e797a9fbb26ea74c9487c9e7a625a14cfc2848d614"},
+    {file = "deker_local_adapters-1.2.0.tar.gz", hash = "sha256:75104681d334a0fdf35173c2667efcb6315059cc0962db61771c231e1de68c58"},
 ]
 
 [package.dependencies]
-deker-tools = ">=1.2.0b1,<2"
+deker-tools = ">=1.2.0,<2.0.0"
 h5py = ">=3.11,<4"
 hdf5plugin = ">=4.0.1,<8"
 numpy = ">=1.26,<3"
 
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "testpypi"
-
 [[package]]
 name = "deker-server-adapters"
-version = "1.2.0b1"
+version = "1.2.0"
 description = "Plugin with server adapters for Deker"
 optional = true
-python-versions = ">=3.10,<4.0"
+python-versions = "<4.0,>=3.10"
 groups = ["main"]
 markers = "extra == \"server-adapters\" or extra == \"all\""
 files = [
-    {file = "deker_server_adapters-1.2.0b1.tar.gz", hash = "sha256:72cba0bb99ca60fd8118a11fe8b088c63a600a3f4a7803b3f1a0364e56e608a4"},
+    {file = "deker_server_adapters-1.2.0.tar.gz", hash = "sha256:9582b341c5e89d86a90031680f21e59c0b296a3d86e45ef93a0f13b0ca5ebde5"},
 ]
 
 [package.dependencies]
 httpx = ">=0.28.1,<1"
 
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "testpypi"
-
 [[package]]
 name = "deker-shell"
-version = "1.2.0b1"
+version = "1.2.0"
 description = "Interactive shell for Deker"
 optional = true
-python-versions = ">=3.10,<4.0"
+python-versions = "<4.0,>=3.10"
 groups = ["main"]
 markers = "extra == \"shell\" or extra == \"all\""
 files = [
-    {file = "deker_shell-1.2.0b1.tar.gz", hash = "sha256:890fce6d44a7a2065f0b41e5f298c385ae95fffbf392cf9622c62ee6f1970351"},
+    {file = "deker_shell-1.2.0.tar.gz", hash = "sha256:145c563f9d4749bd9839ec1ff4fe437a375711befbc8903f29c5adc8ed0bedb3"},
 ]
 
 [package.dependencies]
 click = ">=8.5,<9"
 ptpython = ">=3.0.32,<4"
 
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "testpypi"
-
 [[package]]
 name = "deker-tools"
-version = "1.2.0b1"
+version = "1.2.0"
 description = "Shared functions library for Deker components"
 optional = false
-python-versions = ">=3.10,<4.0"
+python-versions = "<4.0,>=3.10"
 groups = ["main"]
 files = [
-    {file = "deker_tools-1.2.0b1.tar.gz", hash = "sha256:01fe05faf8475438a190133fd79adac2e9950887b2e76687830de7fb4c254431"},
+    {file = "deker_tools-1.2.0.tar.gz", hash = "sha256:b8527ffdac2670cb51d2add439233c1f127b78256a6e7895612509f92c5c84c4"},
 ]
 
 [package.dependencies]
 numpy = ">=1.26,<3"
-
-[package.source]
-type = "legacy"
-url = "https://test.pypi.org/simple"
-reference = "testpypi"
 
 [[package]]
 name = "dict2css"
@@ -3899,7 +3879,7 @@ description = "Python documentation generator"
 optional = false
 python-versions = ">=3.12"
 groups = ["docs"]
-markers = "python_version < \"3.14\" and python_version >= \"3.12\""
+markers = "python_version == \"3.12\""
 files = [
     {file = "sphinx-9.1.1-py3-none-any.whl", hash = "sha256:f8b60013ce25017be41a509e5c2d265bc1918410061315c36b809c7f335646c0"},
     {file = "sphinx-9.1.1.tar.gz", hash = "sha256:48b627f02908f22c601b3ba9c7b17265b4f315dd05c8bc64cd4da41183f44fbc"},
@@ -3934,7 +3914,7 @@ description = "Python documentation generator"
 optional = false
 python-versions = ">=3.13"
 groups = ["docs"]
-markers = "python_version >= \"3.14\""
+markers = "python_version >= \"3.13\""
 files = [
     {file = "sphinx-9.2.0-py3-none-any.whl", hash = "sha256:4c3ec13b612712c0d3ce4cbdd9e3eb91e68577e07a8e31f32f21cf178453578c"},
     {file = "sphinx-9.2.0.tar.gz", hash = "sha256:90470459f3cab15d9dfed146c71cf77694b0445df17b2e0e69059cb9f7fc9ee4"},
@@ -4686,4 +4666,4 @@ xarray = ["xarray"]
 [metadata]
 lock-version = "2.1"
 python-versions = "^3.10"
-content-hash = "8b92c6aef16635d5c173dea294ceaa3f0e2789776f8b1157aa709b736e2f7429"
+content-hash = "9c0795812e220ecf723186bf5f8b2fe4a96eff253020c06564d0683fb696fb0a"
