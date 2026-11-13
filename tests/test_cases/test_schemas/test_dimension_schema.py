@@ -16,9 +16,7 @@ def test_dimension_schema(params: dict):
         DimensionSchema(**params)
 
 
-@pytest.mark.parametrize(
-    "params", TimeDimensionSchemaCreationParams.WRONG_params_dataclass_raises()
-)
+@pytest.mark.parametrize("params", TimeDimensionSchemaCreationParams.WRONG_params_dataclass_raises())
 def test_time_dimension_schema(params: dict):
     """Tests schema validation."""
     with pytest.raises(DekerValidationError):

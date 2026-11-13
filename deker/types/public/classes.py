@@ -14,14 +14,13 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from __future__ import annotations
 
-from typing import List, NamedTuple, Optional, Tuple, Union
+from typing import NamedTuple, Union
 
 from deker.errors import DekerValidationError
 from deker.log import SelfLoggerMixin
 
-Labels = Union[Tuple[Union[str, int, float], ...], List[Union[str, int, float]]]
+Labels = Union[tuple[Union[str, int, float], ...], list[Union[str, int, float]]]
 
 
 class Scale(NamedTuple):
@@ -60,7 +59,7 @@ class Scale(NamedTuple):
 
     start_value: float
     step: float
-    name: Optional[str] = None
+    name: str | None = None
 
 
 class StorageSize(NamedTuple):
@@ -85,7 +84,7 @@ class IndexLabels(tuple, SelfLoggerMixin):
     """
 
     @classmethod
-    def __validate(cls, labels: Optional[Labels]) -> Tuple[Union[str, int, float], ...]:
+    def __validate(cls, labels: Labels | None) -> tuple[str | int | float, ...]:
         error = DekerValidationError(
             "Labels shall be a list or tuple of unique values of the same type (strings, floats), "
             "not None or empty list or tuple"
@@ -103,32 +102,34 @@ class IndexLabels(tuple, SelfLoggerMixin):
             raise error
         return labels if isinstance(labels, tuple) else tuple(labels)
 
-    def __new__(cls, labels: Optional[Labels]) -> IndexLabels:
+    def __new__(cls, labels: Labels | None) -> "IndexLabels":
         """Override python ``tuple.__new__`` method.
 
         Here we add values validation before an instance is created.
 
         :param labels: labels
+        :returns: validated ``IndexLabels`` instance
         """
-        return super(IndexLabels, cls).__new__(cls, cls.__validate(labels))  # type: ignore[arg-type]
+        return super().__new__(cls, cls.__validate(labels))  # type: ignore[arg-type]
 
-    def __init__(self, labels: Optional[Labels]) -> None:
+    def __init__(self, labels: Labels | None) -> None:
         self.logger.debug("labels initialized")
 
     @property
-    def first(self) -> Union[str, int, float]:
+    def first(self) -> str | int | float:
         """Get first label."""
         return self[0]
 
     @property
-    def last(self) -> Union[str, int, float]:
+    def last(self) -> str | int | float:
         """Get last label."""
         return self[-1]
 
-    def name_to_index(self, name: Union[str, int, float]) -> Optional[int]:
+    def name_to_index(self, name: str | int | float) -> int | None:
         """Get label index by its name.
 
         :param name: label name
+        :returns: index of the label, or ``None`` if there is no such label
         """
         try:
             return self.index(name)
@@ -137,10 +138,11 @@ class IndexLabels(tuple, SelfLoggerMixin):
             self.logger.debug(mes)
             return None
 
-    def index_to_name(self, idx: int) -> Optional[Union[str, int, float]]:
+    def index_to_name(self, idx: int) -> str | int | float | None:
         """Get label name by its index.
 
         :param idx: label index
+        :returns: label at the index, or ``None`` if the index is out of range
         """
         try:
             return self[idx]

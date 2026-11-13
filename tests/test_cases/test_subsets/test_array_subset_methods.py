@@ -23,9 +23,7 @@ from deker.types.private.typings import Slice
 
 class TestArraySubsetMethods:
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_subset_shape_is_correct(
-        self, inserted_array: Array, array_data: ndarray, index_exp: Slice
-    ):
+    def test_subset_shape_is_correct(self, inserted_array: Array, array_data: ndarray, index_exp: Slice):
         """Tests if subset shape is correct.
 
         :param inserted_array: Pre created array
@@ -69,9 +67,7 @@ class TestArraySubsetMethods:
             subset: Subset = array[index_exp]
             data = subset.read()
             subset.clear()
-            paths = get_paths(
-                array, root_path / ctx.config.collections_directory / array.collection
-            )
+            paths = get_paths(array, root_path / ctx.config.collections_directory / array.collection)
             filename = paths.main / (array.id + ctx.storage_adapter.file_ext)
 
             with h5py.File(filename) as f:
@@ -88,9 +84,7 @@ class TestArraySubsetMethods:
             array.delete()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_update_subset(
-        self, array_collection: Collection, array_data: ndarray, index_exp: Slice
-    ):
+    def test_update_subset(self, array_collection: Collection, array_data: ndarray, index_exp: Slice):
         """Tests if subset updates itself correctly.
 
         :param array_collection: Pre created collection
@@ -163,12 +157,8 @@ class TestSubsetForXArray:
                 start_value=datetime(2023, 1, 1, tzinfo=timezone.utc),
                 step=timedelta(hours=1),
             ),
-            DimensionSchema(
-                name="y", size=721, scale=Scale(start_value=90.0, step=-0.25, name="lat")
-            ),
-            DimensionSchema(
-                name="x", size=1440, scale=Scale(start_value=-180.0, step=0.25, name="lon")
-            ),
+            DimensionSchema(name="y", size=721, scale=Scale(start_value=90.0, step=-0.25, name="lat")),
+            DimensionSchema(name="x", size=1440, scale=Scale(start_value=-180.0, step=0.25, name="lon")),
             DimensionSchema(name="layers", size=3, labels=["temp", "pres", "pcp"]),
         ]
 
@@ -213,9 +203,7 @@ class TestSubsetForXArray:
             col.delete()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_subset_description_on_read_xarray(
-        self, array_collection: Collection, index_exp: Slice
-    ):
+    def test_subset_description_on_read_xarray(self, array_collection: Collection, index_exp: Slice):
         array: Array = array_collection.create()
         subset = array[index_exp]
 
@@ -243,10 +231,7 @@ class TestSubsetForXArray:
                 np.index_exp[:],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
@@ -268,10 +253,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [90.0],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
@@ -282,10 +264,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": [-180],
                         "layers": ["temp", "pres", "pcp"],
@@ -296,10 +275,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, :, 1],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["pres"],
@@ -377,8 +353,7 @@ class TestSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(6, 12)
+                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(6, 12)
                         ],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
@@ -390,10 +365,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [88.5, 88.25, 88.0, 87.75, 87.5, 87.25],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
@@ -404,10 +376,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": [-178.5, -178.25, -178.0, -177.75, -177.5, -177.25],
                         "layers": ["temp", "pres", "pcp"],
@@ -418,10 +387,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, :, :2],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres"],
@@ -489,10 +455,7 @@ class TestSubsetForXArray:
                 np.index_exp[:],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": list(range(1440)),
                         "layers": list(range(3)),
@@ -514,10 +477,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [0],
                         "x": list(range(1440)),
                         "layers": list(range(3)),
@@ -528,10 +488,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": [0],
                         "layers": list(range(3)),
@@ -542,10 +499,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, :, 1],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": list(range(1440)),
                         "layers": [1],
@@ -623,8 +577,7 @@ class TestSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(6, 12)
+                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(6, 12)
                         ],
                         "y": list(range(721)),
                         "x": list(range(1440)),
@@ -636,10 +589,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [6, 7, 8, 9, 10, 11],
                         "x": list(range(1440)),
                         "layers": list(range(3)),
@@ -650,10 +600,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": [6, 7, 8, 9, 10, 11],
                         "layers": list(range(3)),
@@ -664,10 +611,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, :, :2],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": list(range(1440)),
                         "layers": [0, 1],

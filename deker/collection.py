@@ -16,8 +16,9 @@
 
 import datetime
 
+from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Generator, Optional, Type, Union
+from typing import TYPE_CHECKING
 
 from deker.ABC.base_adapters import BaseCollectionAdapter, BaseStorageAdapter
 from deker.ABC.base_collection import BaseCollectionOptions
@@ -86,6 +87,7 @@ class Collection(SelfLoggerMixin, Serializer):
         """Create ArraySchema from VArraySchema.
 
         :param schema: VArraySchema instance
+        :returns: ``ArraySchema`` for the arrays of the virtual array
         """
         attributes = [
             AttributeSchema(name="vid", dtype=str, primary=True),  # type: ignore[call-arg]
@@ -125,7 +127,7 @@ class Collection(SelfLoggerMixin, Serializer):
     def _validate(
         self,
         name: str,
-        schema: Union[ArraySchema, VArraySchema],
+        schema: ArraySchema | VArraySchema,
     ) -> None:
         """Validate name and schema.
 
@@ -136,18 +138,16 @@ class Collection(SelfLoggerMixin, Serializer):
             raise DekerValidationError("Collection name shall be a non-empty string")
 
         if schema is None or not isinstance(schema, (ArraySchema, VArraySchema)):
-            raise DekerValidationError(
-                f"Invalid schema type {type(schema)}; ArraySchema or VArraySchema expected"
-            )
+            raise DekerValidationError(f"Invalid schema type {type(schema)}; ArraySchema or VArraySchema expected")
 
     def __init__(
         self,
         name: str,
-        schema: Union[ArraySchema, VArraySchema],
+        schema: ArraySchema | VArraySchema,
         adapter: "BaseCollectionAdapter",
         factory: "BaseAdaptersFactory",
-        storage_adapter: Type["BaseStorageAdapter"],
-        collection_options: Optional[BaseCollectionOptions] = None,
+        storage_adapter: type["BaseStorageAdapter"],
+        collection_options: BaseCollectionOptions | None = None,
     ) -> None:
         """Collection constructor.
 
@@ -166,16 +166,12 @@ class Collection(SelfLoggerMixin, Serializer):
         # Init collection chunking and compression options
         self.__collection_options = collection_options
         self.__storage_adapter = storage_adapter
-        array_adapter = self.__factory.get_array_adapter(
-            self.__path, self.__storage_adapter, self.__collection_options
-        )
+        array_adapter = self.__factory.get_array_adapter(self.__path, self.__storage_adapter, self.__collection_options)
 
         if isinstance(schema, VArraySchema):
             self.__array_schema: ArraySchema = self.__create_array_schema_from_varray_schema(schema)
             self.__varray_schema: VArraySchema = schema
-            varray_adapter = self.__factory.get_varray_adapter(
-                self.__path, storage_adapter=self.__storage_adapter
-            )
+            varray_adapter = self.__factory.get_varray_adapter(self.__path, storage_adapter=self.__storage_adapter)
             self.__varrays = VArrayManager(self, array_adapter, varray_adapter)
         else:
             self.__array_schema: ArraySchema = schema
@@ -199,7 +195,7 @@ class Collection(SelfLoggerMixin, Serializer):
         del self.__varrays
 
     @property
-    def _storage_adapter(self) -> Type[BaseStorageAdapter]:
+    def _storage_adapter(self) -> type[BaseStorageAdapter]:
         """Return type of storage adapter."""
         return self.__storage_adapter
 
@@ -214,7 +210,7 @@ class Collection(SelfLoggerMixin, Serializer):
         return self.__array_schema
 
     @property
-    def varray_schema(self) -> Optional[VArraySchema]:
+    def varray_schema(self) -> VArraySchema | None:
         """Get collection ``VArraySchema``."""
         return self.__varray_schema
 
@@ -224,7 +220,7 @@ class Collection(SelfLoggerMixin, Serializer):
         return self.__path
 
     @property
-    def options(self) -> Optional[BaseCollectionOptions]:
+    def options(self) -> BaseCollectionOptions | None:
         """Get collection options: chunking, compression, etc."""
         return self.__collection_options
 
@@ -233,12 +229,8 @@ class Collection(SelfLoggerMixin, Serializer):
         """Serialize ``Collection`` to dictionary."""
         dic: dict = {
             "name": self.name,
-            "type": (
-                SchemaTypeEnum.varray.name if self.__varray_schema else SchemaTypeEnum.array.name
-            ),
-            "schema": (
-                self.varray_schema.as_dict if self.__varray_schema else self.array_schema.as_dict
-            ),
+            "type": (SchemaTypeEnum.varray.name if self.__varray_schema else SchemaTypeEnum.array.name),
+            "schema": (self.varray_schema.as_dict if self.__varray_schema else self.array_schema.as_dict),
             "options": self.options.as_dict if self.options else self.options,
             "storage_adapter": self.__storage_adapter.__name__,
             "metadata_version": self.__adapter.metadata_version,
@@ -247,7 +239,7 @@ class Collection(SelfLoggerMixin, Serializer):
         return dic
 
     @property
-    def varrays(self) -> Optional[VArrayManager]:
+    def varrays(self) -> VArrayManager | None:
         """Return manager for ``VArrays``."""
         if not self.__varrays:
             raise DekerInvalidManagerCallError(
@@ -263,10 +255,10 @@ class Collection(SelfLoggerMixin, Serializer):
     @not_deleted
     def create(
         self,
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
-        id_: Optional[str] = None,
-    ) -> Union[Array, VArray]:
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
+        id_: str | None = None,
+    ) -> Array | VArray:
         """Create ``Array`` or ``VArray`` according to collection main schema.
 
         If ``VArraySchema`` is passed to ``Collection``, all data management will go through ``VArrays``
@@ -276,6 +268,7 @@ class Collection(SelfLoggerMixin, Serializer):
         :param primary_attributes: ``Array`` or ``VArray`` primary attribute
         :param custom_attributes: ``Array`` or ``VArray`` custom attributes
         :param id_: ``Array`` or ``VArray`` unique UUID string
+        :returns: the created ``Array`` or ``VArray``
         """
         array = self.__manager.create(primary_attributes, custom_attributes, id_)
         self.logger.debug(
@@ -300,6 +293,7 @@ class Collection(SelfLoggerMixin, Serializer):
         """Filter ``Arrays`` or ``VArrays`` by provided conditions.
 
         :param filters: query conditions for filtering
+        :returns: ``FilteredManager`` with the applied filters
 
         .. note::
            Conditions for filtering are either Array or VArray ``id`` value::
@@ -319,15 +313,13 @@ class Collection(SelfLoggerMixin, Serializer):
     def __next__(self) -> None:
         pass
 
-    def __iter__(self) -> Generator[Union[Array, VArray], None, None]:
+    def __iter__(self) -> Generator[Array | VArray, None, None]:
         """Yield ``VArrays`` or ``VArrays`` from the ``Collection``."""
         if self._is_deleted():
             raise DekerInstanceNotExistsError(
                 f"{self} doesn't exist, create new or get an instance again to be able to iterate"
             )
-        array_adapter = self.__factory.get_array_adapter(
-            self.path, self.__storage_adapter, self.options
-        )
+        array_adapter = self.__factory.get_array_adapter(self.path, self.__storage_adapter, self.options)
         varray_adapter = (
             self.__factory.get_varray_adapter(self.path, storage_adapter=self.__storage_adapter)
             if self.varray_schema
@@ -339,9 +331,7 @@ class Collection(SelfLoggerMixin, Serializer):
         self.logger.debug(f"Iterating over collection {self.name}")
         for meta in adapter:
             if varray_adapter:
-                array: VArray = VArray._create_from_meta(
-                    self, meta, array_adapter, varray_adapter=varray_adapter
-                )
+                array: VArray = VArray._create_from_meta(self, meta, array_adapter, varray_adapter=varray_adapter)
             else:
                 array: Array = Array._create_from_meta(self, meta, array_adapter)
             yield array

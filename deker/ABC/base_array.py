@@ -21,7 +21,7 @@ import json
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
 
@@ -36,6 +36,7 @@ from deker.subset import Subset, VSubset
 from deker.tools.array import check_memory, get_id
 from deker.tools.attributes import make_ordered_dict, serialize_attribute_value
 from deker.tools.schema import create_dimensions
+from deker.tools.time import get_start_datetime
 from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
 from deker.validators import is_valid_uuid, process_attributes, validate_custom_attributes_update
@@ -46,7 +47,7 @@ if TYPE_CHECKING:
     from deker.collection import Collection
 
 
-class _FancySlicer(object):
+class _FancySlicer:
     """Converter of datetimes, floats and strings into index integers."""
 
     @staticmethod
@@ -58,11 +59,12 @@ class _FancySlicer(object):
 
         :param value: value to be converted into position
         :param dimension: TimeDimension instance
+        :returns: index of the value in the dimension
         """
         if isinstance(value, int):
             return value
 
-        start: datetime = dimension.start_value
+        start = get_start_datetime(dimension)
         step = dimension.step
 
         # check step
@@ -85,14 +87,10 @@ class _FancySlicer(object):
                 )
 
             if position < 0 or position > dimension.size:
-                raise IndexError(
-                    f"{dimension.__class__.__name__} {dimension.name} out of range: {position}"
-                )
+                raise IndexError(f"{dimension.__class__.__name__} {dimension.name} out of range: {position}")
             return position
         except (ValueError, TypeError) as e:
-            raise IndexError(
-                f"TimeDimension {dimension} wrong value: {value} of type {type(value)}; {e}"
-            )
+            raise IndexError(f"TimeDimension {dimension} wrong value: {value} of type {type(value)}; {e}")
 
     @staticmethod
     def _convert_value_for_dimension(value: FancySlice, dimension: Dimension) -> int:
@@ -100,25 +98,20 @@ class _FancySlicer(object):
 
         :param value: value to be converted into position
         :param dimension: Dimension instance
+        :returns: index of the value in the dimension
         """
         if isinstance(value, int):
             return value
 
         if isinstance(value, str):
             if not dimension.labels:
-                raise IndexError(
-                    f"Dimension {dimension.name} wrong indexing: {dimension.name} has no labels"
-                )
+                raise IndexError(f"Dimension {dimension.name} wrong indexing: {dimension.name} has no labels")
             dim_pos = dimension.labels.name_to_index(value)
             if dim_pos is None:
-                raise IndexError(
-                    f"Dimension {dimension.name} wrong indexing: {dimension.name} has no label {value}"
-                )
+                raise IndexError(f"Dimension {dimension.name} wrong indexing: {dimension.name} has no label {value}")
         elif isinstance(value, float):
             if not dimension.scale:
-                raise IndexError(
-                    f"Dimension {dimension.name} wrong indexing: {dimension.name} has no scale"
-                )
+                raise IndexError(f"Dimension {dimension.name} wrong indexing: {dimension.name} has no scale")
 
             # if passed float does not match scale step size
             if remainder := (value - dimension.scale.start_value) % dimension.scale.step:
@@ -134,26 +127,22 @@ class _FancySlicer(object):
             raise IndexError(f"Dimension {dimension.name} wrong indexing: {value} is out of range")
         return dim_pos
 
-    def _convert_fancy_slice(
-        self, slice_: FancySlice, dimension: Union[TimeDimension, Dimension]
-    ) -> slice:
+    def _convert_fancy_slice(self, slice_: FancySlice, dimension: TimeDimension | Dimension) -> slice:
         """Convert FancySlice to slice.
 
         :param slice_: FancySlice to be converted into slice
         :param dimension: TimeDimension or Dimension instance
+        :returns: plain ``slice`` with integer positions
         """
         slice_parameters = []
 
-        if all(
-            st is not None for st in (slice_.start, slice_.stop)
-        ) and not type(  # noqa: E721,E714
+        if all(st is not None for st in (slice_.start, slice_.stop)) and not type(  # noqa: E721,E714
             slice_.start
         ) is type(  # noqa: E721,RUF100
             slice_.stop
         ):
             raise IndexError(
-                f"'start' and 'stop' of {dimension.__class__.__name__} {dimension.name} slice "
-                f"shall be of the same type"
+                f"'start' and 'stop' of {dimension.__class__.__name__} {dimension.name} slice shall be of the same type"
             )
 
         if slice_.step is not None:
@@ -195,13 +184,13 @@ class _FancySlicer(object):
         return slice(*slice_parameters)
 
     @staticmethod
-    def _is_time_dimension(dim: Union[TimeDimension, Dimension]) -> bool:
+    def _is_time_dimension(dim: TimeDimension | Dimension) -> bool:
         return isinstance(dim, TimeDimension)
 
     def _fancy_slice_dimensions(
         self,
         item: FancySlice,
-        dimension: Union[TimeDimension, Dimension],
+        dimension: TimeDimension | Dimension,
     ) -> Slice:
         params = item, dimension
         if isinstance(item, slice):
@@ -215,9 +204,7 @@ class _FancySlicer(object):
                 else self._convert_value_for_dimension(*params)  # type: ignore[arg-type]
             )
         else:
-            raise IndexError(
-                f"{dimension.__class__.__name__} {dimension.name} wrong indexing: {item}"
-            )
+            raise IndexError(f"{dimension.__class__.__name__} {dimension.name} wrong indexing: {item}")
 
         return val
 
@@ -246,14 +233,12 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
     def _validate(
         self,
-        id_: Optional[str],
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
+        id_: str | None,
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
     ) -> None:
         if id_ is not None and not is_valid_uuid(id_):
-            raise DekerValidationError(
-                f"{self.__class__.__name__} id shall be a non-empty uuid.uuid5 string or None"
-            )
+            raise DekerValidationError(f"{self.__class__.__name__} id shall be a non-empty uuid.uuid5 string or None")
         for attrs in (primary_attributes, custom_attributes):
             if attrs is not None and not isinstance(attrs, dict):
                 raise DekerValidationError(f"Invalid attributes type: {type(attrs)}")
@@ -263,11 +248,11 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         collection: "Collection",
         adapter: Union["BaseArrayAdapter", "BaseVArrayAdapter"],
         array_adapter: Optional["BaseArrayAdapter"] = None,
-        id_: Optional[str] = None,
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
-        *args: Any,  # noqa[ARG002]
-        **kwargs: Any,  # noqa[ARG002]
+        id_: str | None = None,
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
+        *args: Any,  # noqa: ARG002
+        **kwargs: Any,  # noqa: ARG002
     ) -> None:
         """BaseArray constructor.
 
@@ -279,8 +264,8 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         :param id_: Array uuid string
         :param primary_attributes: primary attributes keyword mapping
         :param custom_attributes: custom attributes keyword mapping
-        :param args: any arguments
-        :param kwargs: any keyword arguments
+        :param *args: any arguments
+        :param **kwargs: any keyword arguments
         """
         super().__init__()
         self.__is_deleted = False
@@ -290,12 +275,12 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         self.__adapter = adapter
         self.__array_adapter = array_adapter
 
-        primary_attributes, custom_attributes = process_attributes(
-            self.schema, primary_attributes, custom_attributes
-        )
+        primary_attributes, custom_attributes = process_attributes(self.schema, primary_attributes, custom_attributes)
 
         self.primary_attributes, self.custom_attributes = make_ordered_dict(
-            primary_attributes, custom_attributes, self.schema.attributes  # type: ignore[arg-type]
+            primary_attributes,
+            custom_attributes,
+            self.schema.attributes,  # type: ignore[arg-type]
         )
 
     def __del__(self) -> None:
@@ -324,7 +309,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
     @property
     @abstractmethod
-    def schema(self) -> Union[ArraySchema, VArraySchema]:
+    def schema(self) -> ArraySchema | VArraySchema:
         """Collection schema.
 
         If it is VArray - return VArraySchema; if it is Array - return ArraySchema
@@ -337,7 +322,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         return self.__id
 
     @property
-    def dtype(self) -> Type[Numeric]:
+    def dtype(self) -> type[Numeric]:
         """Get array values data type."""
         return self.schema.dtype
 
@@ -347,7 +332,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         return self.__collection.name
 
     @property
-    def dimensions(self) -> Tuple[Union[Dimension, TimeDimension], ...]:
+    def dimensions(self) -> tuple[Dimension | TimeDimension, ...]:
         """Get array dimensions."""
         return create_dimensions(
             self.schema.dimensions,  # type: ignore[arg-type]
@@ -355,17 +340,17 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         )
 
     @property
-    def shape(self) -> Tuple[int, ...]:
+    def shape(self) -> tuple[int, ...]:
         """Get array shape."""
         return self.schema.shape
 
     @property
-    def named_shape(self) -> Tuple[Tuple[str, int], ...]:
+    def named_shape(self) -> tuple[tuple[str, int], ...]:
         """Get array shape mapping."""
         return self.schema.named_shape
 
     @property
-    def fill_value(self) -> Union[Numeric, type(np.nan)]:  # type: ignore[valid-type]
+    def fill_value(self) -> Numeric | type(np.nan):  # type: ignore[valid-type]
         """Get array fill_value."""
         return self.schema.fill_value
 
@@ -391,8 +376,9 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
     def _create_meta(self) -> str:
         """Serialize array into metadata JSON string."""
-        primary_attrs, custom_attrs = deepcopy(self.primary_attributes), deepcopy(
-            self.custom_attributes
+        primary_attrs, custom_attrs = (
+            deepcopy(self.primary_attributes),
+            deepcopy(self.custom_attributes),
         )
         for attrs in (primary_attrs, custom_attrs):
             for key, value in attrs.items():
@@ -406,7 +392,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             }
         )
 
-    def read_meta(self) -> Optional[ArrayMeta]:
+    def read_meta(self) -> ArrayMeta | None:
         """Read data from array."""
         meta = self._adapter.read_meta(self)
         self.logger.info(f"{self!s} meta data read: {meta}")
@@ -425,9 +411,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
                 if not self._check_int_or_slice_or_ellipsis(i):
                     i = self._fancy_slice_dimensions(i, dim)
                 if isinstance(i, int) and i > dim.size:
-                    raise IndexError(
-                        f"{dim.__class__.__name__} dimension {dim.name} wrong indexing: {i} out of range"
-                    )
+                    raise IndexError(f"{dim.__class__.__name__} dimension {dim.name} wrong indexing: {i} out of range")
                 fancy_item.append(i)
             fancy_item = tuple(fancy_item)
         elif self._check_int_or_slice_or_ellipsis(item):
@@ -451,6 +435,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         :param meta: array metadata
         :param array_adapter: Array adapter instance
         :param varray_adapter: VArray adapter instance
+        :returns: ``Array`` or ``VArray`` built from the metadata
         """
         if varray_adapter:
             attrs_schema = collection.varray_schema.attributes
@@ -478,10 +463,21 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         except (KeyError, ValueError) as e:
             raise DekerMetaDataError(f"{cls} metadata invalid/corrupted: {e}")
 
-    def __getitem__(self, item: FancySlice) -> Union[Subset, VSubset]:
+    @abstractmethod
+    def _create_subset(self, bounds: tuple[slice | int, ...], shape: tuple[int, ...]) -> Subset | VSubset:
+        """Create a lazy subset bound to the array with its own adapters.
+
+        :param bounds: validated and normalized index expression
+        :param shape: subset shape
+        :returns: ``Subset`` for an ``Array`` or ``VSubset`` for a ``VArray``
+        """
+        pass
+
+    def __getitem__(self, item: FancySlice) -> Subset | VSubset:
         """Get a subset from Array or VArray.
 
         :param item: index expression
+        :returns: lazy ``Subset`` or ``VSubset`` for the given bounds
         """
         valid_types = int, float, str, datetime, slice, tuple, type(Ellipsis)
         if (
@@ -513,19 +509,13 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
         check_memory(shape, self.dtype, self.__adapter.ctx.config.memory_limit)
         pre_bounds = np.index_exp[item]
-        bounds: Union[List, Tuple] = []
+        bounds: list | tuple = []
         for i in pre_bounds:
             if i is ...:
                 bounds.extend(np.index_exp[:])
             else:
                 bounds.append(i)
-        bounds = tuple(bounds)
-        if isinstance(self.schema, VArraySchema):
-            subset = VSubset(
-                bounds, shape, self, self.__array_adapter, self.__adapter, self.__collection  # type: ignore[arg-type]
-            )
-        else:
-            subset = Subset(bounds, shape, self, self.__adapter)  # type: ignore[arg-type]
+        subset = self._create_subset(tuple(bounds), shape)
         self.logger.debug(f"Created subset: {subset}")
         return subset
 

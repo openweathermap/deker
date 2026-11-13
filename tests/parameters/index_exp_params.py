@@ -1,6 +1,5 @@
 import numpy as np
 
-
 np_index_exp_params = [
     np.index_exp[:],
     np.index_exp[...],

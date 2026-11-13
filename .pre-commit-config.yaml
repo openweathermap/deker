@@ -1,12 +1,12 @@
 # https://pre-commit.com/
 
-default_stages: [ commit, push ]
-default_language_version:
-  python: python3.9
+default_stages: [ pre-commit, pre-push ]
+# No default_language_version: hooks run on the interpreter pre-commit itself runs under (the project .venv).
+# The target Python version is fixed in the tools' own configs (py310), not by the interpreter.
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v4.4.0  # Possible releases: https://github.com/pre-commit/pre-commit-hooks/releases
+    rev: v6.0.0  # Possible releases: https://github.com/pre-commit/pre-commit-hooks/releases
     hooks:
       - id: no-commit-to-branch
         always_run: true
@@ -30,10 +30,6 @@ repos:
       - id: check-xml
         always_run: true
 
-      - id: fix-encoding-pragma
-        always_run: true
-        args: [ --remove ]
-
       - id: end-of-file-fixer
         always_run: true
 
@@ -45,6 +41,7 @@ repos:
         always_run: true
 
       - id: check-added-large-files
+        exclude: ^uv\.lock$  # the lock file is generated and legitimately large
         always_run: true
 
       - id: detect-private-key
@@ -54,70 +51,48 @@ repos:
         always_run: false
         args: [ --allow-missing-credentials ]
 
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    rev: 0.13.8  # Possible releases: https://github.com/astral-sh/uv-pre-commit/releases
+    hooks:
+      - id: uv-lock
+        name: uv-lock (keep uv.lock in sync with pyproject.toml)
+        stages:
+          - pre-commit
+
+  - repo: https://github.com/asottile/pyupgrade
+    rev: v3.22.0  # Possible releases: https://github.com/asottile/pyupgrade/releases
+    hooks:
+      - id: pyupgrade
+        args: [ --py310-plus ]
+        stages:
+          - pre-commit
+
   - repo: https://github.com/bwhmather/ssort
-    rev: v0.11.6  # Possible releases: https://github.com/bwhmather/ssort/releases
+    rev: 0.19.0  # Possible releases: https://github.com/bwhmather/ssort/releases
     hooks:
       - id: ssort
         entry: ssort
         files: ^deker/
         always_run: false
         stages:
-          - commit
+          - pre-commit
 
-  - repo: https://github.com/pycqa/isort
-    rev: 5.12.0  # Possible releases: https://github.com/pycqa/isort/releases
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.5  # Possible releases: https://github.com/astral-sh/ruff-pre-commit/releases
     hooks:
-      - id: isort
-        always_run: false
-        name: isort (python)
-        entry: isort
-        args: [ --profile=black ]
+      - id: ruff-check
+        name: ruff (lint, replaces flake8 + isort + pycln)
+        args: [ --fix ]
         stages:
-          - commit
+          - pre-commit
 
-#  - repo: https://github.com/hadialqattan/pycln
-#    rev: v2.1.1 # Possible releases: https://github.com/hadialqattan/pycln/releases
-#    hooks:
-#      - id: pycln
-#        args: [ --config=pyproject.toml ]
-
-  - repo: https://github.com/psf/black
-    rev: 23.3.0  # Possible releases: https://github.com/psf/black/releases
-    hooks:
-      - id: black
-        always_run: false
+      - id: ruff-format
+        name: ruff (format, replaces black)
         stages:
-          - commit
-
-  - repo: https://github.com/PyCQA/flake8
-    rev: 5.0.4  # Possible releases: https://github.com/PyCQA/flake8/releases
-    hooks:
-      - id: flake8
-        name: flake8
-        files: ^deker/
-        always_run: false
-        args: [ deker]
-        verbose: true
-        additional_dependencies:
-          - Flake8-pyproject
-          - flake8-bugbear
-          - flake8-pytest-style
-          - flake8-docstrings
-          - flake8-import-order
-          - darglint
-        stages:
-          - commit
-
-#  - repo: https://github.com/astral-sh/ruff-pre-commit
-#    # Ruff version.
-#    rev: v0.0.275
-#    hooks:
-#      - id: ruff
-#        files: ^deker/
-#        args: [--fix]
+          - pre-commit
 
   - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v1.3.0  # Possible releases: https://github.com/python/mypy/tags
+    rev: v2.4.1  # Possible releases: https://github.com/python/mypy/tags
     hooks:
       - id: mypy
         name: mypy
@@ -129,16 +104,37 @@ repos:
           --config-file=pyproject.toml
         ]
         stages:
-          - commit
+          - pre-commit
+
+  - repo: https://github.com/jsh9/pydoclint
+    rev: 0.12.0  # Possible releases: https://github.com/jsh9/pydoclint/releases
+    hooks:
+      - id: pydoclint
+        name: pydoclint (docstrings vs signatures, replaces darglint)
+        files: ^deker/
+        args: [ --config=pyproject.toml ]
+        stages:
+          - pre-commit
+
+  - repo: https://github.com/PyCQA/doc8
+    rev: v2.0.0  # Possible releases: https://github.com/PyCQA/doc8/releases
+    hooks:
+      - id: doc8
+        name: doc8 (RST linter)
+        args: [ --config=pyproject.toml, docs/deker ]
+        pass_filenames: false
+        always_run: true
+        stages:
+          - pre-commit
 
   - repo: https://github.com/crate-ci/typos
-    rev: v1.14.11
+    rev: v1.52.2  # Possible releases: https://github.com/crate-ci/typos/releases
     hooks:
       - id: typos
         name: typos
         files: ^deker/
         stages:
-          - commit
+          - pre-commit
 
   - repo: local
     hooks:
@@ -150,12 +146,4 @@ repos:
         pass_filenames: false
         always_run: true
         stages:
-          - push
-
-      - id: doc8
-        name: doc8
-        entry: doc8 --config=pyproject.toml docs/deker
-        language: python
-        always_run: true
-        stages:
-          - commit
+          - pre-push

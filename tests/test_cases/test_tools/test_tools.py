@@ -13,7 +13,6 @@ from deker.errors import DekerInstanceNotExistsError, DekerMemoryError, DekerVal
 from deker.tools import check_memory, convert_human_memory_to_bytes
 from deker.tools.time import convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime
 
-
 if TYPE_CHECKING:
     from deker.arrays import Array, VArray
 
@@ -149,7 +148,7 @@ def test_convert_datetime_attrs(attrs, expected):
         (datetime(2023, 1, 1, tzinfo=timezone.utc),),
     ],
 )
-def test_convert_datetime_attrs(attrs):
+def test_convert_datetime_attrs_rejects_wrong_type(attrs):
     with pytest.raises(TypeError):
         assert convert_datetime_attrs_to_iso(attrs)
 
@@ -221,14 +220,14 @@ def test_convert_isoformat_attrs_raises(attrs):
 
 
 @pytest.mark.parametrize(
-    "params,result,error",
-    (
+    ("params", "result", "error"),
+    [
         ("1K", 1024, None),
         ("1M", 1024**2, None),
         ("1G", 1024**3, None),
         ("0", 0, None),
         ("Foo", None, DekerValidationError),
-    ),
+    ],
 )
 def test_convert_human_to_bytes(params, result, error):
     if error:

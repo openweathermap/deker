@@ -42,7 +42,7 @@ class TestClientMethods:
         directory = tmp_path_factory.mktemp("test_storage_creation", numbered=False)
         client = Client(str(embedded_uri(directory)))
         assert (directory / "collections").exists()
-        assert [c for c in client] == []
+        assert [*client] == []
 
     def test_client_open_close(self, root_path):
         """Test client open and close methods."""
@@ -107,9 +107,7 @@ class TestClientMethods:
         with pytest.raises(DekerClientError):
             Client(uri)
 
-    def test_client_create_collection(
-        self, client: Client, name: str, array_schema: ArraySchema
-    ) -> None:
+    def test_client_create_collection(self, client: Client, name: str, array_schema: ArraySchema) -> None:
         """Tests client creates array_collection.
 
         :param client: Client object
@@ -122,9 +120,7 @@ class TestClientMethods:
         finally:
             collection.delete()
 
-    def test_client_can_not_create_same_collection(
-        self, client: Client, name: str, array_schema: ArraySchema
-    ) -> None:
+    def test_client_can_not_create_same_collection(self, client: Client, name: str, array_schema: ArraySchema) -> None:
         """Tests client fails to create array_collection with the same name.
 
         :param client: Client object
@@ -228,7 +224,7 @@ class TestClientMethods:
         """
         shutil.rmtree(root_path)
         inserted_collection = client.create_collection(**params)
-        collections = [collection for collection in client]
+        collections = [*client]
         try:
             assert len(collections) == 1
             assert collections[0].name == inserted_collection.name
@@ -274,7 +270,7 @@ class TestClientMethods:
             0,
             "0",
             "deker_uri",
-            "some_schema://" "some_schema:///some_path",
+            "some_schema://some_schema:///some_path",
             [],
             {},
         ],
@@ -288,7 +284,7 @@ class TestClientMethods:
         names = {random_string() for _ in range(10)}
         for name in names:
             client.create_collection(name, array_schema)
-        collections = [col for col in client]
+        collections = [*client]
         try:
             coll_names = {c.name for c in collections}
             assert names.issubset(coll_names)
@@ -299,9 +295,7 @@ class TestClientMethods:
 
     def test_client_check_integrity_ok(self, client: Client, array_schema: ArraySchema) -> None:
         """Tests if method raises no exceptions by default."""
-        collections = [
-            client.create_collection(i, array_schema) for i in ["test_col1", "test_col2"]
-        ]
+        collections = [client.create_collection(i, array_schema) for i in ["test_col1", "test_col2"]]
         try:
             [col.create() for _ in range(20) for col in collections]
             client.check_integrity(2)
@@ -310,7 +304,7 @@ class TestClientMethods:
                 col.delete()
 
     def test_client_check_integrity_logfile(
-        self, client: Client, array_collection_with_attributes: Collection
+        self, client: Client, array_collection_with_attributes: Collection, tmp_path: Path
     ) -> None:
         """Tests if method logs errors to file."""
         array = array_collection_with_attributes.create(
@@ -327,22 +321,54 @@ class TestClientMethods:
             Path.unlink(symlink_path / files[0])
 
             filename = f"deker_integrity_report_{datetime.now().isoformat(timespec='seconds')}.txt"
-            path = Path(".") / filename
+            path = tmp_path / filename
 
             client.check_integrity(4, False, path)
 
             with open(path) as f:
-                assert (
-                    f.read()
-                    == f"Collection {array_collection_with_attributes.name} arrays integrity errors:\n\t- Symlink {symlink_path} not found\n"
+                assert f.read() == (
+                    f"Collection {array_collection_with_attributes.name} arrays integrity errors:"
+                    f"\n\t- Symlink {symlink_path} not found\n"
                 )
         finally:
             array.delete()
             array_collection_with_attributes.delete()
-            for root, _, files in os.walk(os.path.curdir):
-                for file in files:
-                    if file.startswith("deker_integrity_report_"):
-                        os.remove(os.path.join(root, file))
+
+    def test_client_check_integrity_default_logfile(
+        self,
+        client: Client,
+        array_collection_with_attributes: Collection,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        capsys: pytest.CaptureFixture,
+    ) -> None:
+        """Tests if ``to_file=True`` writes a default-named report to the current directory."""
+        monkeypatch.chdir(tmp_path)
+        array = array_collection_with_attributes.create(
+            primary_attributes={"primary_attribute": 11},
+            custom_attributes={"time_attr_name": datetime.now(timezone.utc)},
+        )
+        try:
+            symlink_path = get_symlink_path(
+                path_to_symlink_dir=array._Array__collection.path / array._adapter.symlinks_dir,
+                primary_attributes_schema=array._Array__collection.array_schema.primary_attributes,
+                primary_attributes=array.primary_attributes,
+            )
+            Path.unlink(symlink_path / os.listdir(symlink_path)[0])
+
+            client.check_integrity(4, False, True)
+
+            reports = list(tmp_path.glob("deker_integrity_report_*.txt"))
+            assert len(reports) == 1
+            expected = (
+                f"Collection {array_collection_with_attributes.name} arrays integrity errors:"
+                f"\n\t- Symlink {symlink_path} not found\n"
+            )
+            assert reports[0].read_text() == expected
+            assert f"Integrity check logged errors in {reports[0].absolute()}" in capsys.readouterr().out
+        finally:
+            array.delete()
+            array_collection_with_attributes.delete()
 
     @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
     def test_client_check_integrity_raises_on_empty_file(
@@ -382,11 +408,8 @@ class TestClientMethods:
         try:
             client.check_integrity(2, stop_on_error=False, collection=collection_1.name)
         except Exception as e:
-            assert (
-                str(e)
-                == f"Collection \"{collection_1.name}\" metadata is invalid/corrupted: 'test'"
-            )
-        errors = capsys.readouterr().out
+            assert str(e) == f"Collection \"{collection_1.name}\" metadata is invalid/corrupted: 'test'"
+        capsys.readouterr()  # drain the captured output
         collection_1.delete()
         collection_2.delete()
         for root, _, files in os.walk(os.path.curdir):
@@ -500,9 +523,7 @@ class TestClientMethods:
             if col_from_dict:
                 col_from_dict.delete()
 
-    def test_create_from_other_varray_collection_dict(
-        self, client: Client, varray_collection: Collection
-    ):
+    def test_create_from_other_varray_collection_dict(self, client: Client, varray_collection: Collection):
         """Check if creation from dict is correct."""
         new_col_dict = varray_collection.as_dict
         new_col_dict["name"] = str(uuid4())
@@ -712,10 +733,7 @@ class TestStorageSizeCalculation:
         schema = ArraySchema(dtype=np.int8, dimensions=dimensions)
         data = np.random.randint(-128, 128, size=schema.shape, dtype=schema.dtype)  # type: ignore[arg-type]
         iters = 2
-        collections = [
-            client.create_collection(name=f"test_size_coll_{i}", schema=schema)
-            for i in range(iters)
-        ]
+        collections = [client.create_collection(name=f"test_size_coll_{i}", schema=schema) for i in range(iters)]
         try:
             arrays = [collection.create() for collection in collections for _ in range(iters)]
             for array in arrays:
@@ -770,9 +788,7 @@ class TestGetLocks:
             *ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas(),
         ],
     )
-    def test_client_get_locks_array_read_lock(
-        self, client: Client, params, read_array_lock, inserted_array
-    ):
+    def test_client_get_locks_array_read_lock(self, client: Client, params, read_array_lock, inserted_array):
         client.create_collection(**params)
         read_array_lock.args = []
         read_array_lock.kwargs = {"array": inserted_array}
@@ -797,9 +813,7 @@ class TestGetLocks:
             *ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas(),
         ],
     )
-    def test_client_get_locks_type_array_read_lock(
-        self, client: Client, params, read_array_lock, inserted_array
-    ):
+    def test_client_get_locks_type_array_read_lock(self, client: Client, params, read_array_lock, inserted_array):
         client.create_collection(**params)
         read_array_lock.args = []
         read_array_lock.kwargs = {"array": inserted_array}
@@ -826,9 +840,7 @@ class TestGetLocks:
             *ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas(),
         ],
     )
-    def test_client_get_locks_skip_lock(
-        self, client: Client, params, read_array_lock, inserted_array
-    ):
+    def test_client_get_locks_skip_lock(self, client: Client, params, read_array_lock, inserted_array):
         client.create_collection(**params)
         read_array_lock.args = []
         read_array_lock.kwargs = {"array": inserted_array}
@@ -855,9 +867,7 @@ class TestClearLocks:
         client.clear_locks(collection.name)
         assert not list(Path.rglob(collection.path, f"*{LocksExtensions.array_read_lock.value}"))
 
-    def test_client_clear_locks_inserted_array(
-        self, client: Client, root_path, read_array_lock, inserted_array
-    ):
+    def test_client_clear_locks_inserted_array(self, client: Client, root_path, read_array_lock, inserted_array):
         read_array_lock.args = []
         read_array_lock.kwargs = {"array": inserted_array}
         filepath = read_array_lock.get_path()
@@ -890,9 +900,7 @@ class TestClearLocks:
         )
         col_name = "memory_excess"
         with pytest.raises(DekerMemoryError):
-            with Client(
-                embedded_uri(root_path), memory_limit=limit_size, loglevel="CRITICAL"
-            ) as client:
+            with Client(embedded_uri(root_path), memory_limit=limit_size, loglevel="CRITICAL") as client:
                 client.create_collection(col_name, schema)
 
     @pytest.mark.parametrize("limit_size", [100, "1K", "10k", "25m"])
@@ -909,9 +917,7 @@ class TestClearLocks:
         coll_dict = collection.as_dict
         collection.delete()
         with pytest.raises(DekerMemoryError):
-            with Client(
-                embedded_uri(root_path), memory_limit=limit_size, loglevel="CRITICAL"
-            ) as extra_client:
+            with Client(embedded_uri(root_path), memory_limit=limit_size, loglevel="CRITICAL") as extra_client:
                 extra_client.collection_from_dict(coll_dict)
 
 

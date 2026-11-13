@@ -16,8 +16,6 @@
 
 import uuid
 
-from typing import Dict, List, Tuple, Union
-
 import numpy as np
 
 from deker_tools.data import convert_size_to_human
@@ -26,21 +24,23 @@ from psutil import swap_memory, virtual_memory
 from deker.errors import DekerMemoryError, DekerValidationError
 
 
-def calculate_total_cells_in_array(seq: Union[Tuple[int, ...], List[int]]) -> int:
+def calculate_total_cells_in_array(seq: tuple[int, ...] | list[int]) -> int:
     """Get total quantity of cells in the array.
 
     :param seq: sequence of integers (normally array shape)
+    :returns: number of cells
     """
     return int(np.prod(np.array(seq)))
 
 
-def convert_human_memory_to_bytes(memory_limit: Union[int, str]) -> int:
+def convert_human_memory_to_bytes(memory_limit: int | str) -> int:
     """Convert a human memory limit to bytes.
 
     :param memory_limit: memory limit provided by the user
+    :returns: memory limit in bytes
     """
     bytes_ = 1024
-    mapping: Dict[str, int] = {"k": bytes_, "m": bytes_**2, "g": bytes_**3, "t": bytes_**4}
+    mapping: dict[str, int] = {"k": bytes_, "m": bytes_**2, "g": bytes_**3, "t": bytes_**4}
     error = (
         f"invalid memory_limit value: {memory_limit}; expected `int` or `str` in format [number][unit] "
         f'where unit is one of ["k", "K", "m", "M", "g", "G", "t", "T"], e.g. "8G" or "512m"'
@@ -86,10 +86,7 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
     config_human_limit = convert_size_to_human(mem_limit_from_settings)
 
     deker_limit = f"{config_human_limit} ({mem_limit_from_settings} bytes). "
-    limit_message = (
-        "Deker Client memory usage is limited to the total memory available on this machine: "
-        + deker_limit
-    )
+    limit_message = "Deker Client memory usage is limited to the total memory available on this machine: " + deker_limit
     advise = ""
     if total_machine_mem > mem_limit_from_settings:
         limit_message = (

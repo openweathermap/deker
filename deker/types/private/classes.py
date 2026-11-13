@@ -16,7 +16,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Tuple, Union
+from typing import TYPE_CHECKING, NamedTuple
 
 from typing_extensions import NotRequired, TypedDict
 
@@ -94,16 +94,16 @@ class ArraysCoordinatesWithOffset(NamedTuple):
 class ArrayPosition(NamedTuple):
     """Tuple with array coordinates, bounds and slice that will be passed to adapter."""
 
-    vposition: Tuple[int, ...]
-    bounds: Tuple[Union[slice, int], ...]
-    data_slice: Tuple[slice, ...]
+    vposition: tuple[int, ...]
+    bounds: tuple[slice | int, ...]
+    data_slice: tuple[slice, ...]
 
 
 class ArrayPositionedData(NamedTuple):
     """Tuple with array coordinates, bounds and data that will be passed to adapter."""
 
-    vposition: Tuple[int, ...]
-    bounds: Tuple[Union[slice, int], ...]
+    vposition: tuple[int, ...]
+    bounds: tuple[slice | int, ...]
     data: "Data"
 
 

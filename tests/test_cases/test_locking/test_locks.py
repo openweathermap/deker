@@ -29,11 +29,7 @@ def make_read_lock(filepath: str, array_id: UUID, file_created: Event, error_rai
     """
     path = Path(filepath)
     lock = path.parent / (
-        f"{array_id}:"
-        f"{uuid4()}:"
-        f"{os.getpid()}:"
-        f"{get_native_id()}"
-        f"{LocksExtensions.array_read_lock.value}"
+        f"{array_id}:{uuid4()}:{os.getpid()}:{get_native_id()}{LocksExtensions.array_read_lock.value}"
     )
     open(lock, "w").close()
     file_created.set()
@@ -66,7 +62,7 @@ class TestReadArrayLock:
 
         with pytest.raises(TypeError):
             mock = Mock()
-            lock = ReadArrayLock(mock.mock())
+            lock = ReadArrayLock(mock())
             lock.instance = mock
             lock.check_type()
 
@@ -77,20 +73,12 @@ class TestReadArrayLock:
         local_array_adapter: LocalArrayAdapter,
     ):
         """Check if read_array_lock.get_path method works correctly."""
-        dir_path = get_main_path(
-            inserted_array.id, local_array_adapter.collection_path / local_array_adapter.data_dir
-        )
+        dir_path = get_main_path(inserted_array.id, local_array_adapter.collection_path / local_array_adapter.data_dir)
 
         pattern = re.compile(
             str(
                 dir_path
-                / (
-                    f"{inserted_array.id}:"
-                    ".*:"
-                    f"{os.getpid()}:"
-                    f"{get_native_id()}"
-                    f"{LocksExtensions.array_read_lock.value}"
-                )
+                / (f"{inserted_array.id}:.*:{os.getpid()}:{get_native_id()}{LocksExtensions.array_read_lock.value}")
             )
         )
         read_array_lock.args = []
@@ -104,16 +92,12 @@ class TestReadArrayLock:
         local_array_adapter: LocalArrayAdapter,
     ):
         """Check correctness of check_existing_lock method"""
-        dir_path = get_main_path(
-            inserted_array.id, local_array_adapter.collection_path / local_array_adapter.data_dir
-        )
+        dir_path = get_main_path(inserted_array.id, local_array_adapter.collection_path / local_array_adapter.data_dir)
         hdf_path = dir_path / (inserted_array.id + local_array_adapter.file_ext)
         with Flock(hdf_path):
             with pytest.raises(DekerLockError):
                 read_array_lock.kwargs = {"array": inserted_array}
-                read_array_lock.check_existing_lock(
-                    func_args=[], func_kwargs={"array": inserted_array}
-                )
+                read_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
 
     def test_read_array_locks_create_files(
         self,
@@ -162,7 +146,7 @@ class TestWriteArrayLock:
 
         with pytest.raises(TypeError):
             mock = Mock()
-            lock = WriteArrayLock(mock.mock())
+            lock = WriteArrayLock(mock())
             lock.instance = mock
             lock.check_type()
 
@@ -173,9 +157,7 @@ class TestWriteArrayLock:
         local_array_adapter: LocalArrayAdapter,
     ):
         """Check correctness of get_path method."""
-        dir_path = get_main_path(
-            inserted_array.id, local_array_adapter.collection_path / local_array_adapter.data_dir
-        )
+        dir_path = get_main_path(inserted_array.id, local_array_adapter.collection_path / local_array_adapter.data_dir)
         hdf_path = dir_path / (inserted_array.id + local_array_adapter.file_ext)
         write_array_lock.kwargs = {"array": inserted_array}
         assert hdf_path == write_array_lock.get_path()
@@ -207,9 +189,7 @@ class TestWriteArrayLock:
         file_created = Event()
 
         # Mock acquire as we do not want to lock file here.
-        mocker.patch.object(
-            write_array_lock, "acquire", lambda *a, **kw: file_created.wait(10), spec=True
-        )
+        mocker.patch.object(write_array_lock, "acquire", lambda *a, **kw: file_created.wait(10), spec=True)
         release = mocker.patch.object(write_array_lock, "release", autospec=True)
 
         # Make read lock
@@ -237,9 +217,7 @@ class TestWriteArrayLock:
         mocker.patch.object(write_array_lock.instance.ctx.config, "write_lock_timeout", 1)
 
         # Mock acquire with signal to start locking properly
-        mocker.patch.object(
-            write_array_lock, "acquire", lambda *a, **kw: file_created.wait(10), spec=True
-        )
+        mocker.patch.object(write_array_lock, "acquire", lambda *a, **kw: file_created.wait(10), spec=True)
         release = mocker.patch.object(write_array_lock, "release", autospec=True)
 
         # Make read lock
@@ -251,9 +229,7 @@ class TestWriteArrayLock:
         # Call check existing
         with pytest.raises(DekerLockError):
             write_array_lock.kwargs = {"array": inserted_array}
-            write_array_lock.check_existing_lock(
-                func_args=[], func_kwargs={"array": inserted_array}
-            )
+            write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
 
         # If error raised, close process.
         release.assert_called()
@@ -308,9 +284,9 @@ class TestWriteVarrayLock:
         write_varray_lock: WriteVarrayLock,
     ):
         """Test getting path of write varray lock."""
-        path = get_main_path(
-            inserted_varray.id, varray_collection.path / local_varray_adapter.data_dir
-        ) / (inserted_varray.id + local_varray_adapter.file_ext)
+        path = get_main_path(inserted_varray.id, varray_collection.path / local_varray_adapter.data_dir) / (
+            inserted_varray.id + local_varray_adapter.file_ext
+        )
         write_varray_lock.kwargs = {"array": inserted_varray}
         assert path == write_varray_lock.get_path()
 
@@ -338,18 +314,14 @@ class TestWriteVarrayLock:
         release = mocker.patch.object(write_varray_lock, "release", autospec=True)
 
         # Set lock timeout to wait minimal amount of time
-        mocker.patch.object(
-            write_varray_lock.instance._VSubset__array_adapter.ctx.config, "write_lock_timeout", 1
-        )
+        mocker.patch.object(write_varray_lock.instance._VSubset__array_adapter.ctx.config, "write_lock_timeout", 1)
         processes = []
         # Make read lock
         for array in varray_collection.arrays:
             adapter = array._Array__adapter
             filepath = adapter._get_main_path_to_file(array)
             # We don't use pool here, as we should keep state of locks
-            process = Process(
-                target=make_read_lock, args=(filepath, array.id, file_created, error_raised)
-            )
+            process = Process(target=make_read_lock, args=(filepath, array.id, file_created, error_raised))
             process.start()
             processes.append(process)
 
@@ -388,18 +360,14 @@ class TestWriteVarrayLock:
         release = mocker.patch.object(write_varray_lock, "release", autospec=True)
 
         # Set lock timeout to wait minimal amount of time
-        mocker.patch.object(
-            write_varray_lock.instance._VSubset__array_adapter.ctx.config, "write_lock_timeout", 1
-        )
+        mocker.patch.object(write_varray_lock.instance._VSubset__array_adapter.ctx.config, "write_lock_timeout", 1)
         processes = []
         # Make read lock
         for array in varray_collection.arrays:
             adapter = array._Array__adapter
             filepath = adapter._get_main_path_to_file(array)
             # We don't use pool here, as we should keep state of locks
-            process = Process(
-                target=make_read_lock, args=(filepath, array.id, file_created, error_raised)
-            )
+            process = Process(target=make_read_lock, args=(filepath, array.id, file_created, error_raised))
             process.start()
             processes.append(process)
 
@@ -430,8 +398,7 @@ class TestCollectionLock:
         with pytest.raises(DekerMemoryError):
             client.create_collection(col_name, schema)
         assert not (
-            collection_adapter.collections_resource
-            / f"{col_name}{LocksExtensions.collection_lock.value}"
+            collection_adapter.collections_resource / f"{col_name}{LocksExtensions.collection_lock.value}"
         ).exists()
 
 

@@ -79,7 +79,7 @@ class TestArrayAdapter:
         file_path = paths.main / filename
         file_path.write_text("")
         array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
-        with pytest.raises(DekerArrayError) as e:
+        with pytest.raises(DekerArrayError):
             array_adapter.create(array)
 
     @pytest.mark.parametrize(
@@ -323,12 +323,9 @@ class TestArrayAdapter:
         :param array_with_attributes: Array which contains some primary attributes
         """
         main_tree, rest = array_with_attributes.id.split("-", 1)
-        main_tree = os.path.sep.join((s for s in main_tree))
+        main_tree = os.path.sep.join(s for s in main_tree)
         main_path = (
-            array_with_attributes._adapter.collection_path
-            / array_with_attributes._adapter.data_dir
-            / main_tree
-            / rest
+            array_with_attributes._adapter.collection_path / array_with_attributes._adapter.data_dir / main_tree / rest
         )
 
         sym_path = (
@@ -337,9 +334,7 @@ class TestArrayAdapter:
             / str(array_with_attributes.primary_attributes.get("primary_attribute"))
         )
 
-        adapter_paths = get_paths(
-            array_with_attributes, array_with_attributes._adapter.collection_path
-        )
+        adapter_paths = get_paths(array_with_attributes, array_with_attributes._adapter.collection_path)
 
         assert adapter_paths.main == main_path
         assert adapter_paths.symlink == sym_path
@@ -365,7 +360,7 @@ class TestArrayAdapter:
         arrays = [array_collection.create() for _ in range(10)]
         metas = [json.loads(array._create_meta()) for array in arrays]
         adapter: LocalArrayAdapter = arrays[0]._adapter
-        inner_metas = [meta for meta in adapter]
+        inner_metas = [*adapter]
         assert len(inner_metas) == len(metas)
         assert all(inner_meta in metas for inner_meta in inner_metas)
 

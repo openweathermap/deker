@@ -16,7 +16,7 @@
 
 from collections import defaultdict
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING
 
 import tqdm
 
@@ -64,9 +64,7 @@ class PathsChecker(BaseChecker):
 
     CHECKER_LEVEL = 3
 
-    def _validate_path_array_without_key_attributes(
-        self, main_path: Path, symlink_path: Path, files: list
-    ) -> None:
+    def _validate_path_array_without_key_attributes(self, main_path: Path, symlink_path: Path, files: list) -> None:
         """Validate symlinks in array without key attributes.
 
         :param main_path: path to the array data
@@ -109,7 +107,7 @@ class PathsChecker(BaseChecker):
         else:
             self._validate_path_array_without_key_attributes(main_path, symlink_path, files)
 
-    def check(self, array: Union[Array, VArray], collection: Collection) -> None:
+    def check(self, array: Array | VArray, collection: Collection) -> None:
         """Check symlink and main paths.
 
         :param array: array to check
@@ -160,19 +158,17 @@ class ArraysChecker(BaseChecker):
                 self.errors[f"Collection {collection.name} array create locks:"].append(file.name)
             elif file.name.endswith(LocksExtensions.array_read_lock.value):
                 self.errors[
-                    f"Collection {collection.name} array read locks are detected. Use "
-                    f"client.clear_locks:"
+                    f"Collection {collection.name} array read locks are detected. Use client.clear_locks:"
                 ].append(file.name)
             elif file.name.endswith(LocksExtensions.varray_lock.value):
                 self.errors[
-                    f"Collection {collection.name} varray write locks are detected. Use "
-                    f"client.clear_locks:"
+                    f"Collection {collection.name} varray write locks are detected. Use client.clear_locks:"
                 ].append(file.name)
         if self.stop_on_error and self.errors:
             raise DekerIntegrityError(self._parse_errors())
 
     def _check_varrays_or_arrays(
-        self, collection: Collection, data_manager: Union[ArrayManager, Optional[VArrayManager]]
+        self, collection: Collection, data_manager: ArrayManager | VArrayManager | None
     ) -> None:
         """Check if Arrays or VArrays in Collection are initializing.
 
@@ -187,15 +183,11 @@ class ArraysChecker(BaseChecker):
                 except DekerBaseApplicationError as e:
                     if self.stop_on_error:
                         raise DekerIntegrityError(str(e))
-                    self.errors[f"Collection {collection.name} arrays integrity errors:"].append(
-                        str(e)
-                    )
+                    self.errors[f"Collection {collection.name} arrays integrity errors:"].append(str(e))
         except DekerMetaDataError as e:
             if self.stop_on_error:
                 raise e
-            self.errors[f"Collection {collection.name} (V)Arrays initialization errors:"].append(
-                str(e)
-            )
+            self.errors[f"Collection {collection.name} (V)Arrays initialization errors:"].append(str(e))
 
     def check(self, collection: Collection) -> None:
         """Check if Arrays or VArrays and their locks in Collection are valid.
@@ -223,9 +215,7 @@ class CollectionsChecker(BaseChecker):
         locks: list = []
         for directory in Path(self.root_path).iterdir():
             try:
-                if directory.is_file() and directory.name.endswith(
-                    LocksExtensions.collection_lock.value
-                ):
+                if directory.is_file() and directory.name.endswith(LocksExtensions.collection_lock.value):
                     locks.append(directory.name[: -len(LocksExtensions.collection_lock.value)])
                 collection = self.client.get_collection(directory.name)
                 if collection:
@@ -234,22 +224,18 @@ class CollectionsChecker(BaseChecker):
                 self.errors["Collections initialization errors:"].append(str(e))
         for collection in collections:
             if collection.name not in locks:
-                self.errors["Collections locks errors:"].append(
-                    f"BaseLock for {collection.name} not found"
-                )
+                self.errors["Collections locks errors:"].append(f"BaseLock for {collection.name} not found")
         for lock in locks:
             for collection in collections:
                 if collection.name == lock:
                     break
             else:
-                self.errors["Collections locks errors:"].append(
-                    f"Collection with lock {lock} not found"
-                )
+                self.errors["Collections locks errors:"].append(f"Collection with lock {lock} not found")
         if self.stop_on_error and self.errors:
             raise DekerIntegrityError(self._parse_errors())
         return collections
 
-    def check(self, collection_name: Optional[str] = None) -> None:
+    def check(self, collection_name: str | None = None) -> None:
         """Check collections and run integrity check for every collection if level > 1.
 
         :param collection_name: optional collection to be checked
@@ -257,9 +243,7 @@ class CollectionsChecker(BaseChecker):
         if collection_name:
             collection: Collection = self.client.get_collection(collection_name)
             if not collection:
-                raise DekerCollectionNotExistsError(
-                    f"Collection {collection_name} does not exist at this storage"
-                )
+                raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
             if self.level > self.CHECKER_LEVEL:
                 if self.next_checker:
                     self.next_checker.check(collection)
@@ -283,10 +267,11 @@ class IntegrityChecker(BaseChecker):
         self.add_checker(PathsChecker)
         self.add_checker(DataChecker)
 
-    def check(self, collection_name: Optional[str] = None) -> str:
+    def check(self, collection_name: str | None = None) -> str:
         """Run integrity check.
 
         :param collection_name: optional collection to check
+        :returns: report of the found errors, empty if there are none
         """
         print("Integrity check is running...")
         if self.next_checker:

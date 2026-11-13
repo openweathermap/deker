@@ -14,25 +14,19 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from __future__ import annotations
 
 import fcntl
 import os
 import time
 
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from threading import get_native_id
 from time import sleep
 from typing import (
     TYPE_CHECKING,
     Any,
-    Callable,
-    Dict,
     Generic,
-    List,
-    Optional,
-    Sequence,
-    Tuple,
     TypeVar,
     Union,
 )
@@ -70,6 +64,8 @@ def _check_write_locks(dir_path: Path, id_: str) -> bool:
 
     :param dir_path: Dir where locks are stored (the one with hdf file)
     :param id_: Id of array
+    :returns: ``True`` if the array is locked by a VArray of the current process, ``False`` if it is
+        not locked
     """
     for file in dir_path.iterdir():
         # Skip lock from current process.
@@ -85,9 +81,9 @@ def _check_write_locks(dir_path: Path, id_: str) -> bool:
 class LockWithArrayMixin(Generic[T]):
     """Base class with getter of array."""
 
-    args: Optional[List[Any]]
-    kwargs: Optional[Dict]
-    instance: Optional[Any]
+    args: list[Any] | None
+    kwargs: dict | None
+    instance: Any | None
     is_locked_with_varray: bool = False
 
     @property
@@ -113,9 +109,7 @@ class LockWithArrayMixin(Generic[T]):
         return get_main_path(self.array_id, self.instance.collection_path / self.instance.data_dir)
 
 
-def wait_for_unlock(
-    check_func: Callable, check_func_args: tuple, timeout: int, interval: float
-) -> bool:
+def wait_for_unlock(check_func: Callable, check_func_args: tuple, timeout: int, interval: float) -> bool:
     """Waiting while there is no locks.
 
     :param check_func: Func that check if lock has been releases
@@ -151,7 +145,7 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
         self.logger.debug(f"Got path for array.id {self.array_id} lock file: {path}")
         return path
 
-    def check_existing_lock(self, func_args: Sequence, func_kwargs: Dict) -> None:
+    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:
         """Read operations are not performed in case there are any WRITE locks.
 
         Array file would be Flocked for writing / updating, so we just need to try flock it once more
@@ -166,16 +160,14 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
         # No write locks found
         path = self.dir_path / (self.array_id + self.instance.file_ext)
         try:
-            with open(path, "r") as f:
+            with open(path) as f:
                 fcntl.flock(f, fcntl.LOCK_SH | fcntl.LOCK_NB)
                 self.logger.debug(f"Set shared flock for {path}")
 
         except BlockingIOError:
-            raise DekerLockError(
-                f"Array {self.array_id} is locked for update operation, cannot be read."
-            )
+            raise DekerLockError(f"Array {self.array_id} is locked for update operation, cannot be read.")
 
-    def acquire(self, path: Union[str, Path]) -> Any:
+    def acquire(self, path: str | Path) -> None:
         """Read files will not be flocked - only created.
 
         :param path: Path to file which should be locked
@@ -185,7 +177,7 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
         open(path, "a").close()
         self.logger.debug(f"Acquired read lock for {self.lock}")
 
-    def release(self, e: Optional[Exception] = None) -> None:  # noqa[ARG002]
+    def release(self, e: Exception | None = None) -> None:  # noqa: ARG002
         """Release lock by deleting file.
 
         :param e: Exception that may have been raised.
@@ -207,7 +199,7 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         self.logger.debug(f"Got path for array.id {self.array.id} lock file: {path}")
         return path
 
-    def check_existing_lock(self, func_args: Sequence, func_kwargs: Dict) -> None:
+    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:
         """Check read locks before write execution.
 
         :param func_args: arguments of method call
@@ -236,7 +228,7 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         self.release()
         raise DekerLockError(f"Array {self.array} is locked with read locks")
 
-    def release(self, e: Optional[Exception] = None) -> None:
+    def release(self, e: Exception | None = None) -> None:
         """Release Flock.
 
         If array is locked from Varary from current Process, do nothing
@@ -247,7 +239,7 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
 
         super().release(e)
 
-    def acquire(self, path: Optional[Path]) -> None:
+    def acquire(self, path: Path | None) -> None:
         """Make lock using flock.
 
         If array is locked from Varary from current Process, do nothing
@@ -270,7 +262,7 @@ class WriteVarrayLock(BaseLock):
     ALLOWED_TYPES = ["VSubset"]
 
     # Locks that have been acquired by varray
-    locks: List[Tuple[Flock, Path]] = []
+    locks: list[tuple[Flock, Path]] = []
     skip_lock: bool = False  # shows that we must skip this lock (e.g server adapters for subset)
 
     def check_type(self) -> None:
@@ -284,13 +276,13 @@ class WriteVarrayLock(BaseLock):
         if not is_running_on_local:
             self.skip_lock = True
 
-    def get_path(self) -> Optional[Path]:  # noqa[ARG002]
+    def get_path(self) -> Path | None:  # noqa: ARG002
         """Path of json Varray file."""
         array = self.instance._VSubset__array
         adapter = self.instance._VSubset__adapter
-        path = get_main_path(
-            array.id, self.instance._VSubset__collection.path / adapter.data_dir
-        ) / (array.id + adapter.file_ext)
+        path = get_main_path(array.id, self.instance._VSubset__collection.path / adapter.data_dir) / (
+            array.id + adapter.file_ext
+        )
         self.logger.debug(f"Got path for array.id {array.id} lock file: {path}")
         return path
 
@@ -298,6 +290,7 @@ class WriteVarrayLock(BaseLock):
         """Check if there is no read lock.
 
         :param filename: Path to file that should be flocked
+        :returns: ``Flock`` set on the file
         """
         # Check read lock first
         array_id = filename.name.split(".")[0]
@@ -315,13 +308,14 @@ class WriteVarrayLock(BaseLock):
 
     def check_arrays_locks(
         self,
-        adapter: LocalArrayAdapter,
-        varray: VArray,
-    ) -> List[Path]:
+        adapter: "LocalArrayAdapter",
+        varray: "VArray",
+    ) -> list[Path]:
         """Check all Arrays that are in current VArray.
 
         :param adapter: Array Adapter instance
         :param varray: VArray
+        :returns: paths of the arrays that are locked by someone else
         """
         currently_locked = []
 
@@ -345,7 +339,7 @@ class WriteVarrayLock(BaseLock):
 
         return currently_locked
 
-    def check_existing_lock(self, func_args: Sequence, func_kwargs: Dict) -> None:  # noqa[ARG002]
+    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
         """If there are any array write/read lock, we shouldn't update varray.
 
         :param func_args: arguments of the function that has been called.
@@ -377,7 +371,7 @@ class WriteVarrayLock(BaseLock):
         self.release()
         raise DekerLockError(f"VArray {varray} is locked")
 
-    def release(self, e: Optional[Exception] = None) -> None:  # noqa[ARG002]
+    def release(self, e: Exception | None = None) -> None:  # noqa: ARG002
         """Release all locks.
 
         :param e: Exception that may have been raised.
@@ -385,12 +379,10 @@ class WriteVarrayLock(BaseLock):
         # Release array locks
         for lock, filename in self.locks:
             lock.release()
-            Path(f"{filename}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink(
-                missing_ok=True
-            )
+            Path(f"{filename}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink(missing_ok=True)
         super().release()
 
-    def acquire(self, path: Optional[Path]) -> None:
+    def acquire(self, path: Path | None) -> None:
         """VArray shall not lock itself.
 
         :param path: path to the file to be locked
@@ -398,9 +390,7 @@ class WriteVarrayLock(BaseLock):
         pass
 
     @staticmethod
-    def _inner_method_logic(
-        lock: "WriteVarrayLock", args: Sequence, kwargs: Dict, func: Callable
-    ) -> Any:
+    def _inner_method_logic(lock: "WriteVarrayLock", args: Sequence, kwargs: dict, func: Callable) -> Any:
         """Logic of acquiring lock and getting result.
 
         When writing in VArray
@@ -409,6 +399,7 @@ class WriteVarrayLock(BaseLock):
         :param func: decorated function
         :param args: arguments of decorated function
         :param kwargs: keyword arguments of decorated function
+        :returns: result of the decorated method
         """
         # If we want to skip logic of lock (e.g. when we use server adapters)
         if lock.skip_lock:
@@ -424,9 +415,7 @@ class UpdateMetaAttributeLock(LockWithArrayMixin[Union["Array", "VArray"]], Base
     def get_path(self) -> Path:
         """Return path to the file that should be locked."""
         # Get directory where file locates
-        dir_path = get_main_path(
-            self.array.id, self.instance.collection_path / self.instance.data_dir
-        )
+        dir_path = get_main_path(self.array.id, self.instance.collection_path / self.instance.data_dir)
         path = dir_path / f"{self.array.id}{self.instance.file_ext}"
         self.logger.debug(f"Got path for array.id {self.array.id} lock file: {path}")
         return path
@@ -437,14 +426,14 @@ class CollectionLock(BaseLock):
 
     ALLOWED_TYPES = ["LocalCollectionAdapter"]
 
-    def get_path(self) -> Path:  # noqa[ARG002]
+    def get_path(self) -> Path:  # noqa: ARG002
         """Return path to collection lock file."""
         collection = self.args[1]
         path = self.instance.collections_resource / (collection.name + ".lock")
         self.logger.debug(f"Got path for collection {collection.name} lock file: {path}")
         return path
 
-    def release(self, e: Optional[Exception] = None) -> None:
+    def release(self, e: Exception | None = None) -> None:
         """Release Collection Lock.
 
         :param e: Exception that might have been raised

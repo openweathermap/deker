@@ -17,7 +17,7 @@ import re
 
 from collections import OrderedDict
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -29,10 +29,11 @@ if TYPE_CHECKING:
 
 def serialize_attribute_value(
     val: Any,
-) -> Union[Tuple[str, int, float, tuple], str, int, float, tuple]:
+) -> tuple[str, int, float, tuple] | str | int | float | tuple:
     """Serialize attribute value.
 
     :param val: complex number
+    :returns: JSON-serializable value
     """
     if isinstance(val, datetime):
         return val.isoformat()
@@ -52,10 +53,11 @@ def serialize_attribute_value(
     return val
 
 
-def serialize_attribute_nested_tuples(value: Union[tuple, list]) -> Tuple[Any, ...]:
+def serialize_attribute_nested_tuples(value: tuple | list) -> tuple[Any, ...]:
     """Serialize attribute nested tuples and their elements.
 
     :param value: tuple instance
+    :returns: tuple with serialized elements
     """
     serialized = []
     for el in value:
@@ -67,22 +69,23 @@ def serialize_attribute_nested_tuples(value: Union[tuple, list]) -> Tuple[Any, .
     return tuple(serialized)
 
 
-def deserialize_attribute_value(val: Any, dtype: Type, from_tuple: bool) -> Any:
+def deserialize_attribute_value(val: Any, dtype: type, from_tuple: bool) -> Any:
     """Deserialize attribute value.
 
     :param val: attribute value
     :param dtype: attribute dtype from schema or type of tuple element
     :param from_tuple: flag for tuple inner elements
+    :returns: value converted back to its Python type
     """
     if dtype == datetime:
         val = get_utc(val)
     else:
         val = dtype(val)
 
-    if isinstance(val, (list, tuple)) and dtype == tuple:
+    if isinstance(val, (list, tuple)) and dtype == tuple:  # noqa: E721  # dtype may be a numpy type, keep `==`
         return deserialize_attribute_nested_tuples(val)  # type: ignore[arg-type]
 
-    if dtype == str:
+    if dtype == str:  # noqa: E721  # dtype may be a numpy type, keep `==`
         # if the value comes from a tuple as one of its elements
         if from_tuple:
             # it may be a serialized string representation of a complex number
@@ -103,10 +106,11 @@ def deserialize_attribute_value(val: Any, dtype: Type, from_tuple: bool) -> Any:
     return val
 
 
-def deserialize_attribute_nested_tuples(value: Tuple[Any, ...]) -> Tuple[Any, ...]:
+def deserialize_attribute_nested_tuples(value: tuple[Any, ...]) -> tuple[Any, ...]:
     """Deserialize attribute nested tuples and their elements.
 
     :param value: attribute tuple value
+    :returns: tuple with deserialized elements
     """
     deserialized = []
     for el in value:
@@ -119,15 +123,16 @@ def deserialize_attribute_nested_tuples(value: Tuple[Any, ...]) -> Tuple[Any, ..
 
 
 def make_ordered_dict(
-    primary_attributes: Optional[dict],
-    custom_attributes: Optional[dict],
-    attrs_schema: Union[List["AttributeSchema"], Tuple["AttributeSchema", ...]],
-) -> Tuple[OrderedDict, OrderedDict]:
+    primary_attributes: dict | None,
+    custom_attributes: dict | None,
+    attrs_schema: list["AttributeSchema"] | tuple["AttributeSchema", ...],
+) -> tuple[OrderedDict, OrderedDict]:
     """Ensure that attributes in dict are located in correct order (Based on schema).
 
     :param primary_attributes:  Primary attributes dict
     :param custom_attributes: Custom attributes dict
     :param attrs_schema: Schema of attributes to get order
+    :returns: primary and custom attributes ordered as in the schema
     """
     # To ensure the order of attributes
     ordered_primary_attributes: OrderedDict = OrderedDict()
@@ -147,8 +152,6 @@ def make_ordered_dict(
             result_attributes[attr_schema.name] = value
             continue
 
-        result_attributes[attr_schema.name] = deserialize_attribute_value(
-            value, attr_schema.dtype, False
-        )
+        result_attributes[attr_schema.name] = deserialize_attribute_value(value, attr_schema.dtype, False)
 
     return ordered_primary_attributes, ordered_custom_attributes

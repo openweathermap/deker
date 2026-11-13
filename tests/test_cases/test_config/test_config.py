@@ -2,7 +2,6 @@ import pytest
 
 from deker.config import DekerConfig
 
-
 uri: str
 workers: int
 write_lock_timeout: int
@@ -19,8 +18,8 @@ varray_symlinks_directory: str = "varray_symlinks"
 
 
 @pytest.mark.parametrize(
-    "params,exception",
-    (
+    ("params", "exception"),
+    [
         (
             {
                 "workers": 1,
@@ -50,11 +49,11 @@ varray_symlinks_directory: str = "varray_symlinks"
             },
             ValueError,
         ),
-    ),
+    ],
 )
 def test_config_without_env(params: dict, exception: Exception):
     if exception:
-        with pytest.raises(exception) as e:  # type: ignore
+        with pytest.raises(exception):
             DekerConfig(**params)
     else:
         config = DekerConfig(**params)

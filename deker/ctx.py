@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Optional, Type
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseStorageAdapter
@@ -30,10 +30,10 @@ class CTX:
         self,
         uri: "Uri",
         config: "DekerConfig",
-        storage_adapter: Optional[Type["BaseStorageAdapter"]] = None,
-        executor: Optional[ThreadPoolExecutor] = None,
+        storage_adapter: type["BaseStorageAdapter"] | None = None,
+        executor: ThreadPoolExecutor | None = None,
         is_closed: bool = False,
-        extra: Optional[Any] = None,
+        extra: Any | None = None,
     ):
         self.uri = uri
         self.storage_adapter = storage_adapter

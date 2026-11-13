@@ -5,7 +5,6 @@ from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from random import randint
-from typing import Tuple
 
 import hdf5plugin
 import numpy as np
@@ -28,8 +27,8 @@ from deker.types.public.classes import Scale
 
 class TestVArraySubset:
     @pytest.mark.parametrize(
-        "slice_,result",
-        (
+        ("slice_", "result"),
+        [
             (
                 (slice(None, None, None)),
                 [
@@ -140,11 +139,9 @@ class TestVArraySubset:
                     ),
                 ],
             ),
-        ),
+        ],
     )
-    def test_subset_calc_array_2dimension(
-        self, slice_: Tuple[slice, ...], result: tuple, client: Client, name: str
-    ):
+    def test_subset_calc_array_2dimension(self, slice_: tuple[slice, ...], result: tuple, client: Client, name: str):
         """Test correctness of arrays calculation in vsubset for 2 dimensional array."""
         dimensions = [
             DimensionSchema(name="x", size=10),
@@ -166,8 +163,8 @@ class TestVArraySubset:
         new_collection.delete()
 
     @pytest.mark.parametrize(
-        "slice_,result",
-        (
+        ("slice_", "result"),
+        [
             (
                 slice(None, None),
                 [
@@ -213,11 +210,9 @@ class TestVArraySubset:
                     ),
                 ],
             ),
-        ),
+        ],
     )
-    def test_subset_calc_array_3dimension(
-        self, slice_: Tuple[slice, ...], result: tuple, client: Client, name: str
-    ):
+    def test_subset_calc_array_3dimension(self, slice_: tuple[slice, ...], result: tuple, client: Client, name: str):
         """Test correctness of arrays calculation in vsubset for 3 dimensional array."""
         dimensions = [
             DimensionSchema(name="x", size=10),
@@ -254,9 +249,7 @@ class TestVArraySubset:
         assert data.tolist() == result.tolist()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_update_vsubset_raises_on_no_data(
-        self, varray_collection: Collection, index_exp: Slice
-    ):
+    def test_update_vsubset_raises_on_no_data(self, varray_collection: Collection, index_exp: Slice):
         """Tests if subset updates itself correctly.
 
         :param varray_collection: Pre created collection
@@ -274,9 +267,7 @@ class TestVArraySubset:
         assert np.isnan(data).all()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_clear_vsubset(
-        self, varray_collection: Collection, array_data: np.ndarray, index_exp: Slice
-    ):
+    def test_clear_vsubset(self, varray_collection: Collection, array_data: np.ndarray, index_exp: Slice):
         varray: VArray = varray_collection.create()
         vsubset: VSubset = varray[:]
         vsubset.update(array_data)
@@ -362,45 +353,21 @@ class TestVArraySubset:
         varray = coll.create()
         # Check full:
         assert varray[:]._VSubset__arrays == [
-            ArrayPosition(
-                (0, 0), (slice(None, None), slice(None, None)), (slice(0, 2), slice(0, 2))
-            ),
-            ArrayPosition(
-                (0, 1), (slice(None, None), slice(None, None)), (slice(0, 2), slice(2, 4))
-            ),
-            ArrayPosition(
-                (0, 2), (slice(None, None), slice(None, None)), (slice(0, 2), slice(4, 6))
-            ),
-            ArrayPosition(
-                (1, 0), (slice(None, None), slice(None, None)), (slice(2, 4), slice(0, 2))
-            ),
-            ArrayPosition(
-                (1, 1), (slice(None, None), slice(None, None)), (slice(2, 4), slice(2, 4))
-            ),
-            ArrayPosition(
-                (1, 2), (slice(None, None), slice(None, None)), (slice(2, 4), slice(4, 6))
-            ),
-            ArrayPosition(
-                (2, 0), (slice(None, None), slice(None, None)), (slice(4, 6), slice(0, 2))
-            ),
-            ArrayPosition(
-                (2, 1), (slice(None, None), slice(None, None)), (slice(4, 6), slice(2, 4))
-            ),
-            ArrayPosition(
-                (2, 2), (slice(None, None), slice(None, None)), (slice(4, 6), slice(4, 6))
-            ),
+            ArrayPosition((0, 0), (slice(None, None), slice(None, None)), (slice(0, 2), slice(0, 2))),
+            ArrayPosition((0, 1), (slice(None, None), slice(None, None)), (slice(0, 2), slice(2, 4))),
+            ArrayPosition((0, 2), (slice(None, None), slice(None, None)), (slice(0, 2), slice(4, 6))),
+            ArrayPosition((1, 0), (slice(None, None), slice(None, None)), (slice(2, 4), slice(0, 2))),
+            ArrayPosition((1, 1), (slice(None, None), slice(None, None)), (slice(2, 4), slice(2, 4))),
+            ArrayPosition((1, 2), (slice(None, None), slice(None, None)), (slice(2, 4), slice(4, 6))),
+            ArrayPosition((2, 0), (slice(None, None), slice(None, None)), (slice(4, 6), slice(0, 2))),
+            ArrayPosition((2, 1), (slice(None, None), slice(None, None)), (slice(4, 6), slice(2, 4))),
+            ArrayPosition((2, 2), (slice(None, None), slice(None, None)), (slice(4, 6), slice(4, 6))),
         ]
         # Check half:
         assert varray[:3, :]._VSubset__arrays == [
-            ArrayPosition(
-                (0, 0), (slice(None, None), slice(None, None)), (slice(0, 2), slice(0, 2))
-            ),
-            ArrayPosition(
-                (0, 1), (slice(None, None), slice(None, None)), (slice(0, 2), slice(2, 4))
-            ),
-            ArrayPosition(
-                (0, 2), (slice(None, None), slice(None, None)), (slice(0, 2), slice(4, 6))
-            ),
+            ArrayPosition((0, 0), (slice(None, None), slice(None, None)), (slice(0, 2), slice(0, 2))),
+            ArrayPosition((0, 1), (slice(None, None), slice(None, None)), (slice(0, 2), slice(2, 4))),
+            ArrayPosition((0, 2), (slice(None, None), slice(None, None)), (slice(0, 2), slice(4, 6))),
             ArrayPosition((1, 0), (slice(0, 1), slice(None, None)), (slice(2, 3), slice(0, 2))),
             ArrayPosition((1, 1), (slice(0, 1), slice(None, None)), (slice(2, 3), slice(2, 4))),
             ArrayPosition((1, 2), (slice(0, 1), slice(None, None)), (slice(2, 3), slice(4, 6))),
@@ -433,9 +400,7 @@ class TestVArraySubset:
                 ),
                 (slice(1, 3), slice(0, 1)),
             ),
-            ArrayPosition(
-                (1, 1), (slice(None, None), slice(None, None)), (slice(1, 3), slice(1, 3))
-            ),
+            ArrayPosition((1, 1), (slice(None, None), slice(None, None)), (slice(1, 3), slice(1, 3))),
             ArrayPosition(
                 (1, 2),
                 (
@@ -528,9 +493,7 @@ class TestVArraySubset:
 
         coll.delete()
 
-    def test_DekerVSubsetError_exception_group(
-        self, inserted_varray: VArray, root_path, varray_collection: Collection
-    ):
+    def test_DekerVSubsetError_exception_group(self, inserted_varray: VArray, root_path, varray_collection: Collection):
         """Test raise of DekerVSubsetError."""
         excs = [ValueError, TypeError, FileExistsError, FileNotFoundError, EOFError]
         sleep_time = randint(1, 5)
@@ -571,12 +534,8 @@ class TestVSubsetForXArray:
                 start_value=datetime(2023, 1, 1, tzinfo=timezone.utc),
                 step=timedelta(hours=1),
             ),
-            DimensionSchema(
-                name="y", size=721, scale=Scale(start_value=90.0, step=-0.25, name="lat")
-            ),
-            DimensionSchema(
-                name="x", size=1440, scale=Scale(start_value=-180.0, step=0.25, name="lon")
-            ),
+            DimensionSchema(name="y", size=721, scale=Scale(start_value=90.0, step=-0.25, name="lat")),
+            DimensionSchema(name="x", size=1440, scale=Scale(start_value=-180.0, step=0.25, name="lon")),
             DimensionSchema(name="layers", size=3, labels=["temp", "pres", "pcp"]),
         ]
 
@@ -621,9 +580,7 @@ class TestVSubsetForXArray:
             col.delete()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_vsubset_description_on_read_xarray(
-        self, varray_collection: Collection, index_exp: Slice
-    ):
+    def test_vsubset_description_on_read_xarray(self, varray_collection: Collection, index_exp: Slice):
         varray: VArray = varray_collection.create()
         vsubset = varray[index_exp]
 
@@ -652,10 +609,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
@@ -677,10 +631,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [90.0],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
@@ -691,10 +642,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, :, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": [-180],
                         "layers": ["temp", "pres", "pcp"],
@@ -705,10 +653,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, :, :, 1],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["pres"],
@@ -786,8 +731,7 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(6, 12)
+                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(6, 12)
                         ],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
@@ -799,10 +743,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [88.5, 88.25, 88.0, 87.75, 87.5, 87.25],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
@@ -813,10 +754,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, :, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": [-178.5, -178.25, -178.0, -177.75, -177.5, -177.25],
                         "layers": ["temp", "pres", "pcp"],
@@ -827,10 +765,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, :, :, :2],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres"],
@@ -897,10 +832,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": list(range(1440)),
                         "layers": list(range(3)),
@@ -922,10 +854,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [0],
                         "x": list(range(1440)),
                         "layers": list(range(3)),
@@ -936,10 +865,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, :, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": [0],
                         "layers": list(range(3)),
@@ -950,10 +876,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, :, :, 1],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": list(range(1440)),
                         "layers": [1],
@@ -1031,8 +954,7 @@ class TestVSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(6, 12)
+                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(6, 12)
                         ],
                         "y": list(range(721)),
                         "x": list(range(1440)),
@@ -1044,10 +966,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [6, 7, 8, 9, 10, 11],
                         "x": list(range(1440)),
                         "layers": list(range(3)),
@@ -1058,10 +977,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, :, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": [6, 7, 8, 9, 10, 11],
                         "layers": list(range(3)),
@@ -1072,10 +988,7 @@ class TestVSubsetForXArray:
                 np.index_exp[:, :, :, :2],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": list(range(1440)),
                         "layers": [0, 1],
@@ -1120,9 +1033,7 @@ class TestVSubsetForXArray:
             ),
         ],
     )
-    def test_vsubset_index_description(
-        self, not_described_varray: VArray, index_exp: Slice, expected
-    ):
+    def test_vsubset_index_description(self, not_described_varray: VArray, index_exp: Slice, expected):
         subset = not_described_varray[index_exp]
         assert subset.describe() == expected
 

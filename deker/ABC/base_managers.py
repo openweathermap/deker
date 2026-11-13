@@ -37,7 +37,7 @@ class BaseAbstractManager(ABC):  # noqa: B024
     def __init__(
         self,
         collection: "Collection",
-        schema: Optional[BaseArraysSchema],
+        schema: BaseArraysSchema | None,
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"] = None,
     ) -> None:
@@ -56,17 +56,14 @@ class BaseAbstractManager(ABC):  # noqa: B024
 
     def _get_schema(self) -> BaseArraysSchema:
         """Decide which schema to use (Array or VArray)."""
-        schema = (
-            self.__collection.varray_schema
-            if self.__collection.varray_schema
-            else self.__collection.array_schema
-        )
+        schema = self.__collection.varray_schema if self.__collection.varray_schema else self.__collection.array_schema
         return schema  # type: ignore[return-value]
 
     def filter(self, filters: dict) -> "FilteredManager":
         """Filter Arrays or VArrays by provided condition.
 
         :param filters: filtering parameters
+        :returns: ``FilteredManager`` with the applied filter
         """
         from deker.managers import FilteredManager
 
@@ -83,12 +80,11 @@ class BaseManager(BaseAbstractManager):
     """Parent class for ArrayManager and VArrayManager."""
 
     @abstractmethod
-    def create(
-        self, primary_attributes: Optional[dict] = None, custom_attributes: Optional[dict] = None
-    ) -> "BaseArray":
+    def create(self, primary_attributes: dict | None = None, custom_attributes: dict | None = None) -> "BaseArray":
         """Create an array.
 
         :param primary_attributes: (V)array primary attributes
         :param custom_attributes: (V)array custom attributes
+        :returns: the created array
         """
         pass

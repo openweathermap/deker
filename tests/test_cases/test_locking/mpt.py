@@ -5,7 +5,6 @@ from multiprocessing import cpu_count
 
 from deker.config import DekerConfig
 
-
 sys.path.insert(0, ".")
 
 import argparse
@@ -16,7 +15,6 @@ from pathlib import Path
 
 from deker.errors import DekerLockError
 from deker.locks import Flock
-
 
 path = Path("/tmp/mp_test/collections/coll.lock")
 ex = ThreadPoolExecutor(max_workers=cpu_count() // 2)

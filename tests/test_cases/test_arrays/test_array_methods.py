@@ -28,7 +28,7 @@ from deker.types import ArrayMeta
 from deker.types.private.typings import FancySlice, NumericDtypes, Slice
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 class TestArrayMethods:
     @pytest.mark.parametrize("array_init_params", attributes_validation_params())
     def test_array_raises_on_validate_attributes(
@@ -57,9 +57,7 @@ class TestArrayMethods:
     ):
         assert Array(
             array_collection_with_attributes,
-            factory.get_array_adapter(
-                array_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter
-            ),
+            factory.get_array_adapter(array_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter),
             primary_attributes={"primary_attribute": 3},
             custom_attributes={
                 "custom_attribute": 0.5,
@@ -121,9 +119,7 @@ class TestArrayMethods:
     ):
         array = Array(
             array_collection_with_attributes,
-            factory.get_array_adapter(
-                array_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter
-            ),
+            factory.get_array_adapter(array_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter),
             primary_attributes={"primary_attribute": 3},
             custom_attributes={
                 "custom_attribute": 0.5,
@@ -131,9 +127,7 @@ class TestArrayMethods:
             },
         )
         assert isinstance(array.shape, tuple)
-        assert array.shape == tuple(
-            [dim.size for dim in array_collection_with_attributes.array_schema.dimensions]
-        )
+        assert array.shape == tuple([dim.size for dim in array_collection_with_attributes.array_schema.dimensions])
         assert array.shape == array_collection_with_attributes.array_schema.shape
         assert isinstance(array.named_shape, tuple)
         assert array.named_shape == tuple(
@@ -147,9 +141,7 @@ class TestArrayMethods:
     ):
         array = Array(
             array_collection_with_attributes,
-            factory.get_array_adapter(
-                array_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter
-            ),
+            factory.get_array_adapter(array_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter),
             primary_attributes={"primary_attribute": 3},
             custom_attributes={
                 "custom_attribute": 0.5,
@@ -322,9 +314,7 @@ class TestArrayMethods:
             {"custom_attribute": 0.6, "time_attr_name": {0: 0}},
         ],
     )
-    def test_update_custom_attributes_fail(
-        self, inserted_array_with_attributes: Array, new_custom_attributes: dict
-    ):
+    def test_update_custom_attributes_fail(self, inserted_array_with_attributes: Array, new_custom_attributes: dict):
         """Tests array update method.
 
         :param inserted_array_with_attributes: Array object
@@ -347,14 +337,8 @@ class TestArrayMethods:
         old_attrs = inserted_array_with_attributes.custom_attributes
         new_attr_name = list(new_custom_attributes.keys())[0]
         inserted_array_with_attributes.update_custom_attributes(new_custom_attributes)
-        assert (
-            inserted_array_with_attributes.custom_attributes[new_attr_name]
-            == new_custom_attributes[new_attr_name]
-        )
-        assert (
-            old_attrs[skipped_attr]
-            == inserted_array_with_attributes.custom_attributes[skipped_attr]
-        )
+        assert inserted_array_with_attributes.custom_attributes[new_attr_name] == new_custom_attributes[new_attr_name]
+        assert old_attrs[skipped_attr] == inserted_array_with_attributes.custom_attributes[skipped_attr]
 
     @pytest.mark.parametrize("index_exp", invalid_index_params)
     def test_array_getitem_raises(self, inserted_array: Array, index_exp: Slice):
@@ -447,9 +431,7 @@ class TestArrayMethods:
             (np.index_exp[:, :, "d":], np.index_exp[:, :, 3:]),
         ],
     )
-    def test_array_fancy_getitem_ok(
-        self, scaled_array, index_exp: Slice, fancy_index_exp: FancySlice
-    ):
+    def test_array_fancy_getitem_ok(self, scaled_array, index_exp: Slice, fancy_index_exp: FancySlice):
         """Tests subset fancy creation from array __getitem__.
 
         :param scaled_array: Pre created array
@@ -530,15 +512,11 @@ class TestArrayMethods:
                 np.index_exp[0, 0],
             ),
             (
-                np.index_exp[
-                    datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat()
-                ],
+                np.index_exp[datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat()],
                 np.index_exp[14, 12],
             ),
             (
-                np.index_exp[
-                    datetime(2023, 1, 31).isoformat(), datetime(2023, 1, 1, 23).isoformat()
-                ],
+                np.index_exp[datetime(2023, 1, 31).isoformat(), datetime(2023, 1, 1, 23).isoformat()],
                 np.index_exp[-1, -1],
             ),
             (
@@ -549,15 +527,11 @@ class TestArrayMethods:
                 np.index_exp[1:29, 4:23],
             ),
             (
-                np.index_exp[
-                    : datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat() :
-                ],
+                np.index_exp[: datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat() :],
                 np.index_exp[:14, 12:],
             ),
             (
-                np.index_exp[
-                    datetime(2023, 1, 10).isoformat() :, : datetime(2023, 1, 1, 4).isoformat()
-                ],
+                np.index_exp[datetime(2023, 1, 10).isoformat() :, : datetime(2023, 1, 1, 4).isoformat()],
                 np.index_exp[9:, :4],
             ),
             (
@@ -583,12 +557,12 @@ class TestArrayMethods:
             ),
             (
                 np.index_exp[
-                    datetime(2023, 1, 2, tzinfo=timezone.utc)
-                    .timestamp() : datetime(2023, 1, 30, tzinfo=timezone.utc)
-                    .timestamp(),
-                    datetime(2023, 1, 1, 4, tzinfo=timezone.utc)
-                    .timestamp() : datetime(2023, 1, 1, 23, tzinfo=timezone.utc)
-                    .timestamp(),
+                    datetime(2023, 1, 2, tzinfo=timezone.utc).timestamp() : datetime(
+                        2023, 1, 30, tzinfo=timezone.utc
+                    ).timestamp(),
+                    datetime(2023, 1, 1, 4, tzinfo=timezone.utc).timestamp() : datetime(
+                        2023, 1, 1, 23, tzinfo=timezone.utc
+                    ).timestamp(),
                 ],
                 np.index_exp[1:29, 4:23],
             ),
@@ -608,9 +582,7 @@ class TestArrayMethods:
             ),
         ],
     )
-    def test_timed_array_fancy_getitem_ok(
-        self, timed_array, index_exp: Slice, fancy_index_exp: FancySlice
-    ):
+    def test_timed_array_fancy_getitem_ok(self, timed_array, index_exp: Slice, fancy_index_exp: FancySlice):
         """Tests subset fancy creation from array __getitem__.
 
         :param timed_array: Pre created array
@@ -655,14 +627,8 @@ class TestArrayMethods:
             np.index_exp[:, 0.1],
             np.index_exp[:, -0.1],
             np.index_exp[datetime(2023, 1, 1) : datetime(2023, 1, 2).isoformat()],
-            np.index_exp[
-                datetime(2023, 1, 1)
-                .isoformat() : datetime(2023, 1, 2, tzinfo=timezone.utc)
-                .timestamp()
-            ],
-            np.index_exp[
-                datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp() : datetime(2023, 1, 2)
-            ],
+            np.index_exp[datetime(2023, 1, 1).isoformat() : datetime(2023, 1, 2, tzinfo=timezone.utc).timestamp()],
+            np.index_exp[datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp() : datetime(2023, 1, 2)],
             np.index_exp[
                 datetime(2023, 1, 1, tzinfo=timezone(timedelta(hours=2))).timestamp(),
                 datetime(2023, 1, 1, tzinfo=timezone(timedelta(hours=2))).timestamp(),
@@ -750,16 +716,14 @@ class TestArrayMethods:
         with pytest.raises(DekerValidationError):
             assert Array(
                 array_collection,
-                factory.get_array_adapter(
-                    array_collection.path, storage_adapter=HDF5StorageAdapter
-                ),
+                factory.get_array_adapter(array_collection.path, storage_adapter=HDF5StorageAdapter),
                 id_=id_,
             )
 
     def test_array_str(self, array: Array, array_with_attributes: Array):
         arrays = (array, array_with_attributes)
         for ar in arrays:
-            s = f"{ar.__class__.__name__}({ar.id!r}"
+            s = f"{ar.__class__.__name__}({ar.id!r}"  # noqa: F841  # the test asserts nothing
 
     def test_array_repr(self, array: Array, array_with_attributes: Array):
         arrays = (array, array_with_attributes)
@@ -773,14 +737,14 @@ class TestArrayMethods:
 
     @pytest.mark.parametrize(
         "index_exp",
-        (
+        [
             (None, slice(None, None, 2)),
             (None, slice(None, None, -2)),
             (slice(None, None, -2)),
             (slice(None, None, 2)),
             (slice(None, None, 0)),
             (slice(None, None, None), slice(None, None, None), slice(None, None, 3)),
-        ),
+        ],
     )
     def test_step_validator(self, array: Array, index_exp):
         with pytest.raises(IndexError):

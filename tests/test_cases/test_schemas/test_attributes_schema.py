@@ -2,7 +2,6 @@ import collections
 
 from collections import OrderedDict, namedtuple
 from datetime import datetime
-from typing import FrozenSet
 
 import pytest
 
@@ -113,7 +112,7 @@ class TestAttributesSchemaDtypeValidation:
             dict,
             set,
             OrderedDict,
-            FrozenSet,
+            frozenset,
             namedtuple,
             collections.deque,
             collections.Counter,
@@ -220,10 +219,8 @@ class TestAttributesSchemaPrimaryValidation:
             AttributeSchema(name="some_attr", dtype=dtype, primary=primary)
 
 
-@pytest.mark.parametrize("primary", (True, False))
-def test_schema_conversion(
-    primary: bool, client: Client, local_array_adapter: LocalArrayAdapter, name: str
-):
+@pytest.mark.parametrize("primary", [True, False])
+def test_schema_conversion(primary: bool, client: Client, local_array_adapter: LocalArrayAdapter, name: str):
     key = "primary_attributes" if primary else "custom_attributes"
 
     schema = ArraySchema(

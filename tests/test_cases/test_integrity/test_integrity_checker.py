@@ -5,7 +5,6 @@ import sys
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Type
 
 import h5py
 import numpy
@@ -41,24 +40,18 @@ class TestIntegrityChecker:
 
         collection = client.create_collection("test_integrity_ok", array_schema)
         collection.create()
-        integrity_checker = IntegrityChecker(
-            client, root_path / ctx.config.collections_directory, True, 4
-        )
+        integrity_checker = IntegrityChecker(client, root_path / ctx.config.collections_directory, True, 4)
         try:
             integrity_checker.check()
         finally:
             collection.delete()
 
-    def test_check_ok_collection(
-        self, client: Client, root_path: Path, array_schema: ArraySchema, ctx: CTX
-    ):
+    def test_check_ok_collection(self, client: Client, root_path: Path, array_schema: ArraySchema, ctx: CTX):
         """Tests if function raises no exception by default if collection name is provided."""
 
         collection = client.create_collection("test_integrity_ok", array_schema)
         collection.create()
-        integrity_checker = IntegrityChecker(
-            client, root_path / ctx.config.collections_directory, True, 4
-        )
+        integrity_checker = IntegrityChecker(client, root_path / ctx.config.collections_directory, True, 4)
         try:
             integrity_checker.check("test_integrity_ok")
         finally:
@@ -69,9 +62,7 @@ class TestIntegrityChecker:
     ):
         """Tests if function raises no exception by default if collection name is provided."""
 
-        integrity_checker = IntegrityChecker(
-            client, root_path / ctx.config.collections_directory, True, 4
-        )
+        integrity_checker = IntegrityChecker(client, root_path / ctx.config.collections_directory, True, 4)
         with pytest.raises(DekerCollectionNotExistsError):
             integrity_checker.check("collection_does_not_exist")
 
@@ -88,18 +79,13 @@ class TestIntegrityChecker:
 
         collection = client.create_collection("test_integrity_locks", array_schema)
         collection.create()
-        integrity_checker = IntegrityChecker(
-            client, root_path / ctx.config.collections_directory, False, 4
-        )
+        integrity_checker = IntegrityChecker(client, root_path / ctx.config.collections_directory, False, 4)
 
         try:
             filename = collection.path.parent / (collection.name + ".lock")
             os.remove(filename)
             errors = integrity_checker.check(check_params)
-            assert (
-                errors
-                == f"Collections locks errors:\n\t- BaseLock for {collection.name} not found\n"
-            )
+            assert errors == f"Collections locks errors:\n\t- BaseLock for {collection.name} not found\n"
         finally:
             collection.delete()
             shutil.rmtree(
@@ -107,16 +93,12 @@ class TestIntegrityChecker:
                 onerror=FileNotFoundError,
             )
 
-    def test_check_extra_locks(
-        self, client: Client, root_path: Path, array_schema: ArraySchema, ctx: CTX
-    ):
+    def test_check_extra_locks(self, client: Client, root_path: Path, array_schema: ArraySchema, ctx: CTX):
         """Tests if function returns error if there are extra locks in a folder."""
 
         collection = client.create_collection("test_integrity_locks_extra", array_schema)
         collection.create()
-        integrity_checker = IntegrityChecker(
-            client, root_path / ctx.config.collections_directory, False, 4
-        )
+        integrity_checker = IntegrityChecker(client, root_path / ctx.config.collections_directory, False, 4)
 
         try:
             shutil.rmtree(
@@ -124,10 +106,7 @@ class TestIntegrityChecker:
                 onerror=FileNotFoundError,
             )
             errors = integrity_checker.check()
-            assert (
-                errors
-                == f"Collections locks errors:\n\t- Collection with lock {collection.name} not found\n"
-            )
+            assert errors == f"Collections locks errors:\n\t- Collection with lock {collection.name} not found\n"
         finally:
             filename = collection.path.parent / (collection.name + ".lock")
             os.remove(filename)
@@ -141,13 +120,11 @@ class TestIntegrityChecker:
         root_path: Path,
         ctx: CTX,
         uri: Uri,
-        storage_adapter: Type[BaseStorageAdapter],
+        storage_adapter: type[BaseStorageAdapter],
         check_params: str,
     ):
         """Tests if function returns errors."""
-        integrity_checker = IntegrityChecker(
-            client, root_path / ctx.config.collections_directory, False, 4
-        )
+        integrity_checker = IntegrityChecker(client, root_path / ctx.config.collections_directory, False, 4)
         collection = client.create_collection("test_return", array_schema_with_attributes)
         array_1 = collection.create(
             primary_attributes={"primary_attribute": 1},
@@ -193,16 +170,12 @@ class TestIntegrityChecker:
         root_path: Path,
         ctx: CTX,
         uri: Uri,
-        storage_adapter: Type[BaseStorageAdapter],
+        storage_adapter: type[BaseStorageAdapter],
         check_params: str,
     ):
         """Tests if function raises exception if array file is incorrect."""
-        collection = client.create_collection(
-            "test_check_array_raises_on_init", array_schema_with_attributes
-        )
-        integrity_checker = IntegrityChecker(
-            client, root_path / ctx.config.collections_directory, True, 4
-        )
+        collection = client.create_collection("test_check_array_raises_on_init", array_schema_with_attributes)
+        integrity_checker = IntegrityChecker(client, root_path / ctx.config.collections_directory, True, 4)
         array = collection.create(
             primary_attributes={"primary_attribute": 10},
             custom_attributes={"time_attr_name": datetime.now(timezone.utc)},
@@ -246,9 +219,7 @@ class TestCollectionsChecker:
         """Tests if function raises no exception by default."""
         collections_checker.check()
 
-    def test_check_locks(
-        self, client: Client, collections_checker: CollectionsChecker, array_schema: ArraySchema
-    ):
+    def test_check_locks(self, client: Client, collections_checker: CollectionsChecker, array_schema: ArraySchema):
         """Tests if function returns error if lock is not found."""
 
         collection = client.create_collection("test_arrays_integrity_locks", array_schema)
@@ -268,12 +239,11 @@ class TestCollectionsChecker:
 
 
 class TestPathsChecker:
-    def test_check_ok(
-        self, inserted_array_with_attributes: Array, client: Client, paths_checker: PathsChecker
-    ):
+    def test_check_ok(self, inserted_array_with_attributes: Array, client: Client, paths_checker: PathsChecker):
         """Tests if function raises no exception by default."""
         paths_checker.check(
-            inserted_array_with_attributes, inserted_array_with_attributes._Array__collection  # type: ignore[attr-defined]
+            inserted_array_with_attributes,
+            inserted_array_with_attributes._Array__collection,  # type: ignore[attr-defined]
         )
 
     def test_check_symlink_not_found(
@@ -341,15 +311,12 @@ class TestPathsChecker:
             custom_attributes={"time_attr_name": datetime.now(timezone.utc)},
         )
 
-        main_path = get_main_path(
-            array_1.id, array_collection_with_attributes.path / array_1._adapter.data_dir
-        )
+        main_path = get_main_path(array_1.id, array_collection_with_attributes.path / array_1._adapter.data_dir)
         file = array_1.id + storage_adapter.file_ext
         filename = main_path / file
 
         symlink_path = get_symlink_path(
-            path_to_symlink_dir=array_collection_with_attributes.path
-            / array_2._adapter.symlinks_dir,
+            path_to_symlink_dir=array_collection_with_attributes.path / array_2._adapter.symlinks_dir,
             primary_attributes_schema=array_collection_with_attributes.array_schema.primary_attributes,
             primary_attributes=array_2.primary_attributes,
         )
@@ -371,9 +338,7 @@ class TestPathsChecker:
             inserted_varray._VArray__collection,  # type: ignore[attr-defined]
         )
 
-    def test_check_varray(
-        self, inserted_varray: VArray, client: Client, paths_checker: PathsChecker
-    ):
+    def test_check_varray(self, inserted_varray: VArray, client: Client, paths_checker: PathsChecker):
         """Tests if check_paths works correctly with for varray."""
         symlink_path = get_symlink_path(
             path_to_symlink_dir=inserted_varray._VArray__collection.path  # type: ignore[attr-defined]
@@ -385,7 +350,8 @@ class TestPathsChecker:
         Path.unlink(symlink_path / files[0])
         with pytest.raises(DekerIntegrityError):
             paths_checker.check(
-                inserted_varray, inserted_varray._VArray__collection  # type: ignore[attr-defined]
+                inserted_varray,
+                inserted_varray._VArray__collection,  # type: ignore[attr-defined]
             )
 
     def test_check_raises_on_array_symlink(
@@ -489,9 +455,7 @@ class TestArraysChecker:
             collection.delete()
 
     @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
-    def test_check_arrays_locks_read(
-        self, params: dict, client: Client, arrays_checker: ArraysChecker
-    ):
+    def test_check_arrays_locks_read(self, params: dict, client: Client, arrays_checker: ArraysChecker):
         """Tests if function returns error if there are extra readlock files for arrays.
 
         :param params: collection params
@@ -509,9 +473,7 @@ class TestArraysChecker:
             collection.delete()
 
     @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
-    def test_check_arrays_locks_varray(
-        self, params: dict, client: Client, arrays_checker: ArraysChecker
-    ):
+    def test_check_arrays_locks_varray(self, params: dict, client: Client, arrays_checker: ArraysChecker):
         """Tests if function returns error if there are extra lock files for varrays.
 
         :param params: collection params
@@ -537,11 +499,7 @@ class TestArraysChecker:
         :param arrays_checker: checker fixture
         """
         varray = varray_collection.create()
-        lockfile = (
-            varray_collection.path
-            / varray._adapter.data_dir
-            / LocksExtensions.array_read_lock.value
-        )
+        lockfile = varray_collection.path / varray._adapter.data_dir / LocksExtensions.array_read_lock.value
         open(lockfile, mode="w")
         try:
             with pytest.raises(DekerIntegrityError):
@@ -581,9 +539,7 @@ class TestDataChecker:
             primary_attributes={"primary_attribute": 1},
             custom_attributes={"time_attr_name": datetime.now(timezone.utc)},
         )
-        main_path = get_main_path(
-            array.id, array_collection_with_attributes.path / array._adapter.data_dir
-        )
+        main_path = get_main_path(array.id, array_collection_with_attributes.path / array._adapter.data_dir)
         file = array.id + storage_adapter.file_ext
         filename = main_path / file
 

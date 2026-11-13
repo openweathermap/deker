@@ -7,7 +7,7 @@ from tests.parameters.common import random_string
 from deker.schemas import DimensionSchema, TimeDimensionSchema
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 class TestNoVgridValidateAttributesTimeDimension:
     """Tests for deker.validators.process_time_dimension_attrs.
 

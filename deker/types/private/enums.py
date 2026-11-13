@@ -74,6 +74,7 @@ class DTypeEnum(Enum):
 
         Numpy types parsing: we store types as "numpy.typename" in JSON.
         :param object: DtypeEnum object
+        :returns: dtype name, with the ``numpy.`` prefix for numpy types
         """
         if object.value in (int, float, complex, str, tuple, datetime):
             return str(object.name)

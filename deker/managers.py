@@ -14,10 +14,12 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from typing import TYPE_CHECKING, Generator, Optional, Union
+from collections.abc import Generator
+from typing import TYPE_CHECKING, Optional, Union
 
 from deker.ABC.base_managers import BaseAbstractManager, BaseManager
 from deker.arrays import Array, VArray
+from deker.errors import DekerInvalidManagerCallError
 from deker.log import SelfLoggerMixin
 from deker.schemas import VArraySchema
 
@@ -55,10 +57,11 @@ class FilteredManager(SelfLoggerMixin, BaseAbstractManager):
             raise AttributeError("FilterManager is missing varray adapter for varray schema")
         self.__filters = filters
 
-    def __get_item_in_list_arrays(self, elem_index: int) -> Union[Array, VArray, None]:
+    def __get_item_in_list_arrays(self, elem_index: int) -> Array | VArray | None:
         """Filter arrays and get element by index.
 
         :param elem_index: Which element we return
+        :returns: the array at the index, or ``None`` if nothing was found
         """
         arrays = self._adapter.filter(
             self.__filters,
@@ -106,16 +109,17 @@ class DataManager(BaseManager):
     def _create(  # type: ignore
         self,
         schema: "BaseArraysSchema",
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
-        id_: Optional[str] = None,
-    ) -> Union[Array, VArray]:
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
+        id_: str | None = None,
+    ) -> Array | VArray:
         """Create Array or VArray.
 
         :param primary_attributes: array primary attribute
         :param custom_attributes: array custom attributes
         :param schema: schema decides which array will be created
         :param id_: (V)Array uuid string
+        :returns: the created ``Array`` or ``VArray``
         """
         arr_params = {
             "collection": self.__collection,
@@ -140,15 +144,16 @@ class DataManager(BaseManager):
 
     def create(
         self,
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
-        id_: Optional[str] = None,
-    ) -> Union[Array, VArray]:
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
+        id_: str | None = None,
+    ) -> Array | VArray:
         """Create array or varray.
 
         :param primary_attributes: primary attributes
         :param custom_attributes: custom attributes
         :param id_: unique UUID string
+        :returns: the created ``Array`` or ``VArray``
         """
         schema = self.__collection.varray_schema or self.__collection.array_schema
         return self._create(schema, primary_attributes, custom_attributes, id_)
@@ -183,27 +188,32 @@ class VArrayManager(SelfLoggerMixin, DataManager):
 
     def create(
         self,
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
-        id_: Optional[str] = None,
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
+        id_: str | None = None,
     ) -> VArray:
         """Create varray in collection.
 
         :param primary_attributes: VArray primary attributes
         :param custom_attributes: VArray custom attributes
         :param id_: VArray unique UUID string
+        :returns: the created ``VArray``
         """
+        schema = self.__collection.varray_schema
+        if schema is None:
+            raise DekerInvalidManagerCallError("VArrays cannot be created in a collection without VArraySchema")
         return self._create(  # type: ignore[return-value]
-            self.__collection.varray_schema, primary_attributes, custom_attributes, id_  # type: ignore[arg-type]
+            schema,
+            primary_attributes,
+            custom_attributes,
+            id_,  # type: ignore[arg-type]
         )
 
     def __iter__(self) -> Generator[VArray, None, None]:
         """Yield VArrays from adapter."""
         self.logger.debug("iterating over VArrays")
         for meta in self._adapter:  # type: ignore[attr-defined]
-            yield VArray._create_from_meta(
-                self.__collection, meta, self.__array_adapter, self.__varray_adapter
-            )
+            yield VArray._create_from_meta(self.__collection, meta, self.__array_adapter, self.__varray_adapter)
 
 
 class ArrayManager(SelfLoggerMixin, DataManager):
@@ -231,15 +241,16 @@ class ArrayManager(SelfLoggerMixin, DataManager):
 
     def create(
         self,
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
-        id_: Optional[str] = None,
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
+        id_: str | None = None,
     ) -> Array:
         """Create array in collection.
 
         :param primary_attributes: Array primary attributes
         :param custom_attributes: Array custom attributes
         :param id_: Array unique UUID string
+        :returns: the created ``Array``
         """
         return self._create(  # type: ignore[return-value]
             self.__collection.array_schema, primary_attributes, custom_attributes, id_

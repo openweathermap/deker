@@ -14,8 +14,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from collections.abc import Callable
 from functools import wraps
-from typing import Any, Callable
+from typing import Any
 
 from deker.errors import DekerClientError, DekerInstanceNotExistsError
 
@@ -24,6 +25,7 @@ def check_ctx_state(method: Callable) -> Callable:
     """Context checker deco.
 
     :param method: callable class method
+    :returns: the decorated method
     """
 
     @wraps(method)
@@ -31,8 +33,9 @@ def check_ctx_state(method: Callable) -> Callable:
         """Inner executor methods wrapper.
 
         :param self: Adapter instance
-        :param args: any
-        :param kwargs: any
+        :param *args: any
+        :param **kwargs: any
+        :returns: result of the method
         """
         if self.ctx.is_closed:
             raise DekerClientError("Client is closed")
@@ -46,6 +49,7 @@ def not_deleted(method: Callable) -> Callable:
 
     If the object was deleted, do not call func.
     :param method: method to decorate
+    :returns: the decorated method
     """
 
     @wraps(method)
@@ -53,8 +57,9 @@ def not_deleted(method: Callable) -> Callable:
         """Check instance for flag.
 
         :param self: class instance
-        :param args: any
-        :param kwargs: any
+        :param *args: any
+        :param **kwargs: any
+        :returns: result of the method
         """
         if self._is_deleted():
             raise DekerInstanceNotExistsError(

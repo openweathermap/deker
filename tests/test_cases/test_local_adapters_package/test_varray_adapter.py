@@ -16,9 +16,7 @@ from deker.tools import get_paths
 
 class TestVArrayAdapterMethods:
     def test_varray_adapter_init(self, array_collection, ctx, executor):
-        adapter = LocalVArrayAdapter(
-            array_collection.path, ctx, array_collection._storage_adapter, executor
-        )
+        adapter = LocalVArrayAdapter(array_collection.path, ctx, array_collection._storage_adapter, executor)
         assert adapter
 
     def test_varray_adapter_create_varray(self, varray: VArray):
@@ -73,13 +71,10 @@ class TestVArrayAdapterMethods:
         assert not (paths.symlink / array.id).exists()
         assert not (paths.main / array.id).exists()
         assert not paths.main.exists()
-        assert not (
-            varray._VArray__collection.path / ctx.config.array_data_directory / array.id
-        ).exists()
+        assert not (varray._VArray__collection.path / ctx.config.array_data_directory / array.id).exists()
 
         assert not is_empty(
-            varray._VArray__collection.path
-            / ctx.config.array_symlinks_directory
+            varray._VArray__collection.path / ctx.config.array_symlinks_directory
             # type: ignore[attr-defined]
         )
 
@@ -104,13 +99,10 @@ class TestVArrayAdapterMethods:
         assert not (paths.symlink / array.id).exists()
         assert not (paths.main / array.id).exists()
         assert not paths.main.exists()
-        assert not (
-            varray._VArray__collection.path / ctx.config.array_data_directory / array.id
-        ).exists()
+        assert not (varray._VArray__collection.path / ctx.config.array_data_directory / array.id).exists()
 
         assert is_empty(
-            varray._VArray__collection.path
-            / ctx.config.array_symlinks_directory
+            varray._VArray__collection.path / ctx.config.array_symlinks_directory
             # type: ignore[attr-defined]
         )
 
@@ -203,7 +195,7 @@ class TestActions:
         varrays = [varray_collection.create() for _ in range(10)]
         metas = [json.loads(varray._create_meta()) for varray in varrays]
         adapter: LocalVArrayAdapter = varrays[0]._adapter
-        inner_metas = [meta for meta in adapter]
+        inner_metas = [*adapter]
         assert len(inner_metas) == len(metas)
         assert all(inner_meta in metas for inner_meta in inner_metas)
 

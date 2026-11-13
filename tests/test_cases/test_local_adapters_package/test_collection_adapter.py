@@ -16,7 +16,7 @@ from deker.errors import DekerMemoryError
 from deker.schemas import ArraySchema, DimensionSchema
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 class TestCollectionAdapter:
     """Class for testing local collection adapter."""
 
@@ -121,9 +121,7 @@ class TestCollectionAdapter:
         collection_adapter.clear(array_collection)
 
         collection_dir = None
-        for child in root_path.joinpath(
-            collection_adapter.ctx.config.collections_directory
-        ).iterdir():
+        for child in root_path.joinpath(collection_adapter.ctx.config.collections_directory).iterdir():
             if child.name == array_collection.name:
                 collection_dir = child
 
@@ -131,9 +129,7 @@ class TestCollectionAdapter:
         collection_dir = os.listdir(collection_dir)
         assert f"{array_collection.name}.json" in collection_dir
 
-    def test_collection_adapter_iter(
-        self, client: Client, array_schema: ArraySchema, root_path: Path, ctx
-    ):
+    def test_collection_adapter_iter(self, client: Client, array_schema: ArraySchema, root_path: Path, ctx):
         for root, dirs, files in os.walk(root_path / ctx.config.collections_directory):
             for f in files:
                 os.remove(os.path.join(root, f))
@@ -142,9 +138,7 @@ class TestCollectionAdapter:
 
         names = {random_string() for _ in range(10)}
         collections = [client.create_collection(name, array_schema) for name in names]
-        adapter: LocalCollectionAdapter = collections[
-            0
-        ]._Collection__adapter  # type: ignore[attr-defined]
+        adapter: LocalCollectionAdapter = collections[0]._Collection__adapter  # type: ignore[attr-defined]
         coll_names = {coll["name"] for coll in adapter}
         assert names.issubset(coll_names)
         assert names - coll_names == set()

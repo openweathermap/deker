@@ -18,7 +18,7 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Type
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from deker.client import Client
@@ -55,7 +55,7 @@ class BaseChecker(ABC):
             res += key + "\n\t- " + "\n\t- ".join(self.errors[key]) + "\n"
         return res
 
-    def add_checker(self, checker: Type["BaseChecker"]) -> None:
+    def add_checker(self, checker: type["BaseChecker"]) -> None:
         """Add next checker, uses self to init.
 
         :param checker: next_checker type
@@ -71,7 +71,7 @@ class BaseChecker(ABC):
     def check(self, *args: Any, **kwargs: Any) -> None:
         """Check integrity. Shall be implemented in every Checker.
 
-        :param args: args
-        :param kwargs: kwargs
+        :param *args: args
+        :param **kwargs: kwargs
         """
         pass

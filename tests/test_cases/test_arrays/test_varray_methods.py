@@ -61,9 +61,7 @@ class TestVArrayMethods:
         factory: AdaptersFactory,
         varray_collection_with_attributes: Collection,
     ):
-        adapter = factory.get_varray_adapter(
-            varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter
-        )
+        adapter = factory.get_varray_adapter(varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter)
         array_adapter = factory.get_array_adapter(
             varray_collection_with_attributes.path,
             HDF5StorageAdapter,
@@ -136,9 +134,7 @@ class TestVArrayMethods:
         factory: AdaptersFactory,
         varray_collection_with_attributes: Collection,
     ):
-        adapter = factory.get_varray_adapter(
-            varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter
-        )
+        adapter = factory.get_varray_adapter(varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter)
         array_adapter = factory.get_array_adapter(
             varray_collection_with_attributes.path,
             HDF5StorageAdapter,
@@ -155,14 +151,11 @@ class TestVArrayMethods:
             },
         )
         assert isinstance(array.shape, tuple)
-        assert array.shape == tuple(
-            [dim.size for dim in varray_collection_with_attributes.varray_schema.dimensions]
-        )
+        assert array.shape == tuple([dim.size for dim in varray_collection_with_attributes.varray_schema.dimensions])
         assert array.shape == varray_collection_with_attributes.varray_schema.shape
         assert isinstance(array.named_shape, tuple)
         assert array.named_shape == tuple(
-            (dim.name, dim.size)
-            for dim in varray_collection_with_attributes.varray_schema.dimensions
+            (dim.name, dim.size) for dim in varray_collection_with_attributes.varray_schema.dimensions
         )
         assert array.vgrid == varray_collection_with_attributes.varray_schema.vgrid
         assert isinstance(array.vgrid, tuple)
@@ -175,9 +168,7 @@ class TestVArrayMethods:
         factory: AdaptersFactory,
         varray_collection_with_attributes: Collection,
     ):
-        adapter = factory.get_varray_adapter(
-            varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter
-        )
+        adapter = factory.get_varray_adapter(varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter)
         array_adapter = factory.get_array_adapter(
             varray_collection_with_attributes.path,
             HDF5StorageAdapter,
@@ -204,9 +195,7 @@ class TestVArrayMethods:
         """
         collection = inserted_varray._VArray__collection
         adapter = factory.get_varray_adapter(collection.path, storage_adapter=HDF5StorageAdapter)
-        array_adapter = factory.get_array_adapter(
-            collection.path, HDF5StorageAdapter, collection.options
-        )
+        array_adapter = factory.get_array_adapter(collection.path, HDF5StorageAdapter, collection.options)
         paths = get_paths(
             inserted_varray,
             root_path / adapter.ctx.config.collections_directory / inserted_varray.collection,
@@ -337,14 +326,8 @@ class TestVArrayMethods:
         old_attrs = inserted_varray_with_attributes.custom_attributes
         new_attr_name = list(new_custom_attributes.keys())[0]
         inserted_varray_with_attributes.update_custom_attributes(new_custom_attributes)
-        assert (
-            inserted_varray_with_attributes.custom_attributes[new_attr_name]
-            == new_custom_attributes[new_attr_name]
-        )
-        assert (
-            old_attrs[skipped_attr]
-            == inserted_varray_with_attributes.custom_attributes[skipped_attr]
-        )
+        assert inserted_varray_with_attributes.custom_attributes[new_attr_name] == new_custom_attributes[new_attr_name]
+        assert old_attrs[skipped_attr] == inserted_varray_with_attributes.custom_attributes[skipped_attr]
 
     @pytest.mark.parametrize("index_exp", invalid_index_params)
     def test_array_getitem_raises(self, inserted_varray: VArray, index_exp: Slice):
@@ -402,9 +385,7 @@ class TestVArrayMethods:
             (np.index_exp[:, :, "d":], np.index_exp[:, :, 3:]),
         ],
     )
-    def test_varray_fancy_getitem_ok(
-        self, scaled_varray: VArray, index_exp: Slice, fancy_index_exp: FancySlice
-    ):
+    def test_varray_fancy_getitem_ok(self, scaled_varray: VArray, index_exp: Slice, fancy_index_exp: FancySlice):
         """Tests subset fancy creation from array __getitem__.
 
         :param scaled_varray: Pre created Varray
@@ -485,15 +466,11 @@ class TestVArrayMethods:
                 np.index_exp[0, 0],
             ),
             (
-                np.index_exp[
-                    datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat()
-                ],
+                np.index_exp[datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat()],
                 np.index_exp[14, 12],
             ),
             (
-                np.index_exp[
-                    datetime(2023, 1, 31).isoformat(), datetime(2023, 1, 1, 23).isoformat()
-                ],
+                np.index_exp[datetime(2023, 1, 31).isoformat(), datetime(2023, 1, 1, 23).isoformat()],
                 np.index_exp[-1, -1],
             ),
             (
@@ -504,15 +481,11 @@ class TestVArrayMethods:
                 np.index_exp[1:29, 4:23],
             ),
             (
-                np.index_exp[
-                    : datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat() :
-                ],
+                np.index_exp[: datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat() :],
                 np.index_exp[:14, 12:],
             ),
             (
-                np.index_exp[
-                    datetime(2023, 1, 10).isoformat() :, : datetime(2023, 1, 1, 4).isoformat()
-                ],
+                np.index_exp[datetime(2023, 1, 10).isoformat() :, : datetime(2023, 1, 1, 4).isoformat()],
                 np.index_exp[9:, :4],
             ),
             (
@@ -538,12 +511,12 @@ class TestVArrayMethods:
             ),
             (
                 np.index_exp[
-                    datetime(2023, 1, 2, tzinfo=timezone.utc)
-                    .timestamp() : datetime(2023, 1, 30, tzinfo=timezone.utc)
-                    .timestamp(),
-                    datetime(2023, 1, 1, 4, tzinfo=timezone.utc)
-                    .timestamp() : datetime(2023, 1, 1, 23, tzinfo=timezone.utc)
-                    .timestamp(),
+                    datetime(2023, 1, 2, tzinfo=timezone.utc).timestamp() : datetime(
+                        2023, 1, 30, tzinfo=timezone.utc
+                    ).timestamp(),
+                    datetime(2023, 1, 1, 4, tzinfo=timezone.utc).timestamp() : datetime(
+                        2023, 1, 1, 23, tzinfo=timezone.utc
+                    ).timestamp(),
                 ],
                 np.index_exp[1:29, 4:23],
             ),
@@ -563,9 +536,7 @@ class TestVArrayMethods:
             ),
         ],
     )
-    def test_timed_varray_fancy_getitem_ok(
-        self, timed_varray: VArray, index_exp: Slice, fancy_index_exp: FancySlice
-    ):
+    def test_timed_varray_fancy_getitem_ok(self, timed_varray: VArray, index_exp: Slice, fancy_index_exp: FancySlice):
         """Tests subset fancy creation from varray __getitem__.
 
         :param timed_varray: Pre created varray
@@ -610,14 +581,8 @@ class TestVArrayMethods:
             np.index_exp[:, 0.1],
             np.index_exp[:, -0.1],
             np.index_exp[datetime(2023, 1, 1) : datetime(2023, 1, 2).isoformat()],
-            np.index_exp[
-                datetime(2023, 1, 1)
-                .isoformat() : datetime(2023, 1, 2, tzinfo=timezone.utc)
-                .timestamp()
-            ],
-            np.index_exp[
-                datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp() : datetime(2023, 1, 2)
-            ],
+            np.index_exp[datetime(2023, 1, 1).isoformat() : datetime(2023, 1, 2, tzinfo=timezone.utc).timestamp()],
+            np.index_exp[datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp() : datetime(2023, 1, 2)],
             np.index_exp[
                 datetime(2023, 1, 1, tzinfo=timezone(timedelta(hours=2))).timestamp(),
                 datetime(2023, 1, 1, tzinfo=timezone(timedelta(hours=2))).timestamp(),
@@ -680,9 +645,7 @@ class TestVArrayMethods:
                 collection.delete()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_varray_getitem_ok(
-        self, inserted_varray: VArray, array_data: ndarray, index_exp: Slice
-    ):
+    def test_varray_getitem_ok(self, inserted_varray: VArray, array_data: ndarray, index_exp: Slice):
         """Tests subset creation from array __getitem__.
 
         :param inserted_varray: Pre created VArray
@@ -746,24 +709,20 @@ class TestVArrayMethods:
         factory,
         id_: Any,
     ):
-        varray_adapter = factory.get_varray_adapter(
-            varray_collection.path, storage_adapter=HDF5StorageAdapter
-        )
-        array_adapter = factory.get_array_adapter(
-            varray_collection.path, HDF5StorageAdapter, varray_collection.options
-        )
+        varray_adapter = factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(varray_collection.path, HDF5StorageAdapter, varray_collection.options)
         with pytest.raises(DekerValidationError):
             assert VArray(varray_collection, varray_adapter, array_adapter, id_=id_)
 
     def test_varray_str(self, varray: VArray, varray_with_attributes: VArray):
         arrays = (varray, varray_with_attributes)
         for ar in arrays:
-            s = f"{ar.__class__.__name__}({ar.id!r}"
+            s = f"{ar.__class__.__name__}({ar.id!r}"  # noqa: F841  # the test asserts nothing
 
     def test_varray_repr(self, varray: VArray, varray_with_attributes: VArray):
         arrays = (varray, varray_with_attributes)
         for ar in arrays:
-            s = f"{ar.__class__.__name__}(" f"id={ar.id!r}, " f"collection={ar.collection!r})"
+            s = f"{ar.__class__.__name__}(id={ar.id!r}, collection={ar.collection!r})"
             if ar.primary_attributes:
                 s = s[:-1] + f", primary_attributes={ar.primary_attributes!r})"
             if ar.custom_attributes:
@@ -772,14 +731,14 @@ class TestVArrayMethods:
 
     @pytest.mark.parametrize(
         "index_exp",
-        (
+        [
             (None, slice(None, None, 2)),
             (None, slice(None, None, -2)),
             (slice(None, None, -2)),
             (slice(None, None, 2)),
             (slice(None, None, 0)),
             (slice(None, None, None), slice(None, None, None), slice(None, None, 3)),
-        ),
+        ],
     )
     def test_step_validaor(self, varray: VArray, index_exp):
         with pytest.raises(IndexError):

@@ -17,7 +17,6 @@
 """Abstract wrappers for array dimension and dimension index labels."""
 
 from abc import ABC
-from typing import Union
 
 from deker.errors import DekerValidationError
 from deker.types.private.classes import Serializer
@@ -28,7 +27,7 @@ class BaseDimension(Serializer, ABC):
 
     __slots__ = ("__name", "__size", "__step")
 
-    def _validate(self, name: str, size: int, **kwargs: dict) -> None:  # noqa[ARG002]
+    def _validate(self, name: str, size: int, **kwargs: dict) -> None:  # noqa: ARG002
         if not isinstance(name, str):
             raise DekerValidationError("Name shall be str")
         if not name or name.isspace():
@@ -54,6 +53,6 @@ class BaseDimension(Serializer, ABC):
         return self.__size  # pragma: no cover
 
     @property
-    def step(self) -> Union[int, float]:
+    def step(self) -> int | float:
         """Dimension values step."""
         return self.__step  # pragma: no cover

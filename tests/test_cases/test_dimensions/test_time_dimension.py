@@ -39,9 +39,7 @@ class TestTimeDimensionStartValueValidation:
     )
     def test_time_dimension_start_value_raises_no_tzinfo(self, start_value):
         with pytest.raises(DekerValidationError):
-            assert TimeDimension(
-                name="td", size=2, start_value=start_value, step=timedelta(weeks=1)
-            )
+            assert TimeDimension(name="td", size=2, start_value=start_value, step=timedelta(weeks=1))
 
     @pytest.mark.parametrize(
         "start_value",
@@ -72,9 +70,7 @@ class TestTimeDimensionStartValueValidation:
     )
     def test_time_dimension_start_value_raises_invalid_type(self, start_value):
         with pytest.raises(DekerValidationError):
-            assert TimeDimension(
-                name="td", size=2, start_value=start_value, step=timedelta(weeks=1)
-            )
+            assert TimeDimension(name="td", size=2, start_value=start_value, step=timedelta(weeks=1))
 
 
 class TestTimeDimensionStepValidation:

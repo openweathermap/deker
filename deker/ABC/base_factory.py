@@ -18,7 +18,7 @@
 
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Tuple
+from typing import TYPE_CHECKING, Any
 
 from deker.log import SelfLoggerMixin
 
@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 class BaseAdaptersFactory(SelfLoggerMixin, ABC):
     """Base interface of Collections, Arrays and VArrays adapters' factory."""
 
-    uri_schemes: Tuple[str, ...]
+    uri_schemes: tuple[str, ...]
 
     def __init__(self, ctx: "CTX", uri: "Uri") -> None:
         self.ctx = ctx
@@ -61,8 +61,9 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
     def get_array_adapter(self, *args: Any, **kwargs: Any) -> "BaseArrayAdapter":
         """Create ArrayAdapter instance.
 
-        :param args: any arguments
-        :param kwargs: any keyword arguments
+        :param *args: any arguments
+        :param **kwargs: any keyword arguments
+        :returns: ``ArrayAdapter`` instance
         """
         pass
 
@@ -70,8 +71,9 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
     def get_varray_adapter(self, *args: Any, **kwargs: Any) -> "BaseVArrayAdapter":  # type: ignore[return-value]
         """Create VArrayAdapter instance.
 
-        :param args: any arguments
-        :param kwargs: any keyword arguments
+        :param *args: any arguments
+        :param **kwargs: any keyword arguments
+        :returns: ``VArrayAdapter`` instance
         """
         pass
 
@@ -79,7 +81,8 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
     def get_collection_adapter(self, *args: Any, **kwargs: Any) -> "BaseCollectionAdapter":
         """Create collection adapter.
 
-        :param args: any arguments
-        :param kwargs: any keyword arguments
+        :param *args: any arguments
+        :param **kwargs: any keyword arguments
+        :returns: ``CollectionAdapter`` instance
         """
         pass

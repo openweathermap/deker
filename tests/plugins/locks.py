@@ -7,7 +7,7 @@ from deker.locks import ReadArrayLock, WriteArrayLock, WriteVarrayLock
 from deker.subset import VSubset
 
 
-@pytest.fixture()
+@pytest.fixture
 def read_array_lock(local_array_adapter: LocalArrayAdapter) -> ReadArrayLock:
     """Create an instance of ReadArrayLock."""
     lock = ReadArrayLock()
@@ -15,7 +15,7 @@ def read_array_lock(local_array_adapter: LocalArrayAdapter) -> ReadArrayLock:
     return lock
 
 
-@pytest.fixture()
+@pytest.fixture
 def write_array_lock(local_array_adapter: LocalArrayAdapter) -> WriteArrayLock:
     """Create an instance of WriteArrayLock."""
     lock = WriteArrayLock()
@@ -23,7 +23,7 @@ def write_array_lock(local_array_adapter: LocalArrayAdapter) -> WriteArrayLock:
     return lock
 
 
-@pytest.fixture()
+@pytest.fixture
 def write_varray_lock(inserted_varray: VArray, varray_full_subset: VSubset) -> WriteVarrayLock:
     """Create an instance of WriteVarrayLock."""
     lock = WriteVarrayLock()

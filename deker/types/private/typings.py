@@ -17,7 +17,7 @@
 """Module for using in type annotations. Not for direct initialization."""
 
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Tuple, Type, Union
+from typing import TYPE_CHECKING, Union
 
 import numpy as np
 
@@ -47,7 +47,7 @@ EllipsisType = type(...)
 NoneType = type(None)
 
 if TYPE_CHECKING:
-    EllipsisType = Type[Ellipsis]
+    EllipsisType = type[Ellipsis]
 
 NumericDtypes = [
     int,
@@ -140,7 +140,7 @@ Slice = Union[
     slice,
     EllipsisType,  # type: ignore
     int,
-    Tuple[Union[slice, int, EllipsisType, None], ...],  # type: ignore
+    tuple[Union[slice, int, EllipsisType, None], ...],  # type: ignore
 ]
 
 FancySlice = Union[
@@ -152,9 +152,9 @@ FancySlice = Union[
     str,
     datetime,
     None,
-    Tuple[Union[IndexExpression, slice, int, float, str, datetime, EllipsisType, None], ...],  # type: ignore
+    tuple[Union[IndexExpression, slice, int, float, str, datetime, EllipsisType, None], ...],  # type: ignore
 ]
 
-ArraysInDimension = List[ArraysCoordinatesWithOffset]
-ArraysCoordinates = List[ArraysInDimension]
-Arrays = List[ArrayPosition]
+ArraysInDimension = list[ArraysCoordinatesWithOffset]
+ArraysCoordinates = list[ArraysInDimension]
+Arrays = list[ArrayPosition]

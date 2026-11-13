@@ -9,7 +9,6 @@
 import os
 import sys
 
-
 # Add support for auto-doc
 
 # Ensure that sanic is present in the path, to allow sphinx-apidoc to

@@ -66,9 +66,7 @@ from deker.uri import Uri
         ),
     ],
 )
-def test_create_uri(
-    uri, scheme, username, password, hostname, port, netloc, path, params, query, fragment
-):
+def test_create_uri(uri, scheme, username, password, hostname, port, netloc, path, params, query, fragment):
     """Tests parsing Uri."""
     result = Uri.create(uri)
     assert result.scheme == scheme
@@ -83,7 +81,7 @@ def test_create_uri(
     assert result.fragment == fragment
 
 
-@pytest.mark.xfail()
+@pytest.mark.xfail
 @pytest.mark.parametrize(
     "uri_str",
     [
@@ -141,9 +139,7 @@ def test_uri_path_concatenation(string):
     """Test if Uri joins to another string / path correctly."""
     uri = Uri.create(string)
     new_uri = uri / Path("some_path") / "some_extra" / "/some_slash_extra"
-    assert new_uri.raw_url == "/".join(
-        (uri.raw_url, "some_path", "some_extra", "/some_slash_extra")
-    )
+    assert new_uri.raw_url == "/".join((uri.raw_url, "some_path", "some_extra", "/some_slash_extra"))
 
 
 @pytest.mark.parametrize(
@@ -161,9 +157,7 @@ def test_uri_path_concatenation(string):
 def test_uri_path_concatenation_with_assignment_wrong_expectations(string):
     init_uri = uri = Uri.create(string)
     uri /= Path("some_path") / "some_extra" / "/some_slash_extra"
-    assert uri.raw_url != "/".join(
-        (init_uri.raw_url, "some_path", "some_extra", "/some_slash_extra")
-    )
+    assert uri.raw_url != "/".join((init_uri.raw_url, "some_path", "some_extra", "/some_slash_extra"))
     assert uri.raw_url == "/".join((init_uri.raw_url, "/some_slash_extra"))
 
 
@@ -186,8 +180,8 @@ def test_uri_path_correct_concatenation_with_assignment(string):
 
 
 @pytest.mark.parametrize(
-    "kwargs,result",
-    (
+    ("kwargs", "result"),
+    [
         ({"netloc": "foo", "scheme": "file"}, ("file://foo", None)),
         ({"netloc": "foo", "scheme": "ftp"}, ("ftp://foo", None)),
         (
@@ -198,7 +192,7 @@ def test_uri_path_correct_concatenation_with_assignment(string):
             {"netloc": "host1:8000,host2:8001", "scheme": "http"},
             ("host1:8000", ["http://host2:8001"]),
         ),
-    ),
+    ],
 )
 def test_uri_get_netloc_and_servers(kwargs, result):
     parsed_netloc, parsed_servers = Uri._Uri__get_servers_and_netloc(**kwargs)
@@ -208,6 +202,24 @@ def test_uri_get_netloc_and_servers(kwargs, result):
         assert list(parsed_servers) == servers
     else:
         assert parsed_servers is None
+
+
+class TestUriDelimiters:
+    def test_uri_delimiter_constants(self):
+        """Tests the delimiters the parser is built on."""
+        assert Uri.NETLOC_SEPARATOR == "://"
+        assert Uri.SERVERS_SEPARATOR == "@"
+        assert Uri.SERVERS_DIVIDER == ","
+        assert Uri.PATH_SEPARATOR == "/"
+        assert Uri.PARAMS_SEPARATOR == ";"
+
+    def test_uri_annotations_compatibility_mapping(self):
+        """Tests if the legacy ``Uri.__annotations__`` mapping, read by older adapters, is still published."""
+        assert Uri.__annotations__["netloc"]["separator"] == Uri.NETLOC_SEPARATOR
+        assert Uri.__annotations__["servers"] == {"separator": Uri.SERVERS_SEPARATOR, "divider": Uri.SERVERS_DIVIDER}
+        assert Uri.__annotations__["path"]["separator"] == Uri.PATH_SEPARATOR
+        assert Uri.__annotations__["params"]["separator"] == Uri.PARAMS_SEPARATOR
+        assert list(Uri.__annotations__) == ["scheme", "netloc", "servers", "path", "params", "query", "fragment"]
 
 
 if __name__ == "__main__":

@@ -14,17 +14,18 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from __future__ import annotations
 
 import importlib
 import os
 import pkgutil
 import warnings
 
+from collections.abc import Generator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, Generator, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any
 
 from deker_tools.data import convert_size_to_human
 from deker_tools.log import set_logger
@@ -51,8 +52,6 @@ from deker.uri import Uri
 from deker.warnings import DekerWarning
 
 if TYPE_CHECKING:
-    from concurrent.futures import ThreadPoolExecutor
-
     from deker.ABC.base_adapters import BaseCollectionAdapter
     from deker.ABC.base_collection import BaseCollectionOptions
     from deker.ABC.base_factory import BaseAdaptersFactory
@@ -129,7 +128,7 @@ class Client(SelfLoggerMixin):
         "__factory",
     )
 
-    __plugins: Dict[str, Type[BaseAdaptersFactory]] = {}
+    __plugins: dict[str, type["BaseAdaptersFactory"]] = {}
 
     def _open(self) -> None:
         """Open client.
@@ -138,9 +137,7 @@ class Client(SelfLoggerMixin):
         Normally, you don't need to use it yourself.
         """
         if not self.__plugins:
-            raise DekerClientError(
-                "No installed adapters are found: run `pip install deker_local_adapters`"
-            )
+            raise DekerClientError("No installed adapters are found: run `pip install deker_local_adapters`")
 
         if self.__uri.scheme not in self.__plugins:  # type: ignore[attr-defined]
             raise DekerClientError(
@@ -172,9 +169,7 @@ class Client(SelfLoggerMixin):
     def __get_plugins(self) -> None:
         """Get Deker adapters plugins."""
         for package in pkgutil.iter_modules():
-            if package.ispkg and (
-                package.name.startswith("deker_") and package.name.endswith("_adapters")
-            ):
+            if package.ispkg and (package.name.startswith("deker_") and package.name.endswith("_adapters")):
                 module = importlib.import_module(package.name)
                 factory = module.AdaptersFactory
                 for scheme in factory.uri_schemes:
@@ -185,12 +180,12 @@ class Client(SelfLoggerMixin):
         self,
         uri: str = "",
         *,
-        executor: Optional[ThreadPoolExecutor] = None,
-        workers: Optional[int] = None,
+        executor: ThreadPoolExecutor | None = None,
+        workers: int | None = None,
         write_lock_timeout: int = 60,
         write_lock_check_interval: int = 1,
         loglevel: str = "ERROR",
-        memory_limit: Union[int, str] = 0,
+        memory_limit: int | str = 0,
         skip_collection_create_memory_check: bool = False,
         **kwargs: Any,
     ) -> None:
@@ -210,7 +205,7 @@ class Client(SelfLoggerMixin):
 
           .. note:: This parameter is used for early runtime break in case of potential memory overflow
         :param skip_collection_create_memory_check: If we don't want to check size during collection creation
-        :param kwargs: a wildcard, reserved for any extra parameters
+        :param **kwargs: a wildcard, reserved for any extra parameters
         """
         try:
             set_logger(format_string)
@@ -234,10 +229,10 @@ class Client(SelfLoggerMixin):
             )
             self.__uri: Uri = Uri.create(self.__config.uri)
             self.__is_closed: bool = True
-            self.__adapter: Optional["BaseCollectionAdapter"] = None
-            self.__factory: Optional["BaseAdaptersFactory"] = None
-            self.__ctx: Optional[CTX] = None
-            self.__executor: Optional[ThreadPoolExecutor] = executor
+            self.__adapter: BaseCollectionAdapter | None = None
+            self.__factory: BaseAdaptersFactory | None = None
+            self.__ctx: CTX | None = None
+            self.__executor: ThreadPoolExecutor | None = executor
             self.kwargs = kwargs
             self._open()
         except Exception as e:
@@ -252,10 +247,7 @@ class Client(SelfLoggerMixin):
 
         :param collection_metadata: Dictionary with collection metadata
         """
-        if (
-            "metadata_version" not in collection_metadata
-            or collection_metadata["metadata_version"] > self.meta_version
-        ):
+        if "metadata_version" not in collection_metadata or collection_metadata["metadata_version"] > self.meta_version:
             raise DekerMetaDataError(
                 f"Collection metadata version is not supported by this version: adapter metadata version: "
                 f"{self.meta_version}, collection metadata version: {collection_metadata.get('metadata_version')}"
@@ -295,14 +287,13 @@ class Client(SelfLoggerMixin):
         .. warning:: Size calculation may take a long time. Maybe you'd like to have some coffee while it's working.
 
         :param collection_name: Name of a ``Collection``. If not passed, the whole storage will be counted.
+        :returns: storage size in bytes and in human representation
         """
-        paths: List[Tuple[Path, str]] = []
+        paths: list[tuple[Path, str]] = []
         if collection_name:
             collection = self.get_collection(collection_name)
             if not collection:
-                raise DekerCollectionNotExistsError(
-                    f"Collection {collection_name} does not exist at this storage"
-                )
+                raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
             paths.append(
                 (
                     collection.path / self.__config.array_symlinks_directory,
@@ -358,9 +349,9 @@ class Client(SelfLoggerMixin):
     def create_collection(
         self,
         name: str,
-        schema: Union[ArraySchema, VArraySchema],  # type: ignore[arg-type]
-        collection_options: Optional[BaseCollectionOptions] = None,
-        storage_adapter_type: Optional[str] = None,
+        schema: ArraySchema | VArraySchema,  # type: ignore[arg-type]
+        collection_options: "BaseCollectionOptions | None" = None,
+        storage_adapter_type: str | None = None,
     ) -> Collection:
         """Create a new ``Collection`` in the database.
 
@@ -368,14 +359,13 @@ class Client(SelfLoggerMixin):
         :param schema: ``Array`` or ``VArray`` schema
         :param collection_options: Options for compression and chunks (if applicable)
         :param storage_adapter_type: Type of an adapter, which works with files; default is ``HDF5StorageAdapter``
+        :returns: the created ``Collection``
         """
         if not isinstance(name, str) or not name or name.isspace():
             raise DekerValidationError(f"Collection invalid name: {name}")
 
         if not isinstance(schema, (ArraySchema, VArraySchema)):
-            raise DekerValidationError(
-                f"Invalid schema type: {type(schema)}; ArraySchema or VArraySchema expected"
-            )
+            raise DekerValidationError(f"Invalid schema type: {type(schema)}; ArraySchema or VArraySchema expected")
         # Pick correct adapter
         collection = Collection(
             name=name,
@@ -393,10 +383,11 @@ class Client(SelfLoggerMixin):
     def get_collection(
         self,
         name: str,
-    ) -> Optional[Collection]:
+    ) -> Collection | None:
         """Get ``Collection`` from database by its name.
 
         :param name: Name of a ``Collection``
+        :returns: the ``Collection``, or ``None`` if it does not exist
         """
         try:
             collection_data: dict = self.__adapter.read(name)
@@ -416,6 +407,7 @@ class Client(SelfLoggerMixin):
         Not recommended to use except for validation.
 
         :param collection_data: Dictionary with collection metadata
+        :returns: validated ``Collection`` instance
         """
         self._validate_collection_metadata_version(collection_data)
         # TODO: add tests for update logic, edge cases for ifs
@@ -452,6 +444,7 @@ class Client(SelfLoggerMixin):
         """Create a new ``Collection`` in the database from collection metadata dictionary.
 
         :param collection_data: Dictionary with collection metadata
+        :returns: the created ``Collection``
         """
         collection = self._validate_collection(collection_data)
         self.__adapter.create(collection)
@@ -460,7 +453,7 @@ class Client(SelfLoggerMixin):
 
     @staticmethod
     def _iter_collection_locks(
-        path: Path, collection_name: str, lock_type: Union[LocksTypes, None] = None
+        path: Path, collection_name: str, lock_type: LocksTypes | None = None
     ) -> list[ArrayLockMeta]:
         """Return collection ``Arrays'`` lockfiles.
 
@@ -468,6 +461,7 @@ class Client(SelfLoggerMixin):
         :param collection_name: name of a ``Collection``
           If passed - gets locks only from passed collection, else checks every collection in client
         :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
+        :returns: lock files of the collection arrays
         """
         locks: list[ArrayLockMeta] = []
         for file in Path.rglob(path, "*lock"):
@@ -497,25 +491,22 @@ class Client(SelfLoggerMixin):
     # TODO: decide on private/public method
     def _get_locks(
         self,
-        collection_name: Union[str, None] = None,
-        lock_type: Union[LocksTypes, None] = None,
-    ) -> list[Union[CollectionLockMeta, ArrayLockMeta]]:
+        collection_name: str | None = None,
+        lock_type: LocksTypes | None = None,
+    ) -> list[CollectionLockMeta | ArrayLockMeta]:
         """Return lockfiles of ``Collections`` and ``Arrays``.
 
         :param collection_name: Name of a ``Collection``
           If passed - gets locks only from passed ``Collection``, else checks every collection in the storage
         :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
+        :returns: lock files of collections and arrays
         """
-        locks: list[Union[CollectionLockMeta, ArrayLockMeta]] = []
+        locks: list[CollectionLockMeta | ArrayLockMeta] = []
         if collection_name:
             collection = self.get_collection(collection_name)
             if not collection:
-                raise DekerCollectionNotExistsError(
-                    f"Collection {collection_name} does not exist at this storage"
-                )
-            locks = self._iter_collection_locks(
-                self.root_path / collection_name, collection_name, lock_type
-            )
+                raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
+            locks = self._iter_collection_locks(self.root_path / collection_name, collection_name, lock_type)
         else:
             for directory in Path(self.root_path).iterdir():
                 if (
@@ -535,7 +526,7 @@ class Client(SelfLoggerMixin):
                 locks.extend(self._iter_collection_locks(directory, directory.name, lock_type))
         return locks
 
-    def clear_locks(self, collection_name: Union[str, None] = None) -> None:
+    def clear_locks(self, collection_name: str | None = None) -> None:
         """Clear the readlocks of Arrays and/or VArrays.
 
         :param collection_name: Name of a ``Collection``.
@@ -547,15 +538,11 @@ class Client(SelfLoggerMixin):
         if collection_name:
             collection = self.get_collection(collection_name)
             if not collection:
-                raise DekerCollectionNotExistsError(
-                    f"Collection {collection_name} does not exist at this storage"
-                )
+                raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
             root_path = root_path / collection_name
 
         for file in Path.rglob(root_path, "*lock"):
-            if file.name.endswith(
-                (LocksExtensions.array_read_lock.value, LocksExtensions.varray_lock.value)
-            ):
+            if file.name.endswith((LocksExtensions.array_read_lock.value, LocksExtensions.varray_lock.value)):
                 file.unlink()
                 files_count += 1
 
@@ -565,8 +552,8 @@ class Client(SelfLoggerMixin):
         self,
         level: int = 1,
         stop_on_error: bool = True,
-        to_file: Union[bool, Path, str] = False,
-        collection: Union[str, None] = None,
+        to_file: bool | Path | str = False,
+        collection: str | None = None,
     ) -> None:
         """Run storage integrity check at one of 4 levels.
 
@@ -594,25 +581,23 @@ class Client(SelfLoggerMixin):
             elif isinstance(to_file, str):
                 filename = Path(to_file)
             else:
-                filename = (
-                    Path(".")
-                    / f"deker_integrity_report_{datetime.now().isoformat(timespec='seconds')}.txt"
-                )
+                filename = Path(".") / f"deker_integrity_report_{datetime.now().isoformat(timespec='seconds')}.txt"
             is_path_valid(filename.parent.absolute())
             with filename.open("w") as f:
                 f.write(errors)
-            errors += f"\n\nIntegrity check logged errors in {to_file.absolute()}"
+            errors += f"\n\nIntegrity check logged errors in {filename.absolute()}"
         print(errors)
 
-    def __iter__(self) -> Generator[Collection, None, None]:
+    def __iter__(self) -> Generator[Collection]:
         """Iterate over all collections in the storage."""
         for meta in self.__adapter:
             collection = self.__adapter.create_collection_from_meta(
-                meta, self.__factory  # type: ignore[arg-type]
+                meta,
+                self.__factory,  # type: ignore[arg-type]
             )
             yield collection
 
-    def __enter__(self) -> Client:
+    def __enter__(self) -> "Client":
         self._open()
         return self
 

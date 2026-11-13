@@ -55,4 +55,4 @@ class DekerConfig:
         for field in fields(self.__class__):  # type: ignore[arg-type]
             default_value = getattr(self, field.name)
             if not isinstance(default_value, field.type):
-                raise ValueError(f"'{field.name}' setting has wrong type")  # noqa[TRY004]
+                raise ValueError(f"'{field.name}' setting has wrong type")  # noqa: TRY004

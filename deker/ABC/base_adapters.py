@@ -20,9 +20,10 @@ import datetime
 import logging
 
 from abc import ABC, abstractmethod
+from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Generator, List, Optional, Tuple, Type, Union, get_args
+from typing import TYPE_CHECKING, Any, Optional, Union, get_args
 
 import numpy as np
 
@@ -62,13 +63,11 @@ class BaseStorageAdapter(ABC):
     """
 
     file_ext: str
-    storage_options: Type["BaseCollectionOptions"]
+    storage_options: type["BaseCollectionOptions"]
 
     @classmethod
     @abstractmethod
-    def create(
-        cls, path: Path, array_shape: Tuple[int, ...], metadata: Union[str, bytes, dict]
-    ) -> None:
+    def create(cls, path: Path, array_shape: tuple[int, ...], metadata: str | bytes | dict) -> None:
         """Create a new hdf5 file with metadata.
 
         :param path: path to hdf5 file
@@ -82,10 +81,10 @@ class BaseStorageAdapter(ABC):
     def read_data(
         cls,
         path: Path,
-        array_shape: Tuple[int, EllipsisType],  # type: ignore
+        array_shape: tuple[int, EllipsisType],  # type: ignore
         bounds: Slice,
         fill_value: Numeric,
-        dtype: Type[Numeric],
+        dtype: type[Numeric],
     ) -> ndarray:
         """Read array data from hdf5 file.
 
@@ -94,6 +93,7 @@ class BaseStorageAdapter(ABC):
         :param bounds: array slice
         :param fill_value: value to fill the empty array
         :param dtype: array dtype
+        :returns: data within the bounds
         """
         pass
 
@@ -103,6 +103,7 @@ class BaseStorageAdapter(ABC):
         """Read array metadata from hdf5 file.
 
         :param path: path to hdf5 file
+        :returns: array metadata
         """
         pass
 
@@ -113,7 +114,7 @@ class BaseStorageAdapter(ABC):
         path: Path,
         bounds: Slice,
         data: Any,
-        dtype: Type[Numeric],
+        dtype: type[Numeric],
         shape: tuple,
         fill_value: Numeric,
         collection_options: Optional["BaseCollectionOptions"],
@@ -137,20 +138,20 @@ class BaseStorageAdapter(ABC):
 
         :param path: path to hdf5 file
         :param attributes: new custom attributes
+        :returns: the stored custom attributes
         """
         pass
 
     @classmethod
     @abstractmethod
-    def clear_data(
-        cls, path: Path, array_shape: Tuple[int, ...], bounds: Slice, fill_value: Numeric
-    ) -> bool:
+    def clear_data(cls, path: Path, array_shape: tuple[int, ...], bounds: Slice, fill_value: Numeric) -> bool:
         """Clear array data in hdf5 file.
 
         :param path: path to hdf5 file
         :param array_shape: array shape
         :param bounds: array bounds to update
         :param fill_value: array fill_value
+        :returns: whether the data was cleared
         """
         pass
 
@@ -192,6 +193,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
         """Read collection metadata.
 
         :param name: Collection name
+        :returns: collection metadata
         """
         pass
 
@@ -212,13 +214,12 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
         pass
 
     @check_ctx_state
-    def create_collection_from_meta(
-        self, collection_data: dict, factory: "BaseAdaptersFactory"
-    ) -> "Collection":
+    def create_collection_from_meta(self, collection_data: dict, factory: "BaseAdaptersFactory") -> "Collection":
         """Create a Collection instance from meta information.
 
         :param collection_data: dict with information about Collection (schemas, vgrid, etc)
         :param factory: adapters factory instance
+        :returns: the created ``Collection``
         """
         from deker.collection import Collection
 
@@ -230,9 +231,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
 
         try:
             dtype = DTypeEnum[data["dtype"].split("numpy.")[-1]].value
-            fill_value = (
-                dtype(data["fill_value"]) if data["fill_value"] is not None else data["fill_value"]
-            )
+            fill_value = dtype(data["fill_value"]) if data["fill_value"] is not None else data["fill_value"]
             # Create schema
             schema = schema_class(
                 **{
@@ -244,13 +243,9 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
                 }
             )
             storage_adapter = self.get_storage_adapter(collection_data.get("storage_adapter"))
-            coll_params = storage_adapter.storage_options._process_options(
-                collection_data.get("options")
-            )
+            coll_params = storage_adapter.storage_options._process_options(collection_data.get("options"))
 
-            collection_options = (
-                storage_adapter.storage_options(**coll_params) if coll_params else None
-            )
+            collection_options = storage_adapter.storage_options(**coll_params) if coll_params else None
 
             collection = Collection(
                 name=name,
@@ -264,14 +259,15 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
             logging.debug(f"Collection {collection.name} read")
             return collection
         except (KeyError, ValueError, TypeError, AttributeError) as e:
-            logging.exception(e)  # noqa[TRY401]
+            logging.exception(e)  # noqa: TRY401
             raise DekerMetaDataError(f'Collection "{name}" metadata is invalid/corrupted: {e}')
 
     @staticmethod
-    def get_storage_adapter(storage_adapter: Optional[str] = None) -> Type[BaseStorageAdapter]:
+    def get_storage_adapter(storage_adapter: str | None = None) -> type[BaseStorageAdapter]:
         """Get storage adapter type.
 
         :param storage_adapter: Storage adapter name
+        :returns: storage adapter class of the given type
         """
         from deker_local_adapters import storage_adapter_factory
 
@@ -291,7 +287,7 @@ class IArrayAdapter(ABC):
         collection_path: Union["Uri", Path],
         ctx: CTX,
         executor: ThreadPoolExecutor,
-        storage_adapter: Type[BaseStorageAdapter],
+        storage_adapter: type[BaseStorageAdapter],
     ) -> None:
         self.collection_path = collection_path
         self.ctx = ctx
@@ -301,17 +297,18 @@ class IArrayAdapter(ABC):
 
     @staticmethod
     def _process_data(
-        array_dtype: Type[Numeric],
+        array_dtype: type[Numeric],
         array_shape: tuple,
         data: Data,
-        bounds: Optional[Slice] = None,
-    ) -> Union[ndarray, Numeric]:
+        bounds: Slice | None = None,
+    ) -> ndarray | Numeric:
         """Validate data over array dtype and bounds.
 
         :param array_dtype: array dtype
         :param array_shape: array shape
         :param data: data to be validated
         :param bounds: array bounds
+        :returns: data converted to the array dtype and the shape of the bounds
         """
         if not isinstance(data, (list, tuple, np.ndarray, get_args(Numeric))):  # type: ignore[arg-type]
             raise DekerArrayTypeError(f"Invalid data type: {type(data)}; {array_dtype} expected")
@@ -321,15 +318,11 @@ class IArrayAdapter(ABC):
             if data_type != array_dtype:
                 cdata = array_dtype(data)  # type: ignore[arg-type]
                 if data_type(cdata) != data:  # type: ignore[arg-type,call-overload]
-                    raise DekerArrayTypeError(
-                        f"Invalid data type: {type(data)}; {array_dtype} expected"
-                    )
+                    raise DekerArrayTypeError(f"Invalid data type: {type(data)}; {array_dtype} expected")
                 data = cdata
         else:
             sliced_bounds = (
-                np.index_exp[:]
-                if bounds is None or bounds == slice(None, None, None)
-                else np.index_exp[bounds]  # type: ignore[type-var]
+                np.index_exp[:] if bounds is None or bounds == slice(None, None, None) else np.index_exp[bounds]  # type: ignore[type-var]
             )
             shape = create_shape_from_slice(array_shape, sliced_bounds)  # type: ignore[arg-type]
 
@@ -341,9 +334,7 @@ class IArrayAdapter(ABC):
 
             if isinstance(data, ndarray):
                 if data.dtype != array_dtype:
-                    raise DekerArrayTypeError(
-                        f"Invalid data dtype: {data.dtype}; {array_dtype} expected"
-                    )
+                    raise DekerArrayTypeError(f"Invalid data dtype: {data.dtype}; {array_dtype} expected")
                 if shape != data.shape:
                     raise IndexError(f"Invalid data shape: {data.shape}; {shape} expected")
         return data  # type: ignore[return-value]
@@ -353,6 +344,7 @@ class IArrayAdapter(ABC):
         """Create Array or VArray in the database.
 
         :param array: instance of Array or VArray
+        :returns: the created ``Array`` or ``VArray``
         """
         pass
 
@@ -361,6 +353,7 @@ class IArrayAdapter(ABC):
         """Read array metadata.
 
         :param array: Array or VArray instance or Path to meta file
+        :returns: array metadata
         """
         pass
 
@@ -385,11 +378,12 @@ class IArrayAdapter(ABC):
         pass
 
     @abstractmethod
-    def read_data(self, array: "BaseArray", bounds: Slice) -> Union[Numeric, ndarray]:
+    def read_data(self, array: "BaseArray", bounds: Slice) -> Numeric | ndarray:
         """Read data from a section of array.
 
         :param array: Array or VArray
         :param bounds: bounds of a section to be read
+        :returns: data within the bounds
         """
         pass
 
@@ -417,6 +411,7 @@ class IArrayAdapter(ABC):
         """Check if array was deleted.
 
         :param array: Array to check
+        :returns: ``True`` if the array no longer exists in the storage
         """
         pass
 
@@ -427,7 +422,7 @@ class IArrayAdapter(ABC):
         collection: "Collection",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
-    ) -> List[Union["Array", "VArray"]]:
+    ) -> list[Union["Array", "VArray"]]:
         """Filter arrays.
 
         :param filters:  dict with filtering criteria
@@ -435,6 +430,7 @@ class IArrayAdapter(ABC):
         :param collection: Collection instance
         :param array_adapter: Arrays' adapter
         :param varray_adapter: VArrays' adapter
+        :returns: arrays matching the filter
         """
         # If we got "id" in filters, just return the array with the given ID
         # (Till AND/OR logic not implemented)
@@ -482,13 +478,14 @@ class IArrayAdapter(ABC):
         collection: "Collection",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
-    ) -> Optional[Union["Array", "VArray"]]:
+    ) -> Union["Array", "VArray"] | None:
         """Find Array or VArray  by id.
 
         :param id_: Array id
         :param collection: Collection
         :param array_adapter: Arrays' adapter
         :param varray_adapter: VArrays' adapter
+        :returns: the array, or ``None`` if there is no array with this id
         """
         pass
 
@@ -500,7 +497,7 @@ class IArrayAdapter(ABC):
         collection: "Collection",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
-    ) -> Optional[Union["Array", "VArray"]]:
+    ) -> Union["Array", "VArray"] | None:
         """Find Array or VArray by given primary attributes.
 
         :param primary_attributes: key attributes
@@ -508,6 +505,7 @@ class IArrayAdapter(ABC):
         :param collection: Collection instance
         :param array_adapter: Arrays' adapter
         :param varray_adapter: VArrays' adapter
+        :returns: the array, or ``None`` if nothing matches the attributes
         """
         pass
 

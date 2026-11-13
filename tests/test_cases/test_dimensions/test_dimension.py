@@ -75,7 +75,8 @@ class TestDimensionNameValidation:
 
 class TestDimensionSizeValidators:
     @pytest.mark.parametrize(
-        "size", [1, 2, 200, 100000, 9223372036854775807]  # maximal valid value: (2**63 - 1)
+        "size",
+        [1, 2, 200, 100000, 9223372036854775807],  # maximal valid value: (2**63 - 1)
     )
     def test_dimension_size_ok(self, size: int):
         """Test size ok."""
@@ -216,13 +217,7 @@ class TestDimensionLabelsValidation:
 
     def test_dimension_repr(self, array: Array):
         for dim in array.dimensions:
-            s = (
-                f"{dim.__class__.__name__}("
-                f"name={dim.name!r}, "
-                f"size={dim.size!r}, "
-                f"step={dim.step!r}"
-                f")"
-            )
+            s = f"{dim.__class__.__name__}(name={dim.name!r}, size={dim.size!r}, step={dim.step!r})"
             if hasattr(dim, "labels") and dim.labels is not None:
                 s = s[:-1] + f", labels={dim.labels})"
             if hasattr(dim, "scale") and dim.scale is not None:

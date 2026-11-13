@@ -14,10 +14,11 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING
 
 from deker.ABC.base_array import BaseArray
 from deker.schemas import ArraySchema, VArraySchema
+from deker.subset import Subset, VSubset
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
@@ -92,20 +93,12 @@ class Array(BaseArray):
         self,
         collection: "Collection",
         adapter: "BaseArrayAdapter",
-        id_: Optional[str] = None,
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
+        id_: str | None = None,
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
     ) -> None:
-        """Array initialization.
-
-        :param collection: instance of the collection, to which the array is bound
-        :param adapter: Array adapter instance
-        :param id_: array unique uuid string
-        :param primary_attributes: primary attributes keyword mapping
-        :param custom_attributes: custom attributes keyword mapping
-        """
-        self.__collection = collection
-        self.__adapter = adapter
+        self.__collection: "Collection" = collection
+        self.__adapter: "BaseArrayAdapter" = adapter
         super().__init__(
             collection,
             self.__adapter,
@@ -116,16 +109,25 @@ class Array(BaseArray):
 
     @property
     def _adapter(self) -> "BaseArrayAdapter":
-        return self.__adapter  # type: ignore[return-value]
+        return self.__adapter
+
+    def _create_subset(self, bounds: tuple[slice | int, ...], shape: tuple[int, ...]) -> Subset:
+        """Create a lazy ``Subset`` bound to the ``Array``.
+
+        :param bounds: validated and normalized index expression
+        :param shape: subset shape
+        :returns: ``Subset`` for the given bounds
+        """
+        return Subset(bounds, shape, self, self.__adapter)
 
     @property
-    def _vid(self) -> Optional[str]:
+    def _vid(self) -> str | None:
         """Get id of the ``VArray`` to which the ``Array`` is bound."""
         if self.__collection.varray_schema:
             return self.primary_attributes.get("vid")
 
     @property
-    def _v_position(self) -> Optional[Tuple[int, ...]]:
+    def _v_position(self) -> tuple[int, ...] | None:
         """Get ``Array`` position in ``VArray``."""
         if self.__collection.varray_schema:
             vpos = self.primary_attributes.get("v_position")
@@ -214,22 +216,13 @@ class VArray(BaseArray):
         collection: "Collection",
         adapter: "BaseVArrayAdapter",
         array_adapter: "BaseArrayAdapter",
-        id_: Optional[str] = None,
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
+        id_: str | None = None,
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
     ) -> None:
-        """VArray initialization.
-
-        :param collection: instance of the collection, to which the virtual array is bound
-        :param adapter: VArray adapter instance
-        :param array_adapter: Array adapter instance
-        :param id_: virtual array unique uuid string
-        :param primary_attributes: any primary attribute keyword mapping
-        :param custom_attributes: any custom attributes keyword mapping
-        """
-        self.__collection = collection
-        self.__adapter = adapter
-        self.__array_adapter = array_adapter
+        self.__collection: "Collection" = collection
+        self.__adapter: "BaseVArrayAdapter" = adapter
+        self.__array_adapter: "BaseArrayAdapter" = array_adapter
         super().__init__(
             collection,
             id_=id_,
@@ -241,15 +234,24 @@ class VArray(BaseArray):
 
     @property
     def _adapter(self) -> "BaseVArrayAdapter":
-        return self.__adapter  # type: ignore[return-value]
+        return self.__adapter
+
+    def _create_subset(self, bounds: tuple[slice | int, ...], shape: tuple[int, ...]) -> VSubset:
+        """Create a lazy ``VSubset`` bound to the ``VArray``.
+
+        :param bounds: validated and normalized index expression
+        :param shape: subset shape
+        :returns: ``VSubset`` for the given bounds
+        """
+        return VSubset(bounds, shape, self, self.__array_adapter, self.__adapter, self.__collection)
 
     @property
-    def vgrid(self) -> Tuple[int, ...]:
+    def vgrid(self) -> tuple[int, ...]:
         """Get ``VArray`` virtual grid."""
         return self.schema.vgrid  # type: ignore[return-value]
 
     @property
-    def arrays_shape(self) -> Tuple[int, ...]:
+    def arrays_shape(self) -> tuple[int, ...]:
         """Get the shape of inner ``Arrays``."""
         return self.schema.arrays_shape  # type: ignore[return-value]
 
@@ -267,6 +269,6 @@ class VArray(BaseArray):
         self.logger.debug(f"VArray {self.id} is deleted")
 
     @property
-    def schema(self) -> Optional[VArraySchema]:
+    def schema(self) -> VArraySchema | None:
         """Return ``VArraySchema`` of the VArray's Collection."""
         return self.__collection.varray_schema

@@ -8,15 +8,13 @@ from deker.ctx import CTX
 from deker.integrity import ArraysChecker, CollectionsChecker, DataChecker, PathsChecker
 
 
-@pytest.fixture()
+@pytest.fixture
 def data_checker(client: Client, root_path: Path, ctx: CTX) -> DataChecker:
     """Data integrity checker."""
-    return DataChecker(
-        True, {}, defaultdict(list), 4, client, root_path / ctx.config.collections_directory
-    )
+    return DataChecker(True, {}, defaultdict(list), 4, client, root_path / ctx.config.collections_directory)
 
 
-@pytest.fixture()
+@pytest.fixture
 def paths_checker(
     client: Client,
     root_path: Path,
@@ -28,7 +26,7 @@ def paths_checker(
     return checker
 
 
-@pytest.fixture()
+@pytest.fixture
 def arrays_checker(client: Client, root_path: Path, paths_checker: PathsChecker) -> ArraysChecker:
     """Arrays integrity checker."""
     checker = ArraysChecker(True, {}, defaultdict(list), 4, client, paths_checker.root_path)
@@ -36,7 +34,7 @@ def arrays_checker(client: Client, root_path: Path, paths_checker: PathsChecker)
     return checker
 
 
-@pytest.fixture()
+@pytest.fixture
 def collections_checker(
     client: Client,
     root_path: Path,

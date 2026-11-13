@@ -17,7 +17,7 @@
 import datetime
 
 from enum import Enum
-from typing import List, Optional, Tuple, Union
+from typing import Optional, Union
 
 import numpy as np
 
@@ -67,9 +67,7 @@ class AttributeSchema(SelfLoggerMixin, BaseAttributeSchema):
             try:
                 d["dtype"] = DTypeEnum.get_name(DTypeEnum(self.dtype))
             except (KeyError, ValueError) as e:
-                raise DekerInvalidSchemaError(
-                    f'Schema "{self.__class__.__name__}" is invalid/corrupted: {e}'
-                )
+                raise DekerInvalidSchemaError(f'Schema "{self.__class__.__name__}" is invalid/corrupted: {e}')
 
         return d
 
@@ -131,7 +129,7 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
     """
 
     labels: Optional["Labels"] = None
-    scale: Optional[Union["Scale", dict]] = None
+    scale: Union["Scale", dict] | None = None
 
     def __attrs_post_init__(self) -> None:
         """Validate after init."""
@@ -161,12 +159,8 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
             for attr in self.scale._fields:
                 value = getattr(self.scale, attr)
                 if attr == "name":
-                    if value is not None and (
-                        not isinstance(value, str) or not value or value.isspace()
-                    ):
-                        raise DekerValidationError(
-                            f"`Scale attribute '{attr}' value shall be non-empty string"
-                        )
+                    if value is not None and (not isinstance(value, str) or not value or value.isspace()):
+                        raise DekerValidationError(f"`Scale attribute '{attr}' value shall be non-empty string")
                 else:
                     if not isinstance(value, float):
                         raise DekerValidationError(f"Scale attribute '{attr}' value shall be float")
@@ -207,16 +201,14 @@ class TimeDimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
        the correspondent attribute.
     """
 
-    start_value: Union[datetime.datetime, str]
+    start_value: datetime.datetime | str
     step: datetime.timedelta
 
     def __attrs_post_init__(self) -> None:
         """Validate after init."""
         super().__attrs_post_init__()
         if not isinstance(self.step, datetime.timedelta) or not self.step:
-            raise DekerValidationError(
-                'TimeDimension schema "step" shall be a datetime.timedelta instance'
-            )
+            raise DekerValidationError('TimeDimension schema "step" shall be a datetime.timedelta instance')
 
         if isinstance(self.start_value, str):
             if not self.start_value or self.start_value.isspace():
@@ -248,9 +240,7 @@ class TimeDimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
         d = super().as_dict
         d["type"] = DimensionType.time.value
         d["start_value"] = (
-            self.start_value.isoformat()
-            if isinstance(self.start_value, datetime.datetime)
-            else self.start_value
+            self.start_value.isoformat() if isinstance(self.start_value, datetime.datetime) else self.start_value
         )
         d["step"] = {
             "days": self.step.days,
@@ -260,7 +250,7 @@ class TimeDimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
         return d
 
 
-def __common_arrays_attributes_post_init__(self: BaseArraysSchema) -> None:  # noqa[N807]
+def __common_arrays_attributes_post_init__(self: BaseArraysSchema) -> None:  # noqa: N807
     """Validate attributes for ArraySchema or VArraySchema.
 
     :param self: ArraySchema or VArraySchema instance
@@ -282,12 +272,9 @@ def __common_arrays_attributes_post_init__(self: BaseArraysSchema) -> None:  # n
             time_attribute_name = dim.start_value[1:]
 
         if time_attribute_name and not any(
-            attr.name == time_attribute_name and attr.dtype == datetime.datetime
-            for attr in self.attributes
+            attr.name == time_attribute_name and attr.dtype == datetime.datetime for attr in self.attributes
         ):
-            raise DekerValidationError(
-                f"No {time_attribute_name} attribute with dtype `datetime.datetime` is provided"
-            )
+            raise DekerValidationError(f"No {time_attribute_name} attribute with dtype `datetime.datetime` is provided")
 
     if self.attributes and isinstance(self.attributes, list):
         self.attributes = tuple(self.attributes)
@@ -333,10 +320,10 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
       If ``None`` - default value for each dtype will be used. Numpy ``nan`` can be used only for floating numpy dtypes.
     """
 
-    vgrid: Optional[Union[List[int], Tuple[int, ...]]] = None
-    arrays_shape: Optional[Union[List[int], Tuple[int, ...]]] = None
-    fill_value: Union[Numeric, type(np.nan), None] = None  # type: ignore[valid-type]
-    attributes: Union[List[AttributeSchema], Tuple[AttributeSchema, ...], None] = None
+    vgrid: list[int] | tuple[int, ...] | None = None
+    arrays_shape: list[int] | tuple[int, ...] | None = None
+    fill_value: Numeric | type(np.nan) | None = None  # type: ignore[valid-type]
+    attributes: list[AttributeSchema] | tuple[AttributeSchema, ...] | None = None
 
     def __attrs_post_init__(self) -> None:
         """Validate schema, convert `vgrid` or `arrays_shape` to tuple and calculate the other grid splitter."""
@@ -344,9 +331,7 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
         __common_arrays_attributes_post_init__(self)
 
         # get all grid splitters, passed by user
-        splitters = {
-            attr: getattr(self, attr) for attr in ("vgrid", "arrays_shape") if getattr(self, attr)
-        }
+        splitters = {attr: getattr(self, attr) for attr in ("vgrid", "arrays_shape") if getattr(self, attr)}
 
         # validate found splitters; should be just one parameter
         if len(splitters) < 1:
@@ -425,8 +410,8 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
       Numpy ``nan`` can be used only for floating numpy dtypes.
     """
 
-    fill_value: Union[Numeric, type(np.nan), None] = None  # type: ignore[valid-type]
-    attributes: Union[List[AttributeSchema], Tuple[AttributeSchema, ...], None] = None
+    fill_value: Numeric | type(np.nan) | None = None  # type: ignore[valid-type]
+    attributes: list[AttributeSchema] | tuple[AttributeSchema, ...] | None = None
 
     def __attrs_post_init__(self) -> None:
         """Validate schema."""

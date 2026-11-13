@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Union
+from typing import Any
 
 import numpy as np
 import pytest
@@ -100,16 +100,12 @@ def test_varray_schema_is_split_correctly(dimensions, splitter: dict, expected):
     [
         [DimensionSchema(name="x", size=1), DimensionSchema(name="x", size=2)],
         [
-            TimeDimensionSchema(
-                name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)
-            ),
+            TimeDimensionSchema(name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)),
             DimensionSchema(name="x", size=2),
         ],
         [
             DimensionSchema(name="x", size=2),
-            TimeDimensionSchema(
-                name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)
-            ),
+            TimeDimensionSchema(name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)),
         ],
     ],
 )
@@ -120,9 +116,7 @@ def test_varray_schema_is_split_correctly(dimensions, splitter: dict, expected):
         dict(arrays_shape=(1, 1)),
     ],
 )
-def test_dimensions_non_unique_names_error(
-    dims: List[Union[DimensionSchema, TimeDimensionSchema]], splitter
-):
+def test_dimensions_non_unique_names_error(dims: list[DimensionSchema | TimeDimensionSchema], splitter):
     with pytest.raises(DekerValidationError):
         assert VArraySchema(dtype=int, dimensions=dims, **splitter)  # type: ignore[arg-type]
 

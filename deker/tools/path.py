@@ -20,7 +20,7 @@ import os
 from datetime import datetime
 from functools import singledispatch
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Union
 
 from deker.types import Paths
 from deker.types.private.enums import LocksExtensions
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 def get_symlink_path(
     path_to_symlink_dir: Path,
-    primary_attributes_schema: Optional[Tuple["BaseAttributeSchema", ...]],
+    primary_attributes_schema: tuple["BaseAttributeSchema", ...] | None,
     primary_attributes: dict,
 ) -> Path:
     """Make symlink path from given attributes.
@@ -40,6 +40,7 @@ def get_symlink_path(
     :param path_to_symlink_dir: path to array or varray symlinks in certain collection
     :param primary_attributes_schema: schemas of primary attributes
     :param primary_attributes: all primary attributes for a path
+    :returns: path of the symlink
     """
     symlink_path = path_to_symlink_dir
     if primary_attributes_schema:
@@ -58,13 +59,14 @@ def get_main_path(array_id: str, data_directory: Path) -> Path:
 
     :param array_id: Array or VArray id
     :param data_directory: Path to a certain data directory
+    :returns: path of the directory holding the main file
     """
     main_tree, rest = array_id.split("-", 1)
     main_tree = os.path.sep.join(s for s in main_tree)
     return data_directory / main_tree / rest
 
 
-def get_paths(array: Union["Array", "VArray"], collection_path: Union[Path, str]) -> Paths:
+def get_paths(array: Union["Array", "VArray"], collection_path: Path | str) -> Paths:
     """Create main and symlink paths for arrays.
 
     :param array: Array or VArray instance
@@ -74,11 +76,12 @@ def get_paths(array: Union["Array", "VArray"], collection_path: Union[Path, str]
     from deker.arrays import Array, VArray
 
     @singledispatch
-    def get_path(arr: Union["Array", "VArray"], base_path: Path) -> Paths:  # noqa[ARG001]
+    def get_path(arr: Union["Array", "VArray"], base_path: Path) -> Paths:  # noqa: ARG001
         """Generate paths by object type.
 
         :param arr: any object
         :param base_path: collection base path
+        :returns: main and symlink paths of the object, by its type
         """
         raise TypeError(f"Invalid object type: {type(arr)}")
 
@@ -88,14 +91,13 @@ def get_paths(array: Union["Array", "VArray"], collection_path: Union[Path, str]
 
         :param arr: Array type
         :param base_path: collection base path
+        :returns: main and symlink paths of the array
         """
         # main_path
         main_path = get_main_path(arr.id, base_path / arr._adapter.data_dir)  # type: ignore[operator, attr-defined]
 
         # symlink
-        primary_attributes: Optional[Tuple["BaseAttributeSchema", ...]] = (
-            arr.schema.primary_attributes
-        )
+        primary_attributes: tuple["BaseAttributeSchema", ...] | None = arr.schema.primary_attributes
         symlink_path = get_symlink_path(
             path_to_symlink_dir=base_path / arr._adapter.symlinks_dir,  # type: ignore[operator, attr-defined]
             primary_attributes_schema=primary_attributes,
@@ -113,12 +115,13 @@ def get_paths(array: Union["Array", "VArray"], collection_path: Union[Path, str]
 
         :param arr: VArray type
         :param base_path: collection base path
+        :returns: main and symlink paths of the virtual array
         """
         # main_path
         main_path = get_main_path(arr.id, base_path / arr._adapter.data_dir)  # type: ignore[operator, attr-defined]
 
         # symlink
-        primary_attributes: Optional[Tuple["BaseAttributeSchema"]] = arr.schema.primary_attributes
+        primary_attributes: tuple["BaseAttributeSchema"] | None = arr.schema.primary_attributes
         symlink_path = get_symlink_path(
             path_to_symlink_dir=base_path / arr._adapter.symlinks_dir,  # type: ignore[operator, attr-defined]
             primary_attributes_schema=primary_attributes,
@@ -135,9 +138,7 @@ def get_array_lock_path(array: Union["Array", "VArray"], data_directory_path: Pa
 
     :param array: array to lock
     :param data_directory_path: path to data directory
+    :returns: path of the array lock file
     """
-    file = (
-        hashlib.md5(str(array.primary_attributes).encode()).hexdigest()
-        + LocksExtensions.array_lock.value
-    )
+    file = hashlib.md5(str(array.primary_attributes).encode()).hexdigest() + LocksExtensions.array_lock.value
     return data_directory_path / file

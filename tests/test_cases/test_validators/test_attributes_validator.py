@@ -11,7 +11,7 @@ from deker.collection import Collection
 from deker.errors import DekerCollectionAlreadyExistsError, DekerValidationError
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 class TestNoVgridValidateAttributes:
     """Tests for deker.validators.process_attributes."""
 
@@ -22,18 +22,12 @@ class TestNoVgridValidateAttributes:
             ({}, {"a": 1}),
         ],
     )
-    def test_no_attributes_schema(
-        self, client: Client, primary_attributes: dict, custom_attributes: dict
-    ):
+    def test_no_attributes_schema(self, client: Client, primary_attributes: dict, custom_attributes: dict):
         """Tests if schema raises error when attributes are not passed."""
-        collection: Collection = client.create_collection(
-            **ClientParams.ArraySchema.OK.no_vgrid_no_attrs()
-        )
+        collection: Collection = client.create_collection(**ClientParams.ArraySchema.OK.no_vgrid_no_attrs())
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -82,9 +76,7 @@ class TestNoVgridValidateAttributes:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -110,9 +102,7 @@ class TestNoVgridValidateAttributes:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -124,9 +114,7 @@ class TestNoVgridValidateAttributes:
             ({"a": 1}, {"b": 2}),
         ],
     )
-    def test_all_attributes_schema_extra_attrs(
-        self, client: Client, primary_attributes: dict, custom_attributes: dict
-    ):
+    def test_all_attributes_schema_extra_attrs(self, client: Client, primary_attributes: dict, custom_attributes: dict):
         """Tests errors on extra attributes not listed in schema."""
         coll_params = ClientParams.ArraySchema.OK.no_vgrid_all_attrs()
         for attr in coll_params["schema"].attributes:
@@ -148,9 +136,7 @@ class TestNoVgridValidateAttributes:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -170,9 +156,7 @@ class TestNoVgridValidateAttributes:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -191,9 +175,7 @@ class TestNoVgridValidateAttributes:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -212,9 +194,7 @@ class TestNoVgridValidateAttributes:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -238,9 +218,7 @@ class TestNoVgridValidateAttributes:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -267,9 +245,7 @@ class TestNoVgridValidateAttributes:
             collection.delete()
 
     @pytest.mark.parametrize("primary_attributes", [None, {}])
-    def test_primary_attributes_schema_attrs_no_attrs_provided(
-        self, client: Client, primary_attributes: dict
-    ):
+    def test_primary_attributes_schema_attrs_no_attrs_provided(self, client: Client, primary_attributes: dict):
         """Tests errors on no primary attributes provided."""
         coll_params = ClientParams.ArraySchema.OK.no_vgrid_primary_attributes()
         try:
@@ -303,9 +279,7 @@ class TestNoVgridValidateAttributes:
             collection.delete()
 
     @pytest.mark.parametrize("custom_attributes", [None, {}])
-    def test_custom_attributes_schema_attrs_no_attrs_provided(
-        self, client: Client, custom_attributes: dict
-    ):
+    def test_custom_attributes_schema_attrs_no_attrs_provided(self, client: Client, custom_attributes: dict):
         """Tests None and empty dict custom attributes return attributes=None."""
         coll_params = ClientParams.ArraySchema.OK.no_vgrid_custom_attributes()
         try:
@@ -323,7 +297,7 @@ class TestNoVgridValidateAttributes:
             collection.delete()
 
 
-@pytest.mark.asyncio()
+@pytest.mark.asyncio
 class TestNoVgridValidateAttributesTimeDimension:
     """Tests for deker.validators.process_attributes."""
 
@@ -372,9 +346,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -400,9 +372,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -414,9 +384,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             ({"a": 1}, {"b": 2}),
         ],
     )
-    def test_all_attributes_schema_extra_attrs(
-        self, client: Client, primary_attributes: dict, custom_attributes: dict
-    ):
+    def test_all_attributes_schema_extra_attrs(self, client: Client, primary_attributes: dict, custom_attributes: dict):
         """Tests errors on extra attributes not listed in schema."""
         coll_params = ClientParams.ArraySchema.OK.time_params_no_vgrid_all_attrs()
         for attr in coll_params["schema"].attributes:
@@ -432,9 +400,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -454,9 +420,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -475,9 +439,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -496,9 +458,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -521,9 +481,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection: Collection = client.create_collection(**coll_params)
         try:
             with pytest.raises(DekerValidationError):
-                collection.create(
-                    primary_attributes=primary_attributes, custom_attributes=custom_attributes
-                )
+                collection.create(primary_attributes=primary_attributes, custom_attributes=custom_attributes)
         finally:
             collection.delete()
 
@@ -546,9 +504,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection.delete()
 
     @pytest.mark.parametrize("primary_attributes", [None, {}])
-    def test_primary_attributes_schema_attrs_no_attrs_provided(
-        self, client: Client, primary_attributes: dict
-    ):
+    def test_primary_attributes_schema_attrs_no_attrs_provided(self, client: Client, primary_attributes: dict):
         """Tests errors on no primary attributes provided."""
         coll_params = ClientParams.ArraySchema.OK.time_params_no_vgrid_primary_attributes()
         try:
@@ -582,9 +538,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             collection.delete()
 
     @pytest.mark.parametrize("custom_attributes", [None, {}])
-    def test_custom_attributes_schema_attrs_no_attrs_provided(
-        self, client: Client, custom_attributes: dict
-    ):
+    def test_custom_attributes_schema_attrs_no_attrs_provided(self, client: Client, custom_attributes: dict):
         """Tests None and empty dict custom attributes return attributes=None."""
         coll_params = ClientParams.ArraySchema.OK.time_params_no_vgrid_custom_attributes()
         try:
@@ -714,7 +668,7 @@ class TestAttributesValues:
             attrs = {key: {schema.attributes[0].name: value}}
             array = col.create(**attrs)
             assert array
-            array = [a for a in col][0]
+            array = [*col][0]
             attr = getattr(array, key)
             assert attr[schema.attributes[0].name] == value
         except Exception:

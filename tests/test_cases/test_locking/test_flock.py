@@ -14,14 +14,14 @@ from deker.errors import DekerLockError
 from deker.locks import Flock
 
 
-@pytest.fixture()
+@pytest.fixture
 def hdf_path(root_path: Path):
     """Path to temporary hdf5 file for Flock tests.
 
     :param root_path: temporary root path
     """
     path = root_path / "flocked.hdf5"
-    with h5py.File(path, "w") as f:
+    with h5py.File(path, "w"):
         pass
     yield path
     os.remove(path)
@@ -58,7 +58,7 @@ class TestFlock:
             assert flock.file == hdf_path
             assert flock.fd is not None
             with pytest.raises(BlockingIOError):
-                with open(hdf_path, "r") as fd:
+                with open(hdf_path) as fd:
                     assert not fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         finally:
             flock.release()
@@ -73,7 +73,7 @@ class TestFlock:
         assert flock.file == hdf_path
         assert flock.fd is not None
         with pytest.raises(BlockingIOError):
-            with open(hdf_path, "r") as fd:
+            with open(hdf_path) as fd:
                 assert not fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
         flock.release()
         with open(hdf_path) as fd:

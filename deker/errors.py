@@ -13,7 +13,6 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List
 
 
 class DekerBaseApplicationError(Exception):
@@ -126,7 +125,7 @@ class DekerExceptionGroup(DekerBaseApplicationError):
     ```
     """
 
-    def __init__(self, message: str, exceptions: List[str]):
+    def __init__(self, message: str, exceptions: list[str]):
         self.message = message
         self.exceptions = exceptions
         super().__init__(message, exceptions)

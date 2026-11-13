@@ -17,9 +17,10 @@
 """Abstract interfaces for locks."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any
 
 from deker.flock import Flock
 from deker.log import SelfLoggerMixin
@@ -28,14 +29,14 @@ from deker.log import SelfLoggerMixin
 class BaseLock(SelfLoggerMixin, ABC):
     """Base class for read/write locks."""
 
-    ALLOWED_TYPES: List[str] = []
-    lock: Optional[Union[Flock, Path]] = None
-    instance: Optional[Any] = None
-    args: Optional[List[Any]] = None
-    kwargs: Optional[Dict] = None
+    ALLOWED_TYPES: list[str] = []
+    lock: Flock | Path | None = None
+    instance: Any | None = None
+    args: list[Any] | None = None
+    kwargs: dict | None = None
 
     @abstractmethod
-    def get_path(self) -> Optional[Path]:
+    def get_path(self) -> Path | None:
         """Get path to the lock file.
 
         For Arrays it shall be .arrlock (array read lock) or path to the file (array write lock)
@@ -43,7 +44,7 @@ class BaseLock(SelfLoggerMixin, ABC):
         """
         pass
 
-    def check_existing_lock(self, func_args: Sequence, func_kwargs: Dict) -> None:
+    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:
         """Check if there is lock for given method.
 
         :param func_args: Arguments for function that has been called
@@ -58,7 +59,7 @@ class BaseLock(SelfLoggerMixin, ABC):
         if cls not in self.ALLOWED_TYPES:
             raise TypeError(f"{cls} lock is not supported")
 
-    def acquire(self, path: Optional[Path]) -> None:
+    def acquire(self, path: Path | None) -> None:
         """Make lock using flock.
 
         :param path: Path to file that should be flocked
@@ -68,7 +69,7 @@ class BaseLock(SelfLoggerMixin, ABC):
             self.lock.acquire()
             self.logger.debug(f"Set flock for {path}")
 
-    def release(self, e: Optional[Exception] = None) -> None:  # noqa[ARG002]
+    def release(self, e: Exception | None = None) -> None:  # noqa: ARG002
         """Release Flock.
 
         :param e: exception that might have been raised
@@ -84,17 +85,19 @@ class BaseLock(SelfLoggerMixin, ABC):
         :param func: decorated function
         :param args: Arguments of decorated function
         :param kwargs: Keyword arguments of decorated function
+        :returns: result of ``func``
         """
         return func(*args, **kwargs)
 
     @staticmethod
-    def _inner_method_logic(lock: "BaseLock", args: Sequence, kwargs: Dict, func: Callable) -> Any:
+    def _inner_method_logic(lock: "BaseLock", args: Sequence, kwargs: dict, func: Callable) -> Any:
         """Logic of acquiring lock and getting a result.
 
         :param lock: lock to be acquired
         :param func: decorated function
         :param args: Arguments of decorated function
         :param kwargs: Keyword arguments of decorated function
+        :returns: result of the decorated method
         """
         lock.check_existing_lock(args, kwargs)
         path = lock.get_path()
@@ -115,14 +118,16 @@ class BaseLock(SelfLoggerMixin, ABC):
 
         If there is an existing lock, raise DekerLockError
         :param func: Func that would be decorated
+        :returns: the decorated method
         """
 
         @wraps(func)
-        def inner(*args: Sequence, **kwargs: Dict[str, Any]) -> Any:
+        def inner(*args: Sequence, **kwargs: dict[str, Any]) -> Any:
             """Inner function of lock decorator.
 
-            :param args: Arguments of decorated function
-            :param kwargs: Keyword arguments of decorated function
+            :param *args: Arguments of decorated function
+            :param **kwargs: Keyword arguments of decorated function
+            :returns: result of the decorated method
             """
             # To keep different references for locks
             lock = self.__class__()

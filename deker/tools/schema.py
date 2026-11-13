@@ -16,7 +16,7 @@
 
 import datetime
 
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -30,10 +30,11 @@ if TYPE_CHECKING:
     from deker.schemas import AttributeSchema, TimeDimensionSchema
 
 
-def get_default_fill_value(dtype: Type[Numeric]) -> Any:
+def get_default_fill_value(dtype: type[Numeric]) -> Any:
     """Get default fill value by dtype.
 
     :param dtype: schema dtype
+    :returns: minimal value of an integer dtype, ``numpy.nan`` for the others
     """
     if issubclass(dtype, np.inexact):
         return np.nan
@@ -41,8 +42,8 @@ def get_default_fill_value(dtype: Type[Numeric]) -> Any:
 
 
 def create_dimensions(
-    dimension_schemas: Tuple["BaseDimensionSchema", ...], attributes: Dict[str, Any]
-) -> Tuple[Union[Dimension, TimeDimension], ...]:
+    dimension_schemas: tuple["BaseDimensionSchema", ...], attributes: dict[str, Any]
+) -> tuple[Dimension | TimeDimension, ...]:
     """Create Dimension and/or TimeDimension instances from dictionaries.
 
      Dimensions' and primary/custom attributes' schemas,
@@ -51,12 +52,14 @@ def create_dimensions(
 
     :param dimension_schemas: a tuple of dimensions' schemas
     :param attributes: primary and custom attributes' joint dictionary
+    :returns: dimensions in the order of the dictionaries
     """
 
     def create_time_dimension(tdim_schema: "TimeDimensionSchema") -> TimeDimension:
         """Create TimeDimension from schema.
 
         :param tdim_schema: TimeDimensionSchema
+        :returns: ``TimeDimension`` built from the dictionary
         """
         d = tdim_schema.as_dict
         if isinstance(d["start_value"], str):
@@ -70,7 +73,7 @@ def create_dimensions(
         d.pop("type")
         return TimeDimension(**d)
 
-    dimensions: List[Union[Dimension, TimeDimension]] = []
+    dimensions: list[Dimension | TimeDimension] = []
     for schema in dimension_schemas:
         if hasattr(schema, "start_value"):
             dimensions.append(create_time_dimension(schema))  # type: ignore[arg-type]
@@ -79,13 +82,14 @@ def create_dimensions(
     return tuple(dimensions)
 
 
-def create_attributes_schema(attributes_schemas: List[dict]) -> Tuple["AttributeSchema", ...]:
+def create_attributes_schema(attributes_schemas: list[dict]) -> tuple["AttributeSchema", ...]:
     """Create AttributeSchema instances from a list of dictionaries.
 
     Primary and/or custom attributes' schemas, stored as dictionaries in collection metadata,
     are converted into AttributeSchema instances.
 
     :param attributes_schemas: a list of attributes' schemas dictionaries
+    :returns: attribute schemas
     """
     from deker.schemas import AttributeSchema
 
@@ -100,13 +104,14 @@ def create_attributes_schema(attributes_schemas: List[dict]) -> Tuple["Attribute
         raise DekerInvalidSchemaError(f'Schema "AttributeSchema" is invalid/corrupted : {e}')
 
 
-def create_dimensions_schema(dimension_schemas: List[dict]) -> Tuple["BaseDimensionSchema", ...]:
+def create_dimensions_schema(dimension_schemas: list[dict]) -> tuple["BaseDimensionSchema", ...]:
     """Create DimensionSchema and/or TimeDimensionSchema instances from a list of dictionaries.
 
      Dimensions' schemas, stored as dictionaries in collection metadata, are converted into objects:
      DimensionSchema and/or TimeDimensionSchema.
 
     :param dimension_schemas: a list of dimensions' schemas dictionaries
+    :returns: dimension schemas
     """
     from deker.schemas import DimensionSchema, TimeDimensionSchema
 

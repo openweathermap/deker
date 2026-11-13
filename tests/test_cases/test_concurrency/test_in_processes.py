@@ -5,13 +5,15 @@ The tests in this file cover scenarios where multiple processes are attempting t
 on Array, VArray and Collection objects concurrently, and it verifies that the locking mechanisms work
 correctly.
 """
+
 import os
 import traceback
 
+from collections.abc import Callable
 from multiprocessing import Event, Manager, Process, cpu_count
 from multiprocessing.pool import Pool
 from pathlib import Path
-from typing import Callable, Dict, Literal
+from typing import Literal
 from unittest.mock import patch
 
 import numpy as np
@@ -35,7 +37,6 @@ from deker.locks import (
 )
 from deker.schemas import ArraySchema, DimensionSchema, VArraySchema
 from deker.types import LocksExtensions, Numeric
-
 
 UPDATED_CUSTOM_ATTR = 20
 cores = cpu_count() // 2
@@ -72,8 +73,8 @@ def call_array_method(
     funcs_finished: Event,
     wait: bool = True,
     is_virtual: bool = False,
-    primary_attributes: Dict = None,
-    custom_attributes: Dict = None,
+    primary_attributes: dict = None,
+    custom_attributes: dict = None,
     subset_slice: str = "[:]",
     fill_value: Numeric = 0,
 ):
@@ -111,9 +112,7 @@ def call_array_method(
     try:
         if method == "update":
             # We patch method to wait for event
-            with patch.object(
-                lock, "release", wait_unlock(lock.release, lock_set, funcs_finished, wait)
-            ):
+            with patch.object(lock, "release", wait_unlock(lock.release, lock_set, funcs_finished, wait)):
                 data = np.ndarray(
                     shape=create_shape_from_slice(schema.shape, subset_slice),
                     dtype=schema.dtype,
@@ -128,9 +127,7 @@ def call_array_method(
                 array[subset_slice].update(data)
 
         elif method == "clear":
-            with patch.object(
-                lock, "release", wait_unlock(lock.release, lock_set, funcs_finished, wait)
-            ):
+            with patch.object(lock, "release", wait_unlock(lock.release, lock_set, funcs_finished, wait)):
                 array[subset_slice].clear()
 
         # Read used in varray only.
@@ -158,9 +155,7 @@ def call_array_method(
         return DekerLockError
 
 
-def call_collection_method(
-    path, name: str, method: str, lock_set: Event, func_finished: Event, wait: bool = False
-):
+def call_collection_method(path, name: str, method: str, lock_set: Event, func_finished: Event, wait: bool = False):
     """Call a method on a Collection object.
 
     :param path: Client Uri
@@ -190,7 +185,7 @@ def read_array(array_id: str, path, collection_name: str):
     collection = client.get_collection(collection_name)
     try:
         collection.filter({"id": array_id}).last()[:].read()
-    except:
+    except BaseException:
         traceback.print_exc()
         return Exception
 
@@ -244,9 +239,7 @@ class TestLocks:
         finally:
             proc.kill()
 
-    def test_array_parallel_read(
-        self, inserted_array: Array, array_collection: Collection, root_path
-    ):
+    def test_array_parallel_read(self, inserted_array: Array, array_collection: Collection, root_path):
         """Test if we can read array in parallel."""
         args = (inserted_array.id, str(embedded_uri(root_path)), array_collection.name)
         with Pool(WORKERS) as pool:
@@ -307,9 +300,7 @@ class TestLocks:
         finally:
             proc.kill()
 
-    def test_varray_locks_inner_arrays(
-        self, inserted_varray: VArray, root_path, varray_collection: Collection
-    ):
+    def test_varray_locks_inner_arrays(self, inserted_varray: VArray, root_path, varray_collection: Collection):
         """Test that as we lock varray, inner arrays also locked."""
         manager = Manager()
         lock_set = manager.Event()
@@ -380,9 +371,7 @@ class TestLocks:
         # finally:
         #     print(inserted_varray[:].read(), flush=True)
 
-    def test_intersecting_vsubsets_update_fail(
-        self, inserted_varray: VArray, root_path, varray_collection: Collection
-    ):
+    def test_intersecting_vsubsets_update_fail(self, inserted_varray: VArray, root_path, varray_collection: Collection):
         """Test VArray not allows writing into intersecting subsets."""
         inserted_varray[:].update(np.ones(shape=inserted_varray.shape, dtype=inserted_varray.dtype))
         check_data = inserted_varray[:].read()
@@ -469,12 +458,10 @@ class TestLocks:
 
         # Check that there is no flocks or extra files.
         locks = []
-        for root, dirs, files in os.walk(varray_collection.path):
+        for root, _dirs, files in os.walk(varray_collection.path):
             for file in files:
                 filename = f"{root}/{file}"
-                if filename.endswith(local_varray_adapter.file_ext) or filename.endswith(
-                    local_array_adapter.file_ext
-                ):
+                if filename.endswith(local_varray_adapter.file_ext) or filename.endswith(local_array_adapter.file_ext):
                     lock = Flock(Path(filename))
                     lock.release()
                 if filename.endswith(LocksExtensions.array_lock.value) or filename.endswith(

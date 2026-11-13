@@ -26,9 +26,7 @@ class TestArraysAdaptersFactory:
         :param array_collection: Collection instance
         """
         factory = AdaptersFactory(ctx, uri)
-        adapter = factory.get_array_adapter(
-            array_collection.path, storage_adapter=HDF5StorageAdapter
-        )
+        adapter = factory.get_array_adapter(array_collection.path, storage_adapter=HDF5StorageAdapter)
         assert adapter
         assert isinstance(adapter, LocalArrayAdapter)
 
@@ -39,8 +37,7 @@ class TestArraysAdaptersFactory:
         """
         factory = AdaptersFactory(ctx, uri)
         adapters = [
-            factory.get_array_adapter(array_collection.path, storage_adapter=HDF5StorageAdapter)
-            for _ in range(10)
+            factory.get_array_adapter(array_collection.path, storage_adapter=HDF5StorageAdapter) for _ in range(10)
         ]
         assert adapters
         ids = {id(adapter) for adapter in adapters}
@@ -52,9 +49,7 @@ class TestArraysAdaptersFactory:
         :param varray_collection: Collection instance
         """
         factory = AdaptersFactory(ctx, uri)
-        adapter = factory.get_varray_adapter(
-            varray_collection.path, storage_adapter=HDF5StorageAdapter
-        )
+        adapter = factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter)
         assert adapter
         assert isinstance(adapter, LocalVArrayAdapter)
 
@@ -65,8 +60,7 @@ class TestArraysAdaptersFactory:
         """
         factory = AdaptersFactory(ctx, uri)
         adapters = [
-            factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter)
-            for _ in range(10)
+            factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter) for _ in range(10)
         ]
         assert adapters
         ids = {id(adapter) for adapter in adapters}

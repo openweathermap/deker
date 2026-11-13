@@ -8,7 +8,6 @@ from multiprocessing import cpu_count
 from pathlib import Path
 from random import choices
 from string import ascii_letters
-from typing import Type
 
 import pytest
 
@@ -19,7 +18,6 @@ from deker.client import Client
 from deker.config import DekerConfig
 from deker.ctx import CTX
 from deker.uri import Uri
-
 
 logging.basicConfig(level="ERROR")
 
@@ -66,7 +64,7 @@ def config(root_path: Path, workers) -> DekerConfig:
     )
 
 
-@pytest.fixture()
+@pytest.fixture
 def name() -> str:
     """Generates random 10 chars name."""
     return "".join(choices(ascii_letters, k=10))
@@ -104,7 +102,7 @@ def ctx(uri: Uri, config, storage_adapter, workers) -> CTX:
 @pytest.fixture(scope="class")
 def client(
     root_path: Path,
-    storage_adapter: Type[BaseStorageAdapter],
+    storage_adapter: type[BaseStorageAdapter],
     workers: int,
 ) -> Client:
     """Creates Client object and init all connections.
