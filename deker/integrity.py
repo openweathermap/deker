@@ -261,7 +261,7 @@ class IntegrityChecker(BaseChecker):
 
     # :
     def __init__(self, client: "Client", root_path: Path, stop_on_error: bool, level: int) -> None:
-        super().__init__(stop_on_error, {}, defaultdict(list), level, client, root_path)  # type: ignore[attr-defined]
+        super().__init__(stop_on_error, {}, defaultdict(list), level, client, root_path)
         self.add_checker(CollectionsChecker)
         self.add_checker(ArraysChecker)
         self.add_checker(PathsChecker)

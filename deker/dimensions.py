@@ -234,7 +234,7 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         start_value: datetime.datetime | str,
         step: datetime.timedelta,
     ) -> None:
-        super().__init__(name, size, **{"start_value": start_value, "step": step})  # type: ignore[arg-type]
+        super().__init__(name, size, start_value=start_value, step=step)
         self.__name: str = name
         self.__size: int = size
         self.__step: datetime.timedelta = step

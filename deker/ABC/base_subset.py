@@ -106,7 +106,7 @@ class BaseSubset(SelfLoggerMixin, ABC):
         return self.__array.dtype
 
     @property
-    def fill_value(self) -> Numeric | type(np.nan):  # type: ignore[valid-type]
+    def fill_value(self) -> Numeric:
         """Get subset fill_value."""
         return self.__array.fill_value
 
@@ -205,7 +205,7 @@ class BaseSubset(SelfLoggerMixin, ABC):
         end = start_value + dimension.size * step
         rounder = len(str(step).split(".")[-1])
         value = np.around(np.arange(start_value, end, dimension.scale.step), rounder)
-        return value.tolist()[: dimension.size]  # type: ignore[return-value]
+        return value.tolist()[: dimension.size]
 
     def __describe_full_dimension(self, dimension: TimeDimension | Dimension) -> list:
         """Generate dimension's full range of descriptive values.
@@ -301,8 +301,8 @@ class BaseSubset(SelfLoggerMixin, ABC):
 
         # add full description for dimensions if they were excluded from bounds
         dims = self.__array.dimensions
-        if len(self.bounds) < len(dims):  # type: ignore[arg-type]
-            start_idx = len(dims) - (len(dims) - len(self.bounds))  # type: ignore[arg-type]
+        if len(self.bounds) < len(dims):
+            start_idx = len(dims) - (len(dims) - len(self.bounds))
             for dimension in dims[start_idx:]:
                 description.update({dimension.name: self.__describe_full_dimension(dimension)})
 

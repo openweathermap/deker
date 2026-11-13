@@ -16,12 +16,13 @@
 
 import datetime
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerInvalidSchemaError
+from deker.errors import DekerInvalidSchemaError, DekerValidationError
 from deker.types import DTypeEnum, Numeric
 from deker.validators import process_time_dimension_attrs
 
@@ -36,13 +37,35 @@ def get_default_fill_value(dtype: type[Numeric]) -> Any:
     :param dtype: schema dtype
     :returns: minimal value of an integer dtype, ``numpy.nan`` for the others
     """
-    if issubclass(dtype, np.inexact):
+    if issubclass(dtype, (np.inexact, float, complex)):
         return np.nan
-    return np.iinfo(dtype).min  # type: ignore[type-var]
+    if issubclass(dtype, (np.integer, int)):
+        return np.iinfo(dtype).min
+    raise DekerValidationError(f"No default fill value for dtype {dtype}")
+
+
+def _create_time_dimension(tdim_schema: "TimeDimensionSchema", attributes: dict[str, Any]) -> TimeDimension:
+    """Create TimeDimension from schema.
+
+    :param tdim_schema: TimeDimensionSchema
+    :param attributes: primary and custom attributes' joint dictionary, resolving ``$`` references
+    :returns: ``TimeDimension`` built from the dictionary
+    """
+    d = tdim_schema.as_dict
+    if isinstance(d["start_value"], str):
+        if d["start_value"].startswith("$"):
+            d["start_value"] = process_time_dimension_attrs(attributes, d["start_value"][1:])
+        else:
+            d["start_value"] = datetime.datetime.fromisoformat(d["start_value"])
+
+    if isinstance(d["step"], dict):
+        d["step"] = datetime.timedelta(**d["step"])
+    d.pop("type")
+    return TimeDimension(**d)
 
 
 def create_dimensions(
-    dimension_schemas: tuple["BaseDimensionSchema", ...], attributes: dict[str, Any]
+    dimension_schemas: Sequence["BaseDimensionSchema"], attributes: dict[str, Any]
 ) -> tuple[Dimension | TimeDimension, ...]:
     """Create Dimension and/or TimeDimension instances from dictionaries.
 
@@ -50,33 +73,16 @@ def create_dimensions(
      stored as dictionaries in collection metadata, are converted into objects:
      Dimensions and/or TimeDimensions.
 
-    :param dimension_schemas: a tuple of dimensions' schemas
+    :param dimension_schemas: a sequence of dimensions' schemas
     :param attributes: primary and custom attributes' joint dictionary
     :returns: dimensions in the order of the dictionaries
     """
-
-    def create_time_dimension(tdim_schema: "TimeDimensionSchema") -> TimeDimension:
-        """Create TimeDimension from schema.
-
-        :param tdim_schema: TimeDimensionSchema
-        :returns: ``TimeDimension`` built from the dictionary
-        """
-        d = tdim_schema.as_dict
-        if isinstance(d["start_value"], str):
-            if d["start_value"].startswith("$"):
-                d["start_value"] = process_time_dimension_attrs(attributes, d["start_value"][1:])
-            else:
-                d["start_value"] = datetime.datetime.fromisoformat(d["start_value"])
-
-        if isinstance(d["step"], dict):
-            d["step"] = datetime.timedelta(**d["step"])
-        d.pop("type")
-        return TimeDimension(**d)
+    from deker.schemas import TimeDimensionSchema
 
     dimensions: list[Dimension | TimeDimension] = []
     for schema in dimension_schemas:
-        if hasattr(schema, "start_value"):
-            dimensions.append(create_time_dimension(schema))  # type: ignore[arg-type]
+        if isinstance(schema, TimeDimensionSchema):
+            dimensions.append(_create_time_dimension(schema, attributes))
         else:
             dimensions.append(Dimension(**schema.as_dict))
     return tuple(dimensions)
@@ -118,7 +124,7 @@ def create_dimensions_schema(dimension_schemas: list[dict]) -> tuple["BaseDimens
     schemas = []
     for dim in dimension_schemas:
         if "start_value" not in dim.keys():
-            converted_dim = DimensionSchema(  # type: ignore[call-arg]
+            converted_dim = DimensionSchema(
                 name=dim["name"], size=dim["size"], labels=dim["labels"], scale=dim.get("scale")
             )
         else:
@@ -127,7 +133,7 @@ def create_dimensions_schema(dimension_schemas: list[dict]) -> tuple["BaseDimens
             except ValueError:
                 start_value = dim["start_value"]
 
-            converted_dim = TimeDimensionSchema(  # type: ignore[call-arg]
+            converted_dim = TimeDimensionSchema(
                 name=dim["name"],
                 size=dim["size"],
                 start_value=start_value,

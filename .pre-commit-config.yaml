@@ -103,6 +103,12 @@ repos:
           --non-interactive,
           --config-file=pyproject.toml
         ]
+        # The hook runs in its own environment: the typed runtime dependencies must be there,
+        # otherwise attrs classes have no constructors for mypy and numpy is untyped
+        additional_dependencies:
+          - "attrs>=23.1.0,<27"
+          - "numpy>=1.26,<3"
+          - "deker-tools>=1.2.0,<2"
         stages:
           - pre-commit
 

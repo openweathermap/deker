@@ -21,7 +21,8 @@ import json
 from abc import ABC, abstractmethod
 from copy import deepcopy
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Optional, Union
+from types import EllipsisType, NoneType
+from typing import TYPE_CHECKING, Any, Optional, TypeGuard, TypeVar, Union
 
 import numpy as np
 
@@ -29,7 +30,7 @@ from deker_tools.slices import create_shape_from_slice
 from deker_tools.time import get_utc
 
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerMetaDataError, DekerValidationError
+from deker.errors import DekerInvalidSchemaError, DekerMetaDataError, DekerValidationError
 from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, VArraySchema
 from deker.subset import Subset, VSubset
@@ -43,8 +44,10 @@ from deker.validators import is_valid_uuid, process_attributes, validate_custom_
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter, IArrayAdapter
-    from deker.arrays import Array, VArray
     from deker.collection import Collection
+
+
+ArrayT = TypeVar("ArrayT", bound="BaseArray")
 
 
 class _FancySlicer:
@@ -76,7 +79,7 @@ class _FancySlicer:
 
         # check start and stop type
         try:
-            dt = get_utc(value)  # type: ignore[arg-type]
+            dt = get_utc(value)
             position = int((dt - start) // step)
 
             # if passed timestamp/iso-string does not match step size
@@ -191,17 +194,16 @@ class _FancySlicer:
         self,
         item: FancySlice,
         dimension: TimeDimension | Dimension,
-    ) -> Slice:
-        params = item, dimension
+    ) -> slice | int:
         if isinstance(item, slice):
-            val = self._convert_fancy_slice(*params)  # type: ignore[arg-type]
+            val = self._convert_fancy_slice(item, dimension)
         elif isinstance(item, datetime) and isinstance(dimension, TimeDimension):
-            val = self._convert_value_for_time_dimension(*params)  # type: ignore[arg-type]
+            val = self._convert_value_for_time_dimension(item, dimension)
         elif isinstance(item, (float, str)):
             val = (
-                self._convert_value_for_time_dimension(*params)  # type: ignore[arg-type]
-                if self._is_time_dimension(dimension)
-                else self._convert_value_for_dimension(*params)  # type: ignore[arg-type]
+                self._convert_value_for_time_dimension(item, dimension)
+                if isinstance(dimension, TimeDimension)
+                else self._convert_value_for_dimension(item, dimension)
             )
         else:
             raise IndexError(f"{dimension.__class__.__name__} {dimension.name} wrong indexing: {item}")
@@ -209,14 +211,12 @@ class _FancySlicer:
         return val
 
     @staticmethod
-    def _check_int_or_slice_or_ellipsis(element: FancySlice) -> bool:
-        types = (int, type(Ellipsis), type(None))
-        if isinstance(element, types) or (
-            isinstance(element, slice)
-            and all(isinstance(getattr(element, attr), types) for attr in ("start", "stop", "step"))
-        ):
+    def _check_int_or_slice_or_ellipsis(element: FancySlice) -> TypeGuard[slice | int | EllipsisType]:
+        if isinstance(element, (int, EllipsisType)):
             return True
-        return False
+        return isinstance(element, slice) and all(
+            isinstance(getattr(element, attr), (int, NoneType)) for attr in ("start", "stop", "step")
+        )
 
 
 class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
@@ -280,7 +280,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         self.primary_attributes, self.custom_attributes = make_ordered_dict(
             primary_attributes,
             custom_attributes,
-            self.schema.attributes,  # type: ignore[arg-type]
+            self.schema.attributes or (),
         )
 
     def __del__(self) -> None:
@@ -335,7 +335,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
     def dimensions(self) -> tuple[Dimension | TimeDimension, ...]:
         """Get array dimensions."""
         return create_dimensions(
-            self.schema.dimensions,  # type: ignore[arg-type]
+            self.schema.dimensions,
             {**self.primary_attributes, **self.custom_attributes},
         )
 
@@ -350,9 +350,12 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         return self.schema.named_shape
 
     @property
-    def fill_value(self) -> Numeric | type(np.nan):  # type: ignore[valid-type]
+    def fill_value(self) -> Numeric:
         """Get array fill_value."""
-        return self.schema.fill_value
+        fill_value = self.schema.fill_value
+        if fill_value is None:  # pragma: no cover
+            raise DekerInvalidSchemaError("Schema fill_value is not set")
+        return fill_value
 
     def update_custom_attributes(self, attributes: dict) -> None:
         """Update array custom attributes.
@@ -405,30 +408,28 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
     def _get_fancy_item(self, item: FancySlice) -> Slice:
         if isinstance(item, tuple):
-            fancy_item = []
+            fancy_items: list[slice | int | EllipsisType] = []
             for n, i in enumerate(item):
                 dim = self.dimensions[n]
-                if not self._check_int_or_slice_or_ellipsis(i):
-                    i = self._fancy_slice_dimensions(i, dim)
-                if isinstance(i, int) and i > dim.size:
-                    raise IndexError(f"{dim.__class__.__name__} dimension {dim.name} wrong indexing: {i} out of range")
-                fancy_item.append(i)
-            fancy_item = tuple(fancy_item)
-        elif self._check_int_or_slice_or_ellipsis(item):
-            fancy_item = item
-        else:
-            fancy_item = self._fancy_slice_dimensions(item, self.dimensions[0])
-
-        return fancy_item  # type: ignore[return-value]
+                element = i if self._check_int_or_slice_or_ellipsis(i) else self._fancy_slice_dimensions(i, dim)
+                if isinstance(element, int) and element > dim.size:
+                    raise IndexError(
+                        f"{dim.__class__.__name__} dimension {dim.name} wrong indexing: {element} out of range"
+                    )
+                fancy_items.append(element)
+            return tuple(fancy_items)
+        if self._check_int_or_slice_or_ellipsis(item):
+            return item
+        return self._fancy_slice_dimensions(item, self.dimensions[0])
 
     @classmethod
     def _create_from_meta(
-        cls,
+        cls: type[ArrayT],
         collection: "Collection",
         meta: "ArrayMeta",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"] = None,
-    ) -> Union["Array", "VArray"]:
+    ) -> ArrayT:
         """Create Array or VArray from metadata.
 
         :param collection: Collection instance
@@ -447,10 +448,10 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             primary_attributes, custom_attributes = make_ordered_dict(
                 meta["primary_attributes"],
                 meta["custom_attributes"],
-                attrs_schema,  # type: ignore[arg-type]
+                attrs_schema or (),
             )
 
-            arr_params = {
+            arr_params: dict[str, Any] = {
                 "collection": collection,
                 "adapter": array_adapter,
                 "id_": meta["id"],
@@ -459,7 +460,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             }
             if varray_adapter:
                 arr_params.update({"adapter": varray_adapter, "array_adapter": array_adapter})
-            return cls(**arr_params)  # type: ignore[arg-type,return-value]
+            return cls(**arr_params)
         except (KeyError, ValueError) as e:
             raise DekerMetaDataError(f"{cls} metadata invalid/corrupted: {e}")
 

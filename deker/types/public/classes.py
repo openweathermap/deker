@@ -110,7 +110,7 @@ class IndexLabels(tuple, SelfLoggerMixin):
         :param labels: labels
         :returns: validated ``IndexLabels`` instance
         """
-        return super().__new__(cls, cls.__validate(labels))  # type: ignore[arg-type]
+        return super().__new__(cls, cls.__validate(labels))
 
     def __init__(self, labels: Labels | None) -> None:
         self.logger.debug("labels initialized")

@@ -21,6 +21,7 @@ from tests.parameters.uri import embedded_uri
 
 from deker.client import Client
 from deker.collection import Collection
+from deker.ctx import CTX
 from deker.errors import (
     DekerClientError,
     DekerCollectionAlreadyExistsError,
@@ -43,6 +44,14 @@ class TestClientMethods:
         client = Client(str(embedded_uri(directory)))
         assert (directory / "collections").exists()
         assert [*client] == []
+
+    def test_client_ctx_follows_client_state(self, root_path):
+        """Tests if the client context is available and reflects the client state."""
+        client = Client(str(embedded_uri(root_path)))
+        assert isinstance(client._ctx, CTX)
+        assert not client._ctx.is_closed
+        client.close()
+        assert client._ctx.is_closed
 
     def test_client_open_close(self, root_path):
         """Test client open and close methods."""

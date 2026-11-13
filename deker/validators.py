@@ -17,6 +17,7 @@
 import datetime
 import uuid
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Union
 
 from deker_tools.time import get_utc
@@ -26,6 +27,7 @@ from deker.errors import DekerValidationError
 from deker.types import DTypeEnum
 
 if TYPE_CHECKING:
+    from deker.ABC.base_schemas import BaseDimensionSchema
     from deker.schemas import ArraySchema, AttributeSchema, VArraySchema
 
 
@@ -65,14 +67,14 @@ def __process_attributes_types(
     attrs_schema: tuple["AttributeSchema", ...],
     primary_attributes: dict,
     custom_attributes: dict,
-    dimensions: list,
+    dimensions: Sequence["BaseDimensionSchema"],
 ) -> None:
     """Validate attributes types over schema and update dicts if needed.
 
     :param attrs_schema: attributes schema
     :param primary_attributes: primary attributes to validate
     :param custom_attributes: custom attributes to validate
-    :param dimensions: list of dimensions
+    :param dimensions: dimensions schemas
     """
     from deker.schemas import TimeDimensionSchema
 
@@ -179,7 +181,7 @@ def process_attributes(
         attrs_schema,
         primary_attributes,
         custom_attributes,
-        schema.dimensions,  # type: ignore[arg-type]
+        schema.dimensions,
     )
     return primary_attributes, custom_attributes
 
@@ -211,7 +213,7 @@ def validate_custom_attributes_update(
             if s.start_value[1:] not in attributes:
                 for d in dimensions:
                     if d.name == s.name:
-                        attributes[s.start_value[1:]] = d.start_value  # type: ignore[attr-defined]
+                        attributes[s.start_value[1:]] = d.start_value
         else:
             # fill attributes to update dict with already existing custom attributes values
             for attr in schema.attributes:

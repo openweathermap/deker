@@ -38,7 +38,7 @@ def serialize_attribute_value(
     if isinstance(val, datetime):
         return val.isoformat()
     if isinstance(val, np.ndarray):
-        return val.tolist()  # type: ignore[attr-defined]
+        return val.tolist()
     if isinstance(val, complex):
         return str(val)
     if isinstance(val, np.integer):
@@ -48,7 +48,7 @@ def serialize_attribute_value(
     if isinstance(val, np.complexfloating):
         return str(complex(val))
     if isinstance(val, (list, tuple)):
-        return serialize_attribute_nested_tuples(val)  # type: ignore[arg-type]
+        return serialize_attribute_nested_tuples(val)
 
     return val
 
@@ -65,7 +65,7 @@ def serialize_attribute_nested_tuples(value: tuple | list) -> tuple[Any, ...]:
             val = serialize_attribute_nested_tuples(el)
         else:
             val = serialize_attribute_value(el)
-        serialized.append(val)  # type: ignore[arg-type]
+        serialized.append(val)
     return tuple(serialized)
 
 
@@ -83,7 +83,7 @@ def deserialize_attribute_value(val: Any, dtype: type, from_tuple: bool) -> Any:
         val = dtype(val)
 
     if isinstance(val, (list, tuple)) and dtype == tuple:  # noqa: E721  # dtype may be a numpy type, keep `==`
-        return deserialize_attribute_nested_tuples(val)  # type: ignore[arg-type]
+        return deserialize_attribute_nested_tuples(val)
 
     if dtype == str:  # noqa: E721  # dtype may be a numpy type, keep `==`
         # if the value comes from a tuple as one of its elements
@@ -95,10 +95,10 @@ def deserialize_attribute_value(val: Any, dtype: type, from_tuple: bool) -> Any:
             )
             # as far as we don't exactly know what it is
             # we try to catch it by a regular expression
-            if re.findall(complex_number_regex, val):  # type: ignore[arg-type]
+            if re.findall(complex_number_regex, val):
                 try:
                     # and to convert it to a complex number if there's a match
-                    return complex(val)  # type: ignore[arg-type]
+                    return complex(val)
                 except ValueError:
                     # if conversion fails we return string
                     return val
@@ -106,16 +106,16 @@ def deserialize_attribute_value(val: Any, dtype: type, from_tuple: bool) -> Any:
     return val
 
 
-def deserialize_attribute_nested_tuples(value: tuple[Any, ...]) -> tuple[Any, ...]:
+def deserialize_attribute_nested_tuples(value: tuple[Any, ...] | list[Any]) -> tuple[Any, ...]:
     """Deserialize attribute nested tuples and their elements.
 
-    :param value: attribute tuple value
+    :param value: attribute tuple (or list, as JSON stores tuples) value
     :returns: tuple with deserialized elements
     """
     deserialized = []
     for el in value:
         if isinstance(el, (tuple, list)):
-            value = deserialize_attribute_nested_tuples(el)  # type: ignore[arg-type]
+            value = deserialize_attribute_nested_tuples(el)
         else:
             value = deserialize_attribute_value(el, type(el), True)
         deserialized.append(value)

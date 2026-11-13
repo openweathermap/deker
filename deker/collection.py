@@ -18,10 +18,11 @@ import datetime
 
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from deker.ABC.base_adapters import BaseCollectionAdapter, BaseStorageAdapter
 from deker.ABC.base_collection import BaseCollectionOptions
+from deker.ABC.base_schemas import BaseDimensionSchema
 from deker.arrays import Array, VArray
 from deker.errors import (
     DekerInstanceNotExistsError,
@@ -90,13 +91,14 @@ class Collection(SelfLoggerMixin, Serializer):
         :returns: ``ArraySchema`` for the arrays of the virtual array
         """
         attributes = [
-            AttributeSchema(name="vid", dtype=str, primary=True),  # type: ignore[call-arg]
-            AttributeSchema(name="v_position", dtype=tuple, primary=True),  # type: ignore[call-arg]
+            AttributeSchema(name="vid", dtype=str, primary=True),
+            AttributeSchema(name="v_position", dtype=tuple, primary=True),
         ]
 
-        dimensions = []
+        dimensions: list[BaseDimensionSchema] = []
         for n, dim in enumerate(schema.dimensions):
-            d = {"name": dim.name, "size": dim.size // schema.vgrid[n]}
+            d: dict[str, Any] = {"name": dim.name, "size": dim.size // schema.vgrid[n]}
+            obj: type[BaseDimensionSchema]
             if isinstance(dim, TimeDimensionSchema):
                 obj = TimeDimensionSchema
                 d["step"] = dim.step
@@ -105,7 +107,7 @@ class Collection(SelfLoggerMixin, Serializer):
                 if isinstance(dim.start_value, str) and dim.start_value.startswith("$"):
                     d["start_value"] = f"$parent.{dim.start_value[1:]}"
                     attributes.append(
-                        AttributeSchema(  # type: ignore[call-arg]
+                        AttributeSchema(
                             name=d["start_value"][1:],
                             dtype=datetime.datetime,
                             primary=False,
@@ -116,11 +118,11 @@ class Collection(SelfLoggerMixin, Serializer):
                 d["labels"] = None
                 d["scale"] = None
 
-            dimensions.append(obj(**d))  # type: ignore[arg-type]
-        return ArraySchema(  # type: ignore[call-arg]
+            dimensions.append(obj(**d))
+        return ArraySchema(
             dtype=schema.dtype,
             fill_value=schema.fill_value,
-            dimensions=dimensions,  # type: ignore[arg-type]
+            dimensions=dimensions,
             attributes=attributes,
         )
 
@@ -162,7 +164,7 @@ class Collection(SelfLoggerMixin, Serializer):
         self.__name: str = name
         self.__adapter: BaseCollectionAdapter = adapter
         self.__factory = factory
-        self.__path = self.__adapter.collections_resource / name  # type: ignore[attr-defined]
+        self.__path = self.__adapter.collections_resource / name
         # Init collection chunking and compression options
         self.__collection_options = collection_options
         self.__storage_adapter = storage_adapter
@@ -308,7 +310,7 @@ class Collection(SelfLoggerMixin, Serializer):
 
     def _is_deleted(self) -> bool:
         """Check if collection was deleted."""
-        return self.__adapter.is_deleted(self)  # type: ignore[attr-defined]
+        return self.__adapter.is_deleted(self)
 
     def __next__(self) -> None:
         pass

@@ -17,6 +17,7 @@
 from typing import TYPE_CHECKING
 
 from deker.ABC.base_array import BaseArray
+from deker.errors import DekerInvalidSchemaError
 from deker.schemas import ArraySchema, VArraySchema
 from deker.subset import Subset, VSubset
 
@@ -248,12 +249,18 @@ class VArray(BaseArray):
     @property
     def vgrid(self) -> tuple[int, ...]:
         """Get ``VArray`` virtual grid."""
-        return self.schema.vgrid  # type: ignore[return-value]
+        vgrid = self.schema.vgrid
+        if vgrid is None:  # pragma: no cover
+            raise DekerInvalidSchemaError("VArraySchema vgrid is not set")
+        return tuple(vgrid)
 
     @property
     def arrays_shape(self) -> tuple[int, ...]:
         """Get the shape of inner ``Arrays``."""
-        return self.schema.arrays_shape  # type: ignore[return-value]
+        arrays_shape = self.schema.arrays_shape
+        if arrays_shape is None:  # pragma: no cover
+            raise DekerInvalidSchemaError("VArraySchema arrays_shape is not set")
+        return tuple(arrays_shape)
 
     @property
     def as_dict(self) -> dict:

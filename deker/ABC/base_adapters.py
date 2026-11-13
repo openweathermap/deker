@@ -44,7 +44,7 @@ from deker.tools import create_attributes_schema, create_dimensions_schema
 from deker.tools.decorators import check_ctx_state
 from deker.types import DTypeEnum
 from deker.types.private.classes import ArrayMeta
-from deker.types.private.typings import Data, EllipsisType, Numeric, Slice
+from deker.types.private.typings import Data, Numeric, Slice
 
 if TYPE_CHECKING:
     from deker.ABC.base_array import BaseArray
@@ -81,7 +81,7 @@ class BaseStorageAdapter(ABC):
     def read_data(
         cls,
         path: Path,
-        array_shape: tuple[int, EllipsisType],  # type: ignore
+        array_shape: tuple[int, ...],
         bounds: Slice,
         fill_value: Numeric,
         dtype: type[Numeric],
@@ -169,6 +169,15 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
     def __del__(self) -> None:
         """Delete object."""
         self.close()
+
+    @abstractmethod
+    def is_deleted(self, collection: "Collection") -> bool:
+        """Check if the collection was deleted.
+
+        :param collection: Collection instance
+        :returns: ``True`` if the collection no longer exists in the storage
+        """
+        pass
 
     @property
     @abstractmethod
@@ -310,21 +319,21 @@ class IArrayAdapter(ABC):
         :param bounds: array bounds
         :returns: data converted to the array dtype and the shape of the bounds
         """
-        if not isinstance(data, (list, tuple, np.ndarray, get_args(Numeric))):  # type: ignore[arg-type]
+        if not isinstance(data, (list, tuple, np.ndarray, get_args(Numeric))):
             raise DekerArrayTypeError(f"Invalid data type: {type(data)}; {array_dtype} expected")
 
-        if isinstance(data, get_args(Numeric)):  # type: ignore[arg-type]
+        if isinstance(data, get_args(Numeric)):
             data_type = type(data)
             if data_type != array_dtype:
-                cdata = array_dtype(data)  # type: ignore[arg-type]
-                if data_type(cdata) != data:  # type: ignore[arg-type,call-overload]
+                cdata = array_dtype(data)
+                if data_type(cdata) != data:
                     raise DekerArrayTypeError(f"Invalid data type: {type(data)}; {array_dtype} expected")
                 data = cdata
         else:
             sliced_bounds = (
-                np.index_exp[:] if bounds is None or bounds == slice(None, None, None) else np.index_exp[bounds]  # type: ignore[type-var]
+                np.index_exp[:] if bounds is None or bounds == slice(None, None, None) else np.index_exp[bounds]
             )
-            shape = create_shape_from_slice(array_shape, sliced_bounds)  # type: ignore[arg-type]
+            shape = create_shape_from_slice(array_shape, sliced_bounds)
 
             if isinstance(data, (list, tuple)):
                 try:
@@ -337,7 +346,7 @@ class IArrayAdapter(ABC):
                     raise DekerArrayTypeError(f"Invalid data dtype: {data.dtype}; {array_dtype} expected")
                 if shape != data.shape:
                     raise IndexError(f"Invalid data shape: {data.shape}; {shape} expected")
-        return data  # type: ignore[return-value]
+        return data
 
     @abstractmethod
     def create(self, array: Union[dict, "BaseArray"]) -> Union["Array", "VArray"]:

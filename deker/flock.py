@@ -17,7 +17,7 @@
 import fcntl
 
 from pathlib import Path
-from typing import Any
+from typing import IO, Any
 
 from deker.errors import DekerLockError
 from deker.log import SelfLoggerMixin
@@ -32,7 +32,7 @@ class Flock(SelfLoggerMixin):
 
     def __init__(self, file: Path) -> None:
         self.file = file
-        self.fd = None  # file descriptor, closed on Flock release
+        self.fd: IO[str] | None = None  # file descriptor, closed on Flock release
         self.logger.debug("Instantiated")
 
     def acquire(self) -> None:
@@ -47,9 +47,10 @@ class Flock(SelfLoggerMixin):
         else:
             mode = "r"
         try:
-            self.fd = open(self.file, mode=mode)  # noqa: PTH123, SIM115
+            fd = open(self.file, mode=mode)  # noqa: PTH123, SIM115
+            self.fd = fd
             self.logger.debug(f"Opened descriptor for {self.file}")
-            fcntl.flock(self.fd, fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[arg-type]
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self.logger.debug(f"{self.file} acquired lock")
         except FileNotFoundError:
             self.logger.debug(f"{self.file} not found")

@@ -10,7 +10,7 @@ from tests.parameters.collection_params import CollectionParams
 
 from deker.collection import Collection
 from deker.errors import DekerInstanceNotExistsError, DekerMemoryError, DekerValidationError
-from deker.tools import check_memory, convert_human_memory_to_bytes
+from deker.tools import check_memory, convert_human_memory_to_bytes, get_default_fill_value, get_paths
 from deker.tools.time import convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime
 
 if TYPE_CHECKING:
@@ -48,6 +48,37 @@ def test_get_attributes_schema(collection_adapter: LocalCollectionAdapter, facto
 
     varray_schema_attrs = collection_with_varray.varray_schema.attributes
     assert varray_schema_attrs == params_with_varray["schema"].attributes
+
+
+@pytest.mark.parametrize(
+    ("dtype", "expected"),
+    [
+        (int, np.iinfo(np.int64).min),
+        (np.int8, np.iinfo(np.int8).min),
+        (np.uint16, 0),
+        (float, np.nan),
+        (np.float32, np.nan),
+        (complex, np.nan),
+        (np.complex128, np.nan),
+    ],
+)
+def test_get_default_fill_value(dtype, expected):
+    """Tests default fill values: minimum for integers, nan for the others."""
+    value = get_default_fill_value(dtype)
+    assert value == expected or (np.isnan(expected) and np.isnan(value))
+
+
+@pytest.mark.parametrize("dtype", [str, bytes, object])
+def test_get_default_fill_value_raises(dtype):
+    """Tests if non-numeric dtypes have no default fill value."""
+    with pytest.raises(DekerValidationError):
+        get_default_fill_value(dtype)
+
+
+def test_get_paths_raises_on_wrong_object(tmp_path):
+    """Tests if paths can be built only for arrays."""
+    with pytest.raises(TypeError):
+        get_paths("not an array", tmp_path)
 
 
 def test_deleted_array_call(inserted_array: "Array"):

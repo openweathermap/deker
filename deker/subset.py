@@ -26,7 +26,7 @@ from deker_tools.slices import create_shape_from_slice, match_slice_size, slice_
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
-from deker.errors import DekerArrayError, DekerVSubsetError
+from deker.errors import DekerArrayError, DekerSubsetError, DekerVSubsetError
 from deker.locks import WriteVarrayLock
 from deker.schemas import TimeDimensionSchema
 from deker.tools import not_deleted
@@ -254,9 +254,9 @@ class VSubset(BaseSubset):
             return [
                 [
                     ArraysCoordinatesWithOffset(
-                        slice_exp // step,  # type: ignore[operator]
+                        slice_exp // step,
                         ArrayOffset(
-                            start=slice_exp % step,  # type: ignore[operator]
+                            start=slice_exp % step,
                         ),
                     )
                 ]
@@ -264,7 +264,7 @@ class VSubset(BaseSubset):
 
         # If its None at slice_exp
         # Get start of slice, and end of slice
-        start, stop, _ = match_slice_size(dim_size, slice_exp)  # type: ignore[arg-type]
+        start, stop, _ = match_slice_size(dim_size, slice_exp)
         # Offset from start
         offset_start = start % step
         # Offset from end (e.g. for step = 5, and stop = 10, offset would be 0
@@ -358,21 +358,20 @@ class VSubset(BaseSubset):
         """
         dimension_given_length = len(slice_exp)
 
-        slice_exp_ = []
+        slice_exp_: list[slice | int] = []
         for i in range(len(array.dimensions)):
-            slice_to_add = slice(None, None)
+            slice_to_add: slice | int = slice(None, None)
             if i < dimension_given_length:
-                if isinstance(slice_exp[i], slice):
-                    slice_to_add = slice_exp[i]
-                elif isinstance(slice_exp[i], int):
-                    slice_to_add = slice_exp[i]
-                    if slice_exp[i] < 0:  # type: ignore[operator]
-                        slice_to_add = (  # type: ignore[operator]
-                            array.dimensions[i].size + slice_exp[i]  # type: ignore[operator]
-                        )
+                element = slice_exp[i]
+                if isinstance(element, slice):
+                    slice_to_add = element
+                elif isinstance(element, int):
+                    slice_to_add = element
+                    if element < 0:
+                        slice_to_add = array.dimensions[i].size + element
 
             slice_exp_.append(slice_to_add)
-        return slice_exp_  # type: ignore[return-value]
+        return slice_exp_
 
     def __get_array_subsets(self, slice_exp: tuple[slice | None | int, ...], array: "VArray") -> Arrays:
         """Calculate which Arrays are in the given subset.
@@ -481,19 +480,23 @@ class VSubset(BaseSubset):
         self.__array_adapter: "BaseArrayAdapter" = array_adapter
         self.__arrays: Arrays = self.__get_array_subsets(
             slice_expression,
-            array,  # type: ignore[arg-type]
+            array,
         )
         self.__collection: "Collection" = collection
         super().__init__(slice_expression, shape, array, array_adapter, varray_adapter, collection)
         self.logger.debug(f"{self.__str__} instantiated")
 
     def _create_array_from_vposition(self, vpos: tuple[int, ...]) -> Optional["Array"]:
+        from deker.arrays import Array
+
         array = self.__collection.arrays.filter({"vid": self.__array.id, "v_position": vpos}).last()
         if not array:
             self.logger.debug(f"Array for v_position {vpos} not found")
             return None
+        if not isinstance(array, Array):  # pragma: no cover
+            raise DekerSubsetError(f"Arrays manager returned {type(array)} for v_position {vpos}")
         self.logger.debug(f"Created Array from meta for v_position {vpos}: {array.id}")
-        return array  # type: ignore[return-value]
+        return array
 
     @not_deleted
     @WriteVarrayLock()
@@ -582,16 +585,12 @@ class VSubset(BaseSubset):
                         pos = array_data.vposition[n]
                         custom_attributes[attr_name] = get_start_datetime(dim) + dim.step * pos
 
-                kwargs = {
-                    "collection": self.__collection,
-                    "adapter": self.__array_adapter,
-                    "primary_attributes": {
-                        "vid": self.__array.id,
-                        "v_position": array_data.vposition,
-                    },
-                    "custom_attributes": custom_attributes,
-                }
-                array = Array(**kwargs)  # type: ignore[arg-type]
+                array = Array(
+                    collection=self.__collection,
+                    adapter=self.__array_adapter,
+                    primary_attributes={"vid": self.__array.id, "v_position": array_data.vposition},
+                    custom_attributes=custom_attributes,
+                )
                 self.__array_adapter.create(array)
             subset = array[array_data.bounds]
             subset.update(array_data.data)

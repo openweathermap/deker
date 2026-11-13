@@ -11,7 +11,7 @@ from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerFilterError, DekerInvalidManagerCallError, DekerValidationError
-from deker.managers import VArrayManager
+from deker.managers import DataManager, VArrayManager
 from deker.schemas import (
     ArraySchema,
     AttributeSchema,
@@ -466,6 +466,16 @@ class TestVarrayManger:
         expected_array = varray_collection.varrays.filter({"id": varray.id}).last()
         assert varray.id == expected_array.id
         assert varray.primary_attributes == expected_array.primary_attributes
+
+    def test_data_manager_without_varray_adapter_cannot_create_varrays(
+        self, varray_collection: Collection, local_array_adapter
+    ):
+        """Tests if DataManager of a VArray collection refuses to work without a VArray adapter."""
+        manager = DataManager(varray_collection, local_array_adapter)
+        with pytest.raises(DekerInvalidManagerCallError):
+            manager.create()
+        with pytest.raises(DekerInvalidManagerCallError):
+            manager._adapter  # noqa: B018
 
     def test_varrays_manager_create_raises_without_varray_schema(
         self, array_collection: Collection, local_array_adapter, local_varray_adapter

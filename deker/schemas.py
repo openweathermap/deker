@@ -322,7 +322,7 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
 
     vgrid: list[int] | tuple[int, ...] | None = None
     arrays_shape: list[int] | tuple[int, ...] | None = None
-    fill_value: Numeric | type(np.nan) | None = None  # type: ignore[valid-type]
+    fill_value: Numeric | None = None
     attributes: list[AttributeSchema] | tuple[AttributeSchema, ...] | None = None
 
     def __attrs_post_init__(self) -> None:
@@ -356,12 +356,12 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
                     f"quantity equal to dimensions quantity ({len(self.dimensions)})"
                 )
             for n, dim in enumerate(self.dimensions):
-                remainder = dim.size % value[n]  # type: ignore[valid-type]
+                remainder = dim.size % value[n]
                 if remainder != 0:
                     raise DekerValidationError(
                         f"Dimensions shall be split by {splitter} into equal parts without remainder: "
                         f"{dim.name} size % {splitter} element = "
-                        f"{dim.size} % {value[n]} = {remainder}"  # type: ignore[valid-type]
+                        f"{dim.size} % {value[n]} = {remainder}"
                     )
 
             # convert splitter value to tuple
@@ -410,7 +410,7 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
       Numpy ``nan`` can be used only for floating numpy dtypes.
     """
 
-    fill_value: Numeric | type(np.nan) | None = None  # type: ignore[valid-type]
+    fill_value: Numeric | None = None
     attributes: list[AttributeSchema] | tuple[AttributeSchema, ...] | None = None
 
     def __attrs_post_init__(self) -> None:

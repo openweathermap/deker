@@ -41,11 +41,12 @@ from deker.types.private.enums import LocksExtensions
 if TYPE_CHECKING:
     from deker_local_adapters import LocalArrayAdapter
 
+    from deker.ABC.base_array import BaseArray
     from deker.arrays import Array, VArray
 
 META_DIVIDER = ":"
 ArrayFromArgs = Union[Path, Union["Array", "VArray"]]
-T = TypeVar("T")
+T = TypeVar("T", bound=Union[Path, "BaseArray"])
 
 
 def _get_lock_filename(id_: str, lock_ext: LocksExtensions) -> str:
@@ -73,7 +74,7 @@ def _check_write_locks(dir_path: Path, id_: str) -> bool:
         if file.name.endswith(f"{os.getpid()}{LocksExtensions.varray_lock.value}"):
             return True
         # If we've found another varray lock, that not from current process.
-        if file.name.endswith(LocksExtensions.varray_lock.value):  # type: ignore
+        if file.name.endswith(LocksExtensions.varray_lock.value):
             raise DekerLockError(f"Array {id_} is locked with {file.name}")
     return False
 
@@ -94,7 +95,7 @@ class LockWithArrayMixin(Generic[T]):
             path = self.array
             id_ = path.name.split(".")[0]
         else:
-            id_ = self.array.id  # type: ignore[attr-defined]
+            id_ = self.array.id
         return id_
 
     @property
@@ -319,12 +320,12 @@ class WriteVarrayLock(BaseLock):
         """
         currently_locked = []
 
-        collection = varray._VArray__collection  # type: ignore[attr-defined]
+        collection = self.instance._VSubset__collection
         for array_position in self.instance._VSubset__arrays:
             filename = adapter._get_symlink_filename(
                 varray.id,
                 array_position.vposition,
-                collection.array_schema.primary_attributes,  # type: ignore[arg-type]
+                collection.array_schema.primary_attributes,
             )
             if not filename:
                 continue

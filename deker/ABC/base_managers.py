@@ -20,6 +20,7 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Optional, Union
 
 from deker.ABC.base_schemas import BaseArraysSchema
+from deker.errors import DekerInvalidManagerCallError
 from deker.schemas import VArraySchema
 
 if TYPE_CHECKING:
@@ -51,13 +52,15 @@ class BaseAbstractManager(ABC):  # noqa: B024
     def _adapter(self) -> Union["BaseArrayAdapter", "BaseVArrayAdapter"]:
         """Get array adapter from factory."""
         if isinstance(self._schema, VArraySchema):
-            return self.__varray_adapter  # type: ignore[return-value]
+            if self.__varray_adapter is None:
+                raise DekerInvalidManagerCallError("VArray adapter is not set for a VArray schema")
+            return self.__varray_adapter
         return self.__array_adapter
 
     def _get_schema(self) -> BaseArraysSchema:
         """Decide which schema to use (Array or VArray)."""
         schema = self.__collection.varray_schema if self.__collection.varray_schema else self.__collection.array_schema
-        return schema  # type: ignore[return-value]
+        return schema
 
     def filter(self, filters: dict) -> "FilteredManager":
         """Filter Arrays or VArrays by provided condition.
@@ -70,7 +73,7 @@ class BaseAbstractManager(ABC):  # noqa: B024
         return FilteredManager(
             self.__collection,
             self.__array_adapter,
-            self.__varray_adapter,  # type: ignore[arg-type]
+            self.__varray_adapter,
             schema=self._get_schema(),
             filters=filters,
         )

@@ -18,6 +18,9 @@
 
 import datetime
 
+from collections.abc import Callable
+from typing import Any
+
 import numpy as np
 
 from attr import dataclass
@@ -81,7 +84,7 @@ class BaseArraysSchema:
     """Base class for schema."""
 
     dtype: type[Numeric]
-    fill_value: Numeric | type(np.nan) | None  # type: ignore[valid-type]
+    fill_value: Numeric | None
     dimensions: list[BaseDimensionSchema] | tuple[BaseDimensionSchema, ...]
     attributes: list[BaseAttributeSchema] | tuple[BaseAttributeSchema, ...] | None
 
@@ -127,7 +130,8 @@ class BaseArraysSchema:
         self.fill_value = get_default_fill_value(self.dtype) if self.fill_value is None else self.fill_value
 
         try:
-            fill_value = self.dtype(self.fill_value)  # type: ignore[arg-type]
+            to_dtype: Callable[[Any], Numeric] = self.dtype
+            fill_value = to_dtype(self.fill_value)
             np.array(fill_value, self.dtype)
             self.fill_value = fill_value
         except ValueError as e:
@@ -155,7 +159,9 @@ class BaseArraysSchema:
             raise DekerInvalidSchemaError(error + f"wrong dtype {self.dtype}")
         try:
             dtype = DTypeEnum.get_name(DTypeEnum(self.dtype))
-            fill_value = None if np.isnan(self.fill_value) else str(self.fill_value)  # type: ignore[arg-type]
+            if self.fill_value is None:  # pragma: no cover
+                raise ValueError("fill_value is not set")
+            fill_value = None if np.isnan(self.fill_value) else str(self.fill_value)
 
             return {
                 "dimensions": tuple(dim.as_dict for dim in self.dimensions),

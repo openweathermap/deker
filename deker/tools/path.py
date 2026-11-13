@@ -18,9 +18,8 @@ import hashlib
 import os
 
 from datetime import datetime
-from functools import singledispatch
 from pathlib import Path
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
 
 from deker.types import Paths
 from deker.types.private.enums import LocksExtensions
@@ -66,6 +65,72 @@ def get_main_path(array_id: str, data_directory: Path) -> Path:
     return data_directory / main_tree / rest
 
 
+@runtime_checkable
+class DiskAdapter(Protocol):
+    """Adapter that keeps arrays as files on disk, in data and symlinks directories of the collection."""
+
+    data_dir: str
+    symlinks_dir: str
+
+
+def _get_disk_adapter(array: Union["Array", "VArray"]) -> DiskAdapter:
+    """Get the adapter of the array, which shall keep its files on disk.
+
+    :param array: Array or VArray instance
+    :returns: the array adapter with data and symlinks directories
+    """
+    adapter = array._adapter
+    if not isinstance(adapter, DiskAdapter):  # pragma: no cover
+        raise TypeError(f"{type(adapter).__name__} keeps no data and symlinks directories: paths cannot be built")
+    return adapter
+
+
+def _get_array_paths(arr: "Array", base_path: Path) -> Paths:
+    """Generate paths for Array.
+
+    :param arr: Array type
+    :param base_path: collection base path
+    :returns: main and symlink paths of the array
+    """
+    adapter = _get_disk_adapter(arr)
+    # main_path
+    main_path = get_main_path(arr.id, base_path / adapter.data_dir)
+
+    # symlink
+    primary_attributes: tuple["BaseAttributeSchema", ...] | None = arr.schema.primary_attributes
+    symlink_path = get_symlink_path(
+        path_to_symlink_dir=base_path / adapter.symlinks_dir,
+        primary_attributes_schema=primary_attributes,
+        primary_attributes={
+            **arr.primary_attributes,
+            "vid": arr._vid,
+            "v_position": arr._v_position,
+        },
+    )
+    return Paths(main_path, symlink_path)
+
+
+def _get_varray_paths(arr: "VArray", base_path: Path) -> Paths:
+    """Generate paths for VArray.
+
+    :param arr: VArray type
+    :param base_path: collection base path
+    :returns: main and symlink paths of the virtual array
+    """
+    adapter = _get_disk_adapter(arr)
+    # main_path
+    main_path = get_main_path(arr.id, base_path / adapter.data_dir)
+
+    # symlink
+    primary_attributes: tuple["BaseAttributeSchema", ...] | None = arr.schema.primary_attributes
+    symlink_path = get_symlink_path(
+        path_to_symlink_dir=base_path / adapter.symlinks_dir,
+        primary_attributes_schema=primary_attributes,
+        primary_attributes={**arr.primary_attributes},
+    )
+    return Paths(main_path, symlink_path)
+
+
 def get_paths(array: Union["Array", "VArray"], collection_path: Path | str) -> Paths:
     """Create main and symlink paths for arrays.
 
@@ -75,62 +140,12 @@ def get_paths(array: Union["Array", "VArray"], collection_path: Path | str) -> P
     """
     from deker.arrays import Array, VArray
 
-    @singledispatch
-    def get_path(arr: Union["Array", "VArray"], base_path: Path) -> Paths:  # noqa: ARG001
-        """Generate paths by object type.
-
-        :param arr: any object
-        :param base_path: collection base path
-        :returns: main and symlink paths of the object, by its type
-        """
-        raise TypeError(f"Invalid object type: {type(arr)}")
-
-    @get_path.register(Array)
-    def array_path(arr: Array, base_path: Path) -> Paths:
-        """Generate paths for Array.
-
-        :param arr: Array type
-        :param base_path: collection base path
-        :returns: main and symlink paths of the array
-        """
-        # main_path
-        main_path = get_main_path(arr.id, base_path / arr._adapter.data_dir)  # type: ignore[operator, attr-defined]
-
-        # symlink
-        primary_attributes: tuple["BaseAttributeSchema", ...] | None = arr.schema.primary_attributes
-        symlink_path = get_symlink_path(
-            path_to_symlink_dir=base_path / arr._adapter.symlinks_dir,  # type: ignore[operator, attr-defined]
-            primary_attributes_schema=primary_attributes,
-            primary_attributes={
-                **arr.primary_attributes,
-                "vid": arr._vid,
-                "v_position": arr._v_position,
-            },
-        )
-        return Paths(main_path, symlink_path)
-
-    @get_path.register(VArray)
-    def varray_path(arr: VArray, base_path: Path) -> Paths:
-        """Generate paths for VArray.
-
-        :param arr: VArray type
-        :param base_path: collection base path
-        :returns: main and symlink paths of the virtual array
-        """
-        # main_path
-        main_path = get_main_path(arr.id, base_path / arr._adapter.data_dir)  # type: ignore[operator, attr-defined]
-
-        # symlink
-        primary_attributes: tuple["BaseAttributeSchema"] | None = arr.schema.primary_attributes
-        symlink_path = get_symlink_path(
-            path_to_symlink_dir=base_path / arr._adapter.symlinks_dir,  # type: ignore[operator, attr-defined]
-            primary_attributes_schema=primary_attributes,
-            primary_attributes={**arr.primary_attributes},
-        )
-        return Paths(main_path, symlink_path)
-
     coll_path = Path(collection_path) if isinstance(collection_path, str) else collection_path
-    return get_path(array, coll_path)
+    if isinstance(array, VArray):
+        return _get_varray_paths(array, coll_path)
+    if isinstance(array, Array):
+        return _get_array_paths(array, coll_path)
+    raise TypeError(f"Invalid object type: {type(array)}")
 
 
 def get_array_lock_path(array: Union["Array", "VArray"], data_directory_path: Path) -> Path:

@@ -68,7 +68,7 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
         pass
 
     @abstractmethod
-    def get_varray_adapter(self, *args: Any, **kwargs: Any) -> "BaseVArrayAdapter":  # type: ignore[return-value]
+    def get_varray_adapter(self, *args: Any, **kwargs: Any) -> "BaseVArrayAdapter":
         """Create VArrayAdapter instance.
 
         :param *args: any arguments

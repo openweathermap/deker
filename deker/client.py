@@ -139,20 +139,18 @@ class Client(SelfLoggerMixin):
         if not self.__plugins:
             raise DekerClientError("No installed adapters are found: run `pip install deker_local_adapters`")
 
-        if self.__uri.scheme not in self.__plugins:  # type: ignore[attr-defined]
-            raise DekerClientError(
-                f"Invalid uri: {self.__uri.scheme} is not supported; {self.__uri}"  # type: ignore[attr-defined]
-            )
+        if self.__uri.scheme not in self.__plugins:
+            raise DekerClientError(f"Invalid uri: {self.__uri.scheme} is not supported; {self.__uri}")
 
         if self.is_closed:
             self.__is_closed = False
 
             try:
-                factory = self.__plugins[self.__uri.scheme]  # type: ignore[attr-defined]
+                factory = self.__plugins[self.__uri.scheme]
             except AttributeError:
                 raise DekerClientError(
                     f"Invalid source: installed package does not provide AdaptersFactory "
-                    f"for managing uri scheme {self.__uri.scheme}"  # type: ignore[attr-defined]
+                    f"for managing uri scheme {self.__uri.scheme}"
                 )
 
             self.__ctx = CTX(
@@ -160,7 +158,7 @@ class Client(SelfLoggerMixin):
                 config=self.__config,
                 executor=self.__executor,
                 is_closed=self.__is_closed,
-                extra=self.kwargs,  # type: ignore[has-type]
+                extra=self.kwargs,
             )
             self.__factory = factory(self.__ctx, self.__uri)
             self.__adapter = self.__factory.get_collection_adapter()
@@ -218,7 +216,7 @@ class Client(SelfLoggerMixin):
             else:
                 mem_limit = memory_limit
 
-            self.__config = DekerConfig(  # type: ignore[call-arg]
+            self.__config = DekerConfig(
                 uri=uri,
                 workers=workers if workers is not None else cpu_count() + 4,
                 write_lock_timeout=write_lock_timeout,
@@ -233,7 +231,7 @@ class Client(SelfLoggerMixin):
             self.__factory: BaseAdaptersFactory | None = None
             self.__ctx: CTX | None = None
             self.__executor: ThreadPoolExecutor | None = executor
-            self.kwargs = kwargs
+            self.kwargs: dict[str, Any] = kwargs
             self._open()
         except Exception as e:
             raise DekerClientError(e)
@@ -266,10 +264,14 @@ class Client(SelfLoggerMixin):
     @property
     def root_path(self) -> Path:
         """Get root path to the current storage."""
-        return (
-            Path(self.__adapter.uri.path)  # type: ignore[attr-defined]
-            / self.__config.collections_directory
-        )
+        return Path(self.__adapter.uri.path) / self.__config.collections_directory
+
+    @property
+    def _ctx(self) -> CTX:
+        """Get the context of the open client."""
+        if self.__ctx is None:  # pragma: no cover
+            raise DekerClientError("Client is not initialized")
+        return self.__ctx
 
     @property
     def is_closed(self) -> bool:
@@ -319,10 +321,10 @@ class Client(SelfLoggerMixin):
 
         with tqdm(paths, ncols=80, desc=str(size)) as pbar:
             for collection, ext in pbar:
-                for root, _, files in os.walk(collection):  # type: ignore[type-var]
+                for root, _, files in os.walk(collection):
                     for file in files:  # type: str
                         if file.endswith(ext):
-                            size += os.path.getsize(Path(root) / file)  # type: ignore[arg-type]
+                            size += os.path.getsize(Path(root) / file)
                             pbar.set_description(str(size))
                 pbar.set_description(str(size))
 
@@ -349,7 +351,7 @@ class Client(SelfLoggerMixin):
     def create_collection(
         self,
         name: str,
-        schema: ArraySchema | VArraySchema,  # type: ignore[arg-type]
+        schema: ArraySchema | VArraySchema,
         collection_options: "BaseCollectionOptions | None" = None,
         storage_adapter_type: str | None = None,
     ) -> Collection:
@@ -392,11 +394,9 @@ class Client(SelfLoggerMixin):
         try:
             collection_data: dict = self.__adapter.read(name)
             self._validate_collection_metadata_version(collection_data)
-            collection = self.__adapter.create_collection_from_meta(  # type: ignore[return-value]
-                collection_data, self.__factory
-            )
+            collection = self.__adapter.create_collection_from_meta(collection_data, self.__factory)
             self.logger.debug(f"Collection {name} read from meta")
-            return collection  # type: ignore[return-value]
+            return collection
         except DekerCollectionNotExistsError:
             self.logger.info(f"Collection {name} not found")
             return None
@@ -436,9 +436,7 @@ class Client(SelfLoggerMixin):
 
                     elif k not in collection_data[key]:
                         collection_data[key][k] = default_fields[key][k]
-        return self.__adapter.create_collection_from_meta(  # type: ignore[return-value]
-            collection_data, self.__factory
-        )
+        return self.__adapter.create_collection_from_meta(collection_data, self.__factory)
 
     def collection_from_dict(self, collection_data: dict) -> Collection:
         """Create a new ``Collection`` in the database from collection metadata dictionary.
@@ -449,7 +447,7 @@ class Client(SelfLoggerMixin):
         collection = self._validate_collection(collection_data)
         self.__adapter.create(collection)
         self.logger.debug(f"Collection {collection.name} created from dict")
-        return collection  # type: ignore[return-value]
+        return collection
 
     @staticmethod
     def _iter_collection_locks(
@@ -593,7 +591,7 @@ class Client(SelfLoggerMixin):
         for meta in self.__adapter:
             collection = self.__adapter.create_collection_from_meta(
                 meta,
-                self.__factory,  # type: ignore[arg-type]
+                self.__factory,
             )
             yield collection
 

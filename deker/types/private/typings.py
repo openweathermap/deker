@@ -17,6 +17,7 @@
 """Module for using in type annotations. Not for direct initialization."""
 
 from datetime import datetime
+from types import EllipsisType, NoneType
 from typing import TYPE_CHECKING, Union
 
 import numpy as np
@@ -42,12 +43,6 @@ __all__ = (
     "Numeric",
     "NumericDtypes",
 )
-
-EllipsisType = type(...)
-NoneType = type(None)
-
-if TYPE_CHECKING:
-    EllipsisType = type[Ellipsis]
 
 NumericDtypes = [
     int,
@@ -138,21 +133,21 @@ MetaDataType = Union[int, float, str, datetime, Data]
 Slice = Union[
     IndexExpression,
     slice,
-    EllipsisType,  # type: ignore
+    EllipsisType,
     int,
-    tuple[Union[slice, int, EllipsisType, None], ...],  # type: ignore
+    tuple[Union[slice, int, EllipsisType, None], ...],
 ]
 
 FancySlice = Union[
     IndexExpression,
     slice,
-    EllipsisType,  # type: ignore
+    EllipsisType,
     int,
     float,
     str,
     datetime,
     None,
-    tuple[Union[IndexExpression, slice, int, float, str, datetime, EllipsisType, None], ...],  # type: ignore
+    tuple[Union[IndexExpression, slice, int, float, str, datetime, EllipsisType, None], ...],
 ]
 
 ArraysInDimension = list[ArraysCoordinatesWithOffset]

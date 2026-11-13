@@ -44,7 +44,7 @@ class FilteredManager(SelfLoggerMixin, BaseAbstractManager):
         self,
         collection: "Collection",
         array_adapter: "BaseArrayAdapter",
-        varray_adapter: "BaseVArrayAdapter",
+        varray_adapter: Optional["BaseVArrayAdapter"],
         schema: "BaseArraysSchema",
         filters: dict,
     ):
@@ -106,7 +106,56 @@ class DataManager(BaseManager):
         self.__array_adapter = array_adapter
         self.__varray_adapter = varray_adapter
 
-    def _create(  # type: ignore
+    def _create_array(
+        self,
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
+        id_: str | None = None,
+    ) -> Array:
+        """Create Array.
+
+        :param primary_attributes: array primary attribute
+        :param custom_attributes: array custom attributes
+        :param id_: Array uuid string
+        :returns: the created ``Array``
+        """
+        array = Array(
+            collection=self.__collection,
+            adapter=self.__array_adapter,
+            id_=id_,
+            primary_attributes=primary_attributes,
+            custom_attributes=custom_attributes,
+        )
+        self._adapter.create(array)
+        return array
+
+    def _create_varray(
+        self,
+        primary_attributes: dict | None = None,
+        custom_attributes: dict | None = None,
+        id_: str | None = None,
+    ) -> VArray:
+        """Create VArray.
+
+        :param primary_attributes: varray primary attribute
+        :param custom_attributes: varray custom attributes
+        :param id_: VArray uuid string
+        :returns: the created ``VArray``
+        """
+        if self.__varray_adapter is None:
+            raise DekerInvalidManagerCallError("VArray adapter is not set")
+        varray = VArray(
+            collection=self.__collection,
+            adapter=self.__varray_adapter,
+            array_adapter=self.__array_adapter,
+            id_=id_,
+            primary_attributes=primary_attributes,
+            custom_attributes=custom_attributes,
+        )
+        self._adapter.create(varray)
+        return varray
+
+    def _create(
         self,
         schema: "BaseArraysSchema",
         primary_attributes: dict | None = None,
@@ -121,26 +170,9 @@ class DataManager(BaseManager):
         :param id_: (V)Array uuid string
         :returns: the created ``Array`` or ``VArray``
         """
-        arr_params = {
-            "collection": self.__collection,
-            "primary_attributes": primary_attributes,
-            "custom_attributes": custom_attributes,
-            "id_": id_,
-        }
-
         if isinstance(schema, VArraySchema):
-            arr_params.update(
-                {
-                    "adapter": self.__varray_adapter,  # type: ignore[dict-item]
-                    "array_adapter": self.__array_adapter,  # type: ignore[dict-item]
-                }
-            )
-            array = VArray(**arr_params)  # type: ignore[arg-type]
-        else:
-            arr_params.update({"adapter": self.__array_adapter})  # type: ignore[dict-item]
-            array = Array(**arr_params)  # type: ignore[arg-type]
-        self._adapter.create(array)
-        return array
+            return self._create_varray(primary_attributes, custom_attributes, id_)
+        return self._create_array(primary_attributes, custom_attributes, id_)
 
     def create(
         self,
@@ -176,12 +208,12 @@ class VArrayManager(SelfLoggerMixin, DataManager):
     ) -> None:
         super().__init__(collection, array_adapter, varray_adapter)
         self.__collection = collection
-        self.__array_adapter = array_adapter
-        self.__varray_adapter = varray_adapter
+        self.__array_adapter: "BaseArrayAdapter" = array_adapter
+        self.__varray_adapter: "BaseVArrayAdapter" = varray_adapter
 
     @property
     def _adapter(self) -> "BaseVArrayAdapter":
-        return self.__varray_adapter  # type: ignore[return-value]
+        return self.__varray_adapter
 
     def _get_schema(self) -> Optional["VArraySchema"]:
         return self.__collection.varray_schema
@@ -199,20 +231,14 @@ class VArrayManager(SelfLoggerMixin, DataManager):
         :param id_: VArray unique UUID string
         :returns: the created ``VArray``
         """
-        schema = self.__collection.varray_schema
-        if schema is None:
+        if self.__collection.varray_schema is None:
             raise DekerInvalidManagerCallError("VArrays cannot be created in a collection without VArraySchema")
-        return self._create(  # type: ignore[return-value]
-            schema,
-            primary_attributes,
-            custom_attributes,
-            id_,  # type: ignore[arg-type]
-        )
+        return self._create_varray(primary_attributes, custom_attributes, id_)
 
     def __iter__(self) -> Generator[VArray, None, None]:
         """Yield VArrays from adapter."""
         self.logger.debug("iterating over VArrays")
-        for meta in self._adapter:  # type: ignore[attr-defined]
+        for meta in self._adapter:
             yield VArray._create_from_meta(self.__collection, meta, self.__array_adapter, self.__varray_adapter)
 
 
@@ -252,12 +278,10 @@ class ArrayManager(SelfLoggerMixin, DataManager):
         :param id_: Array unique UUID string
         :returns: the created ``Array``
         """
-        return self._create(  # type: ignore[return-value]
-            self.__collection.array_schema, primary_attributes, custom_attributes, id_
-        )
+        return self._create_array(primary_attributes, custom_attributes, id_)
 
     def __iter__(self) -> Generator[Array, None, None]:
         """Yield Arrays from adapter."""
         self.logger.debug("iterating over Arrays")
-        for meta in self._adapter:  # type: ignore[attr-defined]
+        for meta in self._adapter:
             yield Array._create_from_meta(self.__collection, meta, self.__array_adapter)

@@ -43,7 +43,7 @@ class BaseChecker(ABC):
         self.level = level
         self.client = client
         self.root_path = root_path
-        self.ctx = client._Client__ctx  # type: ignore
+        self.ctx = client._ctx
         self.next_checker = None
 
     def _parse_errors(self) -> str:
