@@ -20,7 +20,7 @@ from typing import NamedTuple, Union
 from deker.errors import DekerValidationError
 from deker.log import SelfLoggerMixin
 
-Labels = Union[tuple[Union[str, int, float], ...], list[Union[str, int, float]]]
+Labels = Union[tuple[Union[str, float], ...], list[Union[str, float]]]
 
 
 class Scale(NamedTuple):
@@ -84,7 +84,7 @@ class IndexLabels(tuple, SelfLoggerMixin):
     """
 
     @classmethod
-    def __validate(cls, labels: Labels | None) -> tuple[str | int | float, ...]:
+    def __validate(cls, labels: Labels | None) -> tuple[str | float, ...]:
         error = DekerValidationError(
             "Labels shall be a list or tuple of unique values of the same type (strings, floats), "
             "not None or empty list or tuple"
@@ -116,16 +116,16 @@ class IndexLabels(tuple, SelfLoggerMixin):
         self.logger.debug("labels initialized")
 
     @property
-    def first(self) -> str | int | float:
+    def first(self) -> str | float:
         """Get first label."""
         return self[0]
 
     @property
-    def last(self) -> str | int | float:
+    def last(self) -> str | float:
         """Get last label."""
         return self[-1]
 
-    def name_to_index(self, name: str | int | float) -> int | None:
+    def name_to_index(self, name: str | float) -> int | None:
         """Get label index by its name.
 
         :param name: label name
@@ -138,7 +138,7 @@ class IndexLabels(tuple, SelfLoggerMixin):
             self.logger.debug(mes)
             return None
 
-    def index_to_name(self, idx: int) -> str | int | float | None:
+    def index_to_name(self, idx: int) -> str | float | None:
         """Get label name by its index.
 
         :param idx: label index

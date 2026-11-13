@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from deker.collection import Collection
 
 
-class Array(BaseArray):
+class Array(BaseArray[Subset]):
     """``Array`` is an abstract wrapper over final low-level arrays containing data.
 
     ``Array`` is created by collection. It is a ``lazy`` object that does not interact with its data itself,
@@ -140,7 +140,7 @@ class Array(BaseArray):
         return self.__collection.array_schema
 
 
-class VArray(BaseArray):
+class VArray(BaseArray[VSubset]):
     """Virtual array or ``VArray`` is an abstract virtual array that consists of ordinary ``Arrays``.
 
     ``VArray`` is an "array of arrays" or an "image of pixels". If we consider ``VArray`` as an image -
@@ -276,6 +276,9 @@ class VArray(BaseArray):
         self.logger.debug(f"VArray {self.id} is deleted")
 
     @property
-    def schema(self) -> VArraySchema | None:
+    def schema(self) -> VArraySchema:
         """Return ``VArraySchema`` of the VArray's Collection."""
-        return self.__collection.varray_schema
+        schema = self.__collection.varray_schema
+        if schema is None:  # pragma: no cover
+            raise DekerInvalidSchemaError("VArray collection has no VArraySchema")
+        return schema

@@ -215,8 +215,11 @@ class VArrayManager(SelfLoggerMixin, DataManager):
     def _adapter(self) -> "BaseVArrayAdapter":
         return self.__varray_adapter
 
-    def _get_schema(self) -> Optional["VArraySchema"]:
-        return self.__collection.varray_schema
+    def _get_schema(self) -> "VArraySchema":
+        schema = self.__collection.varray_schema
+        if schema is None:
+            raise DekerInvalidManagerCallError("VArrays cannot be created in a collection without VArraySchema")
+        return schema
 
     def create(
         self,
@@ -231,8 +234,7 @@ class VArrayManager(SelfLoggerMixin, DataManager):
         :param id_: VArray unique UUID string
         :returns: the created ``VArray``
         """
-        if self.__collection.varray_schema is None:
-            raise DekerInvalidManagerCallError("VArrays cannot be created in a collection without VArraySchema")
+        self._get_schema()
         return self._create_varray(primary_attributes, custom_attributes, id_)
 
     def __iter__(self) -> Generator[VArray, None, None]:

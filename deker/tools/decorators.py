@@ -18,7 +18,7 @@ from collections.abc import Callable
 from functools import wraps
 from typing import Any
 
-from deker.errors import DekerClientError, DekerInstanceNotExistsError
+from deker.errors import DekerAdapterClosedError, DekerInstanceNotExistsError
 
 
 def check_ctx_state(method: Callable) -> Callable:
@@ -38,7 +38,7 @@ def check_ctx_state(method: Callable) -> Callable:
         :returns: result of the method
         """
         if self.ctx.is_closed:
-            raise DekerClientError("Client is closed")
+            raise DekerAdapterClosedError(f"{self.__class__.__name__} is closed")
         return method(self, *args, **kwargs)
 
     return ctx_checker

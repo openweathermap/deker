@@ -15,7 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from deker.errors import DekerValidationError
 
@@ -64,7 +64,7 @@ def convert_iso_attrs_to_datetime(attrs: dict | None) -> dict | None:
         raise TypeError(f"Invalid attribute value type: {type(attrs)}; expected dict")
 
     if attrs:
-        new_attrs = {}
+        new_attrs: dict[Any, Any] = {}
         for key, value in attrs.items():
             if isinstance(value, str):
                 try:

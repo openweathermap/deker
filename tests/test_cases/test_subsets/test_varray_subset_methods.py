@@ -248,6 +248,18 @@ class TestVArraySubset:
         result = vsubset.read()
         assert data.tolist() == result.tolist()
 
+    @pytest.mark.parametrize(
+        "index_exp", [np.index_exp[:], np.index_exp[0], np.index_exp[1:3, 1:3], np.index_exp[0, 0]]
+    )
+    def test_vsubset_update_with_scalar_fills_subset(self, varray: VArray, index_exp: Slice):
+        """Tests if a scalar fills the whole VSubset, as it does for an Array subset."""
+        varray._adapter.create(varray)
+        vsubset: VSubset = varray[index_exp]
+        vsubset.update(5)
+        result = vsubset.read()
+        assert np.all(np.asarray(result) == 5)
+        assert np.asarray(result).shape == vsubset.shape
+
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
     def test_update_vsubset_raises_on_no_data(self, varray_collection: Collection, index_exp: Slice):
         """Tests if subset updates itself correctly.

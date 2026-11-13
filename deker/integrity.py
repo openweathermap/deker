@@ -167,9 +167,7 @@ class ArraysChecker(BaseChecker):
         if self.stop_on_error and self.errors:
             raise DekerIntegrityError(self._parse_errors())
 
-    def _check_varrays_or_arrays(
-        self, collection: Collection, data_manager: ArrayManager | VArrayManager | None
-    ) -> None:
+    def _check_varrays_or_arrays(self, collection: Collection, data_manager: ArrayManager | VArrayManager) -> None:
         """Check if Arrays or VArrays in Collection are initializing.
 
         :param collection: Collection to be checked
@@ -241,7 +239,7 @@ class CollectionsChecker(BaseChecker):
         :param collection_name: optional collection to be checked
         """
         if collection_name:
-            collection: Collection = self.client.get_collection(collection_name)
+            collection = self.client.get_collection(collection_name)
             if not collection:
                 raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
             if self.level > self.CHECKER_LEVEL:

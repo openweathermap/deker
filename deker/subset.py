@@ -26,6 +26,7 @@ from deker_tools.slices import create_shape_from_slice, match_slice_size, slice_
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
+from deker.dimensions import TimeDimension
 from deker.errors import DekerArrayError, DekerSubsetError, DekerVSubsetError
 from deker.locks import WriteVarrayLock
 from deker.schemas import TimeDimensionSchema
@@ -43,7 +44,6 @@ if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.arrays import Array, VArray
     from deker.collection import Collection
-    from deker.dimensions import TimeDimension
 
 
 class Subset(BaseSubset):
@@ -535,9 +535,9 @@ class VSubset(BaseSubset):
         """Read data from ``VArray`` slice."""
 
         def _read_data(array_pos: ArrayPosition) -> tuple[Slice, Numeric | ndarray | None]:
-            array: "Array" = self._create_array_from_vposition(array_pos.vposition)
+            array = self._create_array_from_vposition(array_pos.vposition)
             if array:
-                subset: Subset = array[array_pos.bounds]
+                subset = array[array_pos.bounds]
                 result = subset.read()
             else:
                 result = np.empty(
@@ -581,7 +581,9 @@ class VSubset(BaseSubset):
                 for n, dim_schema in enumerate(self.__collection.array_schema.dimensions):
                     if isinstance(dim_schema, TimeDimensionSchema) and isinstance(dim_schema.start_value, str):
                         attr_name = dim_schema.start_value[1:]
-                        dim: TimeDimension = self.__array.dimensions[n]
+                        dim = self.__array.dimensions[n]
+                        if not isinstance(dim, TimeDimension):  # pragma: no cover
+                            raise DekerVSubsetError(f"Dimension {dim.name} is not a TimeDimension", [])
                         pos = array_data.vposition[n]
                         custom_attributes[attr_name] = get_start_datetime(dim) + dim.step * pos
 
@@ -599,10 +601,14 @@ class VSubset(BaseSubset):
         if data is None:
             raise DekerArrayError("Updating data shall not be None")
 
-        data = self.__array_adapter._process_data(self.__array.dtype, self.__array.shape, data, self.__bounds)
+        processed = self.__array_adapter._process_data(self.__array.dtype, self.__array.shape, data, self.__bounds)
+        # a scalar fills the whole subset, as it does for an Array subset
+        data_array = (
+            processed if isinstance(processed, np.ndarray) else np.full(self.__shape, processed, self.__array.dtype)
+        )
 
         positions = [
-            ArrayPositionedData(vpos, array_bounds, data[data_bounds])
+            ArrayPositionedData(vpos, array_bounds, data_array[data_bounds])
             for vpos, array_bounds, data_bounds in self.__arrays
         ]
         futures = [self.__adapter.executor.submit(_update, position) for position in positions]

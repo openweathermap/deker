@@ -30,10 +30,11 @@ class BaseLock(SelfLoggerMixin, ABC):
     """Base class for read/write locks."""
 
     ALLOWED_TYPES: list[str] = []
-    lock: Flock | Path | None = None
-    instance: Any | None = None
-    args: list[Any] | None = None
-    kwargs: dict | None = None
+    lock: Flock | None = None
+    # bound by __call__ for every decorated call: the decorated method's object and its arguments
+    instance: Any
+    args: Sequence[Any]
+    kwargs: dict[str, Any]
 
     @abstractmethod
     def get_path(self) -> Path | None:

@@ -34,15 +34,13 @@ class Dimension(SelfLoggerMixin, BaseDimension):
 
     :param name: dimension unique name (e.g. "length")
     :param size: dimension cells quantity
-    :param labels: ordered mapping of dimension values names to their indexes; default None
+    :param labels: ordered sequence of unique dimension values names (strings or floats), mapped to their
+      indexes; default None
 
       ::
 
         ["name1", "name2", ..., "nameN"]
-        ("name1", "name2", ..., "nameN")
-        [("name1", 0), ("name2", 1), ..., ("nameN", N)]
-        (("name1", 0), ("name2", 1), ..., ("nameN", N))
-        {"name1": 0, "name2": 1, ..., "nameN": N}
+        (0.25, 0.5, ..., 1.0)
 
     :param scale: a description of dimension regular scale; default None
     :param **kwargs: any keyword arguments
@@ -77,12 +75,14 @@ class Dimension(SelfLoggerMixin, BaseDimension):
 
             if isinstance(scale, dict):
                 try:
-                    scale: Scale = Scale(**scale)
+                    scale_ = Scale(**scale)
                 except TypeError as e:
                     raise DekerValidationError(e)
+            else:
+                scale_ = scale
 
-            for attr in scale._fields:
-                value = getattr(scale, attr)
+            for attr in scale_._fields:
+                value = getattr(scale_, attr)
                 if attr == "name":
                     if value is not None and (not isinstance(value, str) or not value or value.isspace()):
                         raise DekerValidationError(f"Scale attribute '{attr}' value shall be non-empty string")
@@ -90,48 +90,32 @@ class Dimension(SelfLoggerMixin, BaseDimension):
                 elif not isinstance(value, float):
                     raise DekerValidationError(f"Scale attribute '{attr}' value shall be float")
 
-            scale_end_non_inclusive = scale.start_value
-            scale_end_non_inclusive += scale.step * size
-            scale_size = int(round(abs((scale_end_non_inclusive - scale.start_value) / scale.step)))
+            scale_end_non_inclusive = scale_.start_value
+            scale_end_non_inclusive += scale_.step * size
+            scale_size = int(round(abs((scale_end_non_inclusive - scale_.start_value) / scale_.step)))
             if scale_size != size:
                 raise DekerValidationError(f"Dimension {name} wrong scale: does not match dimension size {size}")
 
         if labels is not None:
             common_labels_exc = (
-                "Labels shall be an ordered sequence or mapping of unique elements to their "
-                "indexes in the dimension axis"
+                "Labels shall be an ordered sequence of unique strings or unique floats, "
+                "mapped to the indexes in the dimension axis"
             )
 
-            if not isinstance(labels, (tuple, list, dict)):
+            if not isinstance(labels, (tuple, list)):
                 raise DekerValidationError(common_labels_exc)
 
-            if isinstance(labels, (list, tuple, dict)) and not labels:
+            if not labels:
                 raise DekerValidationError("Label cannot be empty, use None instead")
 
             if len(labels) != size:
                 raise DekerValidationError("Labels quantity do not match dimension size")
 
-            if isinstance(labels, dict):
-                for key, val in labels.items():
-                    if not isinstance(key, str) or not isinstance(val, int):
-                        raise DekerValidationError(common_labels_exc)
+            if not all(isinstance(el, str) for el in labels) and not all(isinstance(el, float) for el in labels):
+                raise DekerValidationError(common_labels_exc)
 
-            if isinstance(labels, (list, tuple)):
-                if all(isinstance(el, (list, tuple)) for el in labels):
-                    keys = {el[0] for el in labels}
-                    vals = {el[1] for el in labels}
-                    if len(keys) < len(labels) or len(vals) < len(labels):
-                        raise DekerValidationError(common_labels_exc)
-                    if not all(isinstance(key, str) for key in keys) or not all(isinstance(val, int) for val in vals):
-                        raise DekerValidationError(common_labels_exc)
-                elif len(set(labels)) < len(labels) or all(
-                    (
-                        all(not isinstance(el, str) for el in labels),
-                        all(not isinstance(el, int) for el in labels),
-                        all(not isinstance(el, float) for el in labels),
-                    )
-                ):
-                    raise DekerValidationError(common_labels_exc)
+            if len(set(labels)) < len(labels):
+                raise DekerValidationError(common_labels_exc)
 
     def __init__(
         self,
@@ -146,8 +130,8 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         self.__name: str = name
         self.__size: int = size
         self.__step: int = 1  # step attribute kept for further usage unification
-        self.__labels: IndexLabels | None = labels if not labels else IndexLabels(labels)
-        self.__scale: Scale | None = scale if not scale else Scale(**scale)
+        self.__labels: IndexLabels | None = IndexLabels(labels) if labels else None
+        self.__scale: Scale | None = Scale(**scale) if scale else None
         self.logger.debug(f"Dimension {name} instantiated")
 
     @property
@@ -245,8 +229,8 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         self,
         name: str,
         size: int,
-        start_value: datetime.datetime | str,
-        step: datetime.timedelta,
+        start_value: datetime.datetime | str | None = None,
+        step: datetime.timedelta | None = None,
         **kwargs: Any,  # noqa: ARG002
     ) -> None:
         super()._validate(name, size)

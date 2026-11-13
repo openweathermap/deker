@@ -17,6 +17,7 @@
 """Abstract wrappers for array dimension and dimension index labels."""
 
 from abc import ABC
+from datetime import timedelta
 from typing import Any
 
 from deker.errors import DekerValidationError
@@ -54,6 +55,6 @@ class BaseDimension(Serializer, ABC):
         return self.__size  # pragma: no cover
 
     @property
-    def step(self) -> int | float:
+    def step(self) -> int | float | timedelta:
         """Dimension values step."""
         return self.__step  # pragma: no cover

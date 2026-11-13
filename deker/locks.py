@@ -82,9 +82,9 @@ def _check_write_locks(dir_path: Path, id_: str) -> bool:
 class LockWithArrayMixin(Generic[T]):
     """Base class with getter of array."""
 
-    args: list[Any] | None
-    kwargs: dict | None
-    instance: Any | None
+    args: Sequence[Any]
+    kwargs: dict[str, Any]
+    instance: Any
     is_locked_with_varray: bool = False
 
     @property
@@ -131,6 +131,7 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
     """Read lock for Array."""
 
     ALLOWED_TYPES = ["LocalArrayAdapter"]
+    lock_file: Path | None = None  # the read lock is a marker file, not a flock
 
     def get_path(self) -> Path:
         """Get path to read-lock file.
@@ -168,25 +169,27 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
         except BlockingIOError:
             raise DekerLockError(f"Array {self.array_id} is locked for update operation, cannot be read.")
 
-    def acquire(self, path: str | Path) -> None:
+    def acquire(self, path: Path | None) -> None:
         """Read files will not be flocked - only created.
 
         :param path: Path to file which should be locked
         """
+        if path is None:  # pragma: no cover
+            raise DekerLockError(f"{self.__class__.__name__} has no path to lock")
         # Create lock file
-        self.lock = path
+        self.lock_file = path
         open(path, "a").close()
-        self.logger.debug(f"Acquired read lock for {self.lock}")
+        self.logger.debug(f"Acquired read lock for {self.lock_file}")
 
     def release(self, e: Exception | None = None) -> None:  # noqa: ARG002
         """Release lock by deleting file.
 
         :param e: Exception that may have been raised.
         """
-        if self.lock and self.lock.exists():
-            self.lock.unlink()
-            self.logger.debug(f"Releasing read lock for {self.lock}")
-            self.lock = None
+        if self.lock_file and self.lock_file.exists():
+            self.lock_file.unlink()
+            self.logger.debug(f"Releasing read lock for {self.lock_file}")
+            self.lock_file = None
 
 
 class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
@@ -391,7 +394,7 @@ class WriteVarrayLock(BaseLock):
         pass
 
     @staticmethod
-    def _inner_method_logic(lock: "WriteVarrayLock", args: Sequence, kwargs: dict, func: Callable) -> Any:
+    def _inner_method_logic(lock: "BaseLock", args: Sequence, kwargs: dict, func: Callable) -> Any:
         """Logic of acquiring lock and getting result.
 
         When writing in VArray
@@ -402,10 +405,12 @@ class WriteVarrayLock(BaseLock):
         :param kwargs: keyword arguments of decorated function
         :returns: result of the decorated method
         """
+        if not isinstance(lock, WriteVarrayLock):  # pragma: no cover
+            raise TypeError(f"{type(lock).__name__} cannot be processed as a VArray write lock")
         # If we want to skip logic of lock (e.g. when we use server adapters)
         if lock.skip_lock:
             return lock.get_result(func, args, kwargs)
-        return super()._inner_method_logic(lock, args, kwargs, func)
+        return BaseLock._inner_method_logic(lock, args, kwargs, func)
 
 
 class UpdateMetaAttributeLock(LockWithArrayMixin[Union["Array", "VArray"]], BaseLock):

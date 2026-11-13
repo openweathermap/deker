@@ -20,13 +20,14 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from deker.ABC.base_adapters import BaseCollectionAdapter, BaseStorageAdapter
+from deker.ABC.base_adapters import BaseCollectionAdapter, BaseStorageAdapter, BaseVArrayAdapter
 from deker.ABC.base_collection import BaseCollectionOptions
 from deker.ABC.base_schemas import BaseDimensionSchema
 from deker.arrays import Array, VArray
 from deker.errors import (
     DekerInstanceNotExistsError,
     DekerInvalidManagerCallError,
+    DekerInvalidSchemaError,
     DekerValidationError,
 )
 from deker.log import SelfLoggerMixin
@@ -95,9 +96,12 @@ class Collection(SelfLoggerMixin, Serializer):
             AttributeSchema(name="v_position", dtype=tuple, primary=True),
         ]
 
+        vgrid = schema.vgrid
+        if vgrid is None:  # pragma: no cover
+            raise DekerInvalidSchemaError("VArraySchema vgrid is not set")
         dimensions: list[BaseDimensionSchema] = []
         for n, dim in enumerate(schema.dimensions):
-            d: dict[str, Any] = {"name": dim.name, "size": dim.size // schema.vgrid[n]}
+            d: dict[str, Any] = {"name": dim.name, "size": dim.size // vgrid[n]}
             obj: type[BaseDimensionSchema]
             if isinstance(dim, TimeDimensionSchema):
                 obj = TimeDimensionSchema
@@ -170,15 +174,18 @@ class Collection(SelfLoggerMixin, Serializer):
         self.__storage_adapter = storage_adapter
         array_adapter = self.__factory.get_array_adapter(self.__path, self.__storage_adapter, self.__collection_options)
 
+        self.__array_schema: ArraySchema
+        self.__varray_schema: VArraySchema | None
+        self.__varrays: VArrayManager | None
+        varray_adapter: BaseVArrayAdapter | None = None
         if isinstance(schema, VArraySchema):
-            self.__array_schema: ArraySchema = self.__create_array_schema_from_varray_schema(schema)
-            self.__varray_schema: VArraySchema = schema
+            self.__array_schema = self.__create_array_schema_from_varray_schema(schema)
+            self.__varray_schema = schema
             varray_adapter = self.__factory.get_varray_adapter(self.__path, storage_adapter=self.__storage_adapter)
             self.__varrays = VArrayManager(self, array_adapter, varray_adapter)
         else:
-            self.__array_schema: ArraySchema = schema
-            self.__varray_schema: None = None
-            varray_adapter = None
+            self.__array_schema = schema
+            self.__varray_schema = None
             self.__varrays = None
 
         self.__arrays = ArrayManager(
@@ -232,7 +239,7 @@ class Collection(SelfLoggerMixin, Serializer):
         dic: dict = {
             "name": self.name,
             "type": (SchemaTypeEnum.varray.name if self.__varray_schema else SchemaTypeEnum.array.name),
-            "schema": (self.varray_schema.as_dict if self.__varray_schema else self.array_schema.as_dict),
+            "schema": (self.__varray_schema.as_dict if self.__varray_schema else self.array_schema.as_dict),
             "options": self.options.as_dict if self.options else self.options,
             "storage_adapter": self.__storage_adapter.__name__,
             "metadata_version": self.__adapter.metadata_version,
@@ -241,7 +248,7 @@ class Collection(SelfLoggerMixin, Serializer):
         return dic
 
     @property
-    def varrays(self) -> VArrayManager | None:
+    def varrays(self) -> VArrayManager:
         """Return manager for ``VArrays``."""
         if not self.__varrays:
             raise DekerInvalidManagerCallError(
@@ -333,10 +340,9 @@ class Collection(SelfLoggerMixin, Serializer):
         self.logger.debug(f"Iterating over collection {self.name}")
         for meta in adapter:
             if varray_adapter:
-                array: VArray = VArray._create_from_meta(self, meta, array_adapter, varray_adapter=varray_adapter)
+                yield VArray._create_from_meta(self, meta, array_adapter, varray_adapter=varray_adapter)
             else:
-                array: Array = Array._create_from_meta(self, meta, array_adapter)
-            yield array
+                yield Array._create_from_meta(self, meta, array_adapter)
 
     def __repr__(self) -> str:
         s = f"{self.__class__.__name__}(name={self.name}, array_schema={self.array_schema})"

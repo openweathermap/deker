@@ -96,7 +96,7 @@ class ArrayPosition(NamedTuple):
 
     vposition: tuple[int, ...]
     bounds: tuple[slice | int, ...]
-    data_slice: tuple[slice, ...]
+    data_slice: tuple[slice | int, ...]
 
 
 class ArrayPositionedData(NamedTuple):

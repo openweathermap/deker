@@ -25,6 +25,14 @@ class DekerClientError(DekerBaseApplicationError, RuntimeError):
     pass
 
 
+class DekerAdapterClosedError(DekerClientError):
+    """If an adapter or a factory is used after the client context was closed.
+
+    It is a ``DekerClientError``: every object of a closed client answers with it,
+    while the client itself raises a plain ``DekerClientError``.
+    """
+
+
 class DekerArrayError(DekerBaseApplicationError):
     """If something goes wrong in Array."""
 

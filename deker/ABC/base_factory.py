@@ -36,13 +36,15 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
     def __init__(self, ctx: "CTX", uri: "Uri") -> None:
         self.ctx = ctx
         self.uri = uri
+        self.executor: ThreadPoolExecutor
+        self._own_executor: bool
         if self.ctx.executor is None:
-            self.executor: ThreadPoolExecutor = ThreadPoolExecutor(self.ctx.config.workers)
+            self.executor = ThreadPoolExecutor(self.ctx.config.workers)
             self.ctx.executor = self.executor
             self._own_executor = True
         else:
-            self.executor: ThreadPoolExecutor = self.ctx.executor
-            self._own_executor: bool = False
+            self.executor = self.ctx.executor
+            self._own_executor = False
         self.logger.debug(f"{self.__class__.__name__} instantiated")
 
     def __del__(self) -> None:

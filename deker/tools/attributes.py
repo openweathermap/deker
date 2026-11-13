@@ -16,6 +16,7 @@
 import re
 
 from collections import OrderedDict
+from collections.abc import Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
@@ -123,9 +124,9 @@ def deserialize_attribute_nested_tuples(value: tuple[Any, ...] | list[Any]) -> t
 
 
 def make_ordered_dict(
-    primary_attributes: dict | None,
-    custom_attributes: dict | None,
-    attrs_schema: list["AttributeSchema"] | tuple["AttributeSchema", ...],
+    primary_attributes: dict,
+    custom_attributes: dict,
+    attrs_schema: Sequence["AttributeSchema"],
 ) -> tuple[OrderedDict, OrderedDict]:
     """Ensure that attributes in dict are located in correct order (Based on schema).
 

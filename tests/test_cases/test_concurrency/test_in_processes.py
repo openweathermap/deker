@@ -10,7 +10,8 @@ import os
 import traceback
 
 from collections.abc import Callable
-from multiprocessing import Event, Manager, Process, cpu_count
+from multiprocessing import Event, cpu_count
+from multiprocessing.context import BaseContext
 from multiprocessing.pool import Pool
 from pathlib import Path
 from typing import Literal
@@ -193,14 +194,16 @@ def read_array(array_id: str, path, collection_name: str):
 class TestLocks:
     """Test if methods locks work correctly with multiple processes."""
 
-    def test_array_write_lock(self, array_schema: ArraySchema, root_path, inserted_array: Array):
+    def test_array_write_lock(
+        self, array_schema: ArraySchema, root_path, inserted_array: Array, mp_context: BaseContext
+    ):
         """Test array lock."""
-        manager = Manager()
+        manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
 
         # Call method that locks array
-        proc = Process(
+        proc = mp_context.Process(
             target=call_array_method,
             args=(
                 inserted_array.collection,
@@ -217,7 +220,7 @@ class TestLocks:
         # Try to write to array:
         try:
             methods = ["update", "clear"]
-            with Pool(WORKERS) as pool:
+            with mp_context.Pool(WORKERS) as pool:
                 result = pool.starmap(
                     call_array_method,
                     [
@@ -239,27 +242,26 @@ class TestLocks:
         finally:
             proc.kill()
 
-    def test_array_parallel_read(self, inserted_array: Array, array_collection: Collection, root_path):
+    def test_array_parallel_read(
+        self, inserted_array: Array, array_collection: Collection, root_path: Path, mp_context: BaseContext
+    ):
         """Test if we can read array in parallel."""
         args = (inserted_array.id, str(embedded_uri(root_path)), array_collection.name)
-        with Pool(WORKERS) as pool:
+        with mp_context.Pool(WORKERS) as pool:
             result = pool.starmap(read_array, (args for _ in range(4)))
 
         assert result.count(Exception) == 0
 
     def test_varray_lock_wait_till_read_timeout(
-        self,
-        varray_schema: VArraySchema,
-        root_path,
-        inserted_varray_with_attributes: VArray,
+        self, varray_schema: VArraySchema, root_path, inserted_varray_with_attributes: VArray, mp_context: BaseContext
     ):
         """Test varray read lock timeout."""
-        manager = Manager()
+        manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
 
         # Call read process to lock arrays for reading
-        proc = Process(
+        proc = mp_context.Process(
             target=call_array_method,
             args=(
                 inserted_varray_with_attributes.collection,
@@ -300,14 +302,16 @@ class TestLocks:
         finally:
             proc.kill()
 
-    def test_varray_locks_inner_arrays(self, inserted_varray: VArray, root_path, varray_collection: Collection):
+    def test_varray_locks_inner_arrays(
+        self, inserted_varray: VArray, root_path, varray_collection: Collection, mp_context: BaseContext
+    ):
         """Test that as we lock varray, inner arrays also locked."""
-        manager = Manager()
+        manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
 
         # Call read process to lock arrays for reading
-        proc = Process(
+        proc = mp_context.Process(
             target=call_array_method,
             args=(
                 inserted_varray.collection,
@@ -328,15 +332,15 @@ class TestLocks:
         func_finished.set()
 
     def test_non_intersecting_vsubsets_update_OK(
-        self, inserted_varray: VArray, root_path, varray_collection: Collection
+        self, inserted_varray: VArray, root_path, varray_collection: Collection, mp_context: BaseContext
     ):
         """Test varray allows writing into non-intersecting subsets."""
-        manager = Manager()
+        manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
         value = -9999.9
         slices = (np.index_exp[:2, :2, :2], np.index_exp[8:, 8:, 8:])
-        with Pool(WORKERS) as pool:
+        with mp_context.Pool(WORKERS) as pool:
             pool.starmap(
                 call_array_method,
                 [
@@ -371,11 +375,13 @@ class TestLocks:
         # finally:
         #     print(inserted_varray[:].read(), flush=True)
 
-    def test_intersecting_vsubsets_update_fail(self, inserted_varray: VArray, root_path, varray_collection: Collection):
+    def test_intersecting_vsubsets_update_fail(
+        self, inserted_varray: VArray, root_path, varray_collection: Collection, mp_context: BaseContext
+    ):
         """Test VArray not allows writing into intersecting subsets."""
         inserted_varray[:].update(np.ones(shape=inserted_varray.shape, dtype=inserted_varray.dtype))
         check_data = inserted_varray[:].read()
-        manager = Manager()
+        manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
         blocking_slice = np.index_exp[:4, :4, :4]
@@ -389,7 +395,7 @@ class TestLocks:
             (np.index_exp[8:, 8:, 8:], blocking_value),  # shall proceed as non-locked
         )
         # Call read process to lock arrays
-        proc = Process(
+        proc = mp_context.Process(
             target=call_array_method,
             args=(
                 inserted_varray.collection,
@@ -410,7 +416,7 @@ class TestLocks:
         lock_set.wait()
         result = None
         try:
-            with Pool(WORKERS) as pool:
+            with mp_context.Pool(WORKERS) as pool:
                 result = pool.starmap(
                     call_array_method,
                     [
@@ -472,16 +478,13 @@ class TestLocks:
         assert not locks
 
     def test_varray_update_meta_lock(
-        self,
-        varray_schema: VArraySchema,
-        root_path,
-        inserted_varray_with_attributes: VArray,
+        self, varray_schema: VArraySchema, root_path, inserted_varray_with_attributes: VArray, mp_context: BaseContext
     ):
         """Test meta update is not available during lock."""
-        manager = Manager()
+        manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
-        proc = Process(
+        proc = mp_context.Process(
             target=call_array_method,
             args=(
                 inserted_varray_with_attributes.collection,
@@ -498,7 +501,7 @@ class TestLocks:
         lock_set.wait()
         try:
             methods = ["update_meta_custom_attributes", "update_meta_custom_attributes"]
-            with Pool(WORKERS) as pool:
+            with mp_context.Pool(WORKERS) as pool:
                 result = pool.starmap(
                     call_array_method,
                     [
@@ -520,9 +523,9 @@ class TestLocks:
         finally:
             proc.kill()
 
-    def test_collection_create(self, client: Client, root_path):
+    def test_collection_create(self, client: Client, root_path: Path, mp_context: BaseContext):
         """Test if collection is locked on creation."""
-        manager = Manager()
+        manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
         name = "name"
@@ -533,7 +536,7 @@ class TestLocks:
         except Exception:
             pass
 
-        proc = Process(
+        proc = mp_context.Process(
             target=call_collection_method,
             args=(str(embedded_uri(root_path)), name, "create", lock_set, func_finished, True),
         )
@@ -541,7 +544,7 @@ class TestLocks:
         lock_set.wait()
         try:
             methods = ["create"] * 3
-            with Pool(WORKERS) as pool:
+            with mp_context.Pool(WORKERS) as pool:
                 result = pool.starmap(
                     call_collection_method,
                     [

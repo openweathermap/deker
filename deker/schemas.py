@@ -16,6 +16,7 @@
 
 import datetime
 
+from collections.abc import Sequence
 from enum import Enum
 from typing import Optional, Union
 
@@ -172,7 +173,7 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
         """Serialize DimensionSchema into dictionary."""
         d = super().as_dict
         d["labels"] = self.labels
-        d["scale"] = self.scale._asdict() if self.scale else self.scale
+        d["scale"] = self.scale._asdict() if isinstance(self.scale, Scale) else self.scale
         d["type"] = DimensionType.generic.value
         return d
 
@@ -323,7 +324,7 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
     vgrid: list[int] | tuple[int, ...] | None = None
     arrays_shape: list[int] | tuple[int, ...] | None = None
     fill_value: Numeric | None = None
-    attributes: list[AttributeSchema] | tuple[AttributeSchema, ...] | None = None
+    attributes: Sequence[AttributeSchema] | None = None
 
     def __attrs_post_init__(self) -> None:
         """Validate schema, convert `vgrid` or `arrays_shape` to tuple and calculate the other grid splitter."""
@@ -411,7 +412,7 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
     """
 
     fill_value: Numeric | None = None
-    attributes: list[AttributeSchema] | tuple[AttributeSchema, ...] | None = None
+    attributes: Sequence[AttributeSchema] | None = None
 
     def __attrs_post_init__(self) -> None:
         """Validate schema."""

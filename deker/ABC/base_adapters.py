@@ -186,8 +186,8 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
         pass
 
     def close(self) -> None:
-        """Close adapter."""
-        self.uri = ""
+        """Close adapter: release the resources held by a concrete adapter, if any."""
+        pass
 
     @abstractmethod
     def create(self, collection: "Collection") -> None:
@@ -236,7 +236,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
         data: dict = collection_data["schema"]
 
         # Check schema type
-        schema_class = SchemaTypeEnum[collection_data.get("type")].value
+        schema_class = SchemaTypeEnum[collection_data["type"]].value
 
         try:
             dtype = DTypeEnum[data["dtype"].split("numpy.")[-1]].value

@@ -20,9 +20,10 @@ import os
 import pkgutil
 import warnings
 
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import wraps
 from multiprocessing import cpu_count
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -37,6 +38,7 @@ from deker.collection import Collection
 from deker.config import DekerConfig
 from deker.ctx import CTX
 from deker.errors import (
+    DekerAdapterClosedError,
     DekerClientError,
     DekerCollectionNotExistsError,
     DekerMetaDataError,
@@ -55,6 +57,35 @@ if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseCollectionAdapter
     from deker.ABC.base_collection import BaseCollectionOptions
     from deker.ABC.base_factory import BaseAdaptersFactory
+
+
+def _open_client_only(method: Callable) -> Callable:
+    """Reject calls of a closed client with ``DekerClientError``.
+
+    A closed client keeps its adapters, and they answer with ``DekerAdapterClosedError``; the client
+    checks its own state first and translates the adapters' error into its own one, without a chain of tracebacks.
+
+    :param method: ``Client`` method
+    :returns: the decorated method
+    """
+
+    @wraps(method)
+    def open_client_method(self: "Client", *args: Any, **kwargs: Any) -> Any:
+        """Call the method of an open client.
+
+        :param self: Client instance
+        :param *args: method arguments
+        :param **kwargs: method keyword arguments
+        :returns: result of the method
+        """
+        if self.is_closed:
+            raise DekerClientError("Client is closed")
+        try:
+            return method(self, *args, **kwargs)
+        except DekerAdapterClosedError:
+            raise DekerClientError("Client is closed") from None
+
+    return open_client_method
 
 
 class Client(SelfLoggerMixin):
@@ -129,6 +160,15 @@ class Client(SelfLoggerMixin):
     )
 
     __plugins: dict[str, type["BaseAdaptersFactory"]] = {}
+
+    # the state of a client: set in __init__, (re)filled by _open and cleared by close
+    __uri: Uri
+    __is_closed: bool
+    __adapter: "BaseCollectionAdapter | None"
+    __factory: "BaseAdaptersFactory | None"
+    __ctx: CTX | None
+    __executor: ThreadPoolExecutor | None
+    kwargs: dict[str, Any]
 
     def _open(self) -> None:
         """Open client.
@@ -225,13 +265,13 @@ class Client(SelfLoggerMixin):
                 memory_limit=mem_limit,
                 skip_collection_create_memory_check=skip_collection_create_memory_check,
             )
-            self.__uri: Uri = Uri.create(self.__config.uri)
-            self.__is_closed: bool = True
-            self.__adapter: BaseCollectionAdapter | None = None
-            self.__factory: BaseAdaptersFactory | None = None
-            self.__ctx: CTX | None = None
-            self.__executor: ThreadPoolExecutor | None = executor
-            self.kwargs: dict[str, Any] = kwargs
+            self.__uri = Uri.create(self.__config.uri)
+            self.__is_closed = True
+            self.__adapter = None
+            self.__factory = None
+            self.__ctx = None
+            self.__executor = executor
+            self.kwargs = kwargs
             self._open()
         except Exception as e:
             raise DekerClientError(e)
@@ -257,14 +297,30 @@ class Client(SelfLoggerMixin):
         collection_metadata["metadata_version"] = self.meta_version
 
     @property
-    def meta_version(self) -> str:
-        """Get actual metadata version, provided by local adapters."""
-        return self.__adapter.metadata_version
+    def _adapter(self) -> "BaseCollectionAdapter":
+        """Get the collections adapter of the open client."""
+        if self.__adapter is None:
+            raise DekerClientError("Client is closed")
+        return self.__adapter
 
     @property
+    @_open_client_only
+    def meta_version(self) -> str:
+        """Get actual metadata version, provided by local adapters."""
+        return self._adapter.metadata_version
+
+    @property
+    @_open_client_only
     def root_path(self) -> Path:
         """Get root path to the current storage."""
-        return Path(self.__adapter.uri.path) / self.__config.collections_directory
+        return Path(self._adapter.uri.path) / self.__config.collections_directory
+
+    @property
+    def _factory(self) -> "BaseAdaptersFactory":
+        """Get the adapters factory of the open client."""
+        if self.__factory is None:
+            raise DekerClientError("Client is closed")
+        return self.__factory
 
     @property
     def _ctx(self) -> CTX:
@@ -283,6 +339,7 @@ class Client(SelfLoggerMixin):
         """Check client status."""
         return not self.__is_closed
 
+    @_open_client_only
     def calculate_storage_size(self, collection_name: str = "") -> StorageSize:
         """Get the size of the storage or of a certain collection in bytes or converted to human representation.
 
@@ -336,10 +393,8 @@ class Client(SelfLoggerMixin):
         try:
             if self.__adapter:
                 self.__adapter.close()
-                self.__adapter = None
             if self.__factory:
                 self.__factory.close()
-                self.__factory = None
             if self.__ctx:
                 self.__ctx.is_closed = True
             self.__is_closed = True
@@ -348,6 +403,7 @@ class Client(SelfLoggerMixin):
         finally:
             self.logger.info("Client is closed")
 
+    @_open_client_only
     def create_collection(
         self,
         name: str,
@@ -372,16 +428,17 @@ class Client(SelfLoggerMixin):
         collection = Collection(
             name=name,
             schema=schema,
-            adapter=self.__adapter,
-            factory=self.__factory,
+            adapter=self._adapter,
+            factory=self._factory,
             collection_options=collection_options,
-            storage_adapter=self.__adapter.get_storage_adapter(storage_adapter_type),
+            storage_adapter=self._adapter.get_storage_adapter(storage_adapter_type),
         )
 
-        self.__adapter.create(collection)
+        self._adapter.create(collection)
         self.logger.debug(f"Collection {collection.name} created")
         return collection
 
+    @_open_client_only
     def get_collection(
         self,
         name: str,
@@ -392,9 +449,9 @@ class Client(SelfLoggerMixin):
         :returns: the ``Collection``, or ``None`` if it does not exist
         """
         try:
-            collection_data: dict = self.__adapter.read(name)
+            collection_data: dict = self._adapter.read(name)
             self._validate_collection_metadata_version(collection_data)
-            collection = self.__adapter.create_collection_from_meta(collection_data, self.__factory)
+            collection = self._adapter.create_collection_from_meta(collection_data, self._factory)
             self.logger.debug(f"Collection {name} read from meta")
             return collection
         except DekerCollectionNotExistsError:
@@ -436,8 +493,9 @@ class Client(SelfLoggerMixin):
 
                     elif k not in collection_data[key]:
                         collection_data[key][k] = default_fields[key][k]
-        return self.__adapter.create_collection_from_meta(collection_data, self.__factory)
+        return self._adapter.create_collection_from_meta(collection_data, self._factory)
 
+    @_open_client_only
     def collection_from_dict(self, collection_data: dict) -> Collection:
         """Create a new ``Collection`` in the database from collection metadata dictionary.
 
@@ -445,7 +503,7 @@ class Client(SelfLoggerMixin):
         :returns: the created ``Collection``
         """
         collection = self._validate_collection(collection_data)
-        self.__adapter.create(collection)
+        self._adapter.create(collection)
         self.logger.debug(f"Collection {collection.name} created from dict")
         return collection
 
@@ -504,7 +562,7 @@ class Client(SelfLoggerMixin):
             collection = self.get_collection(collection_name)
             if not collection:
                 raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
-            locks = self._iter_collection_locks(self.root_path / collection_name, collection_name, lock_type)
+            locks.extend(self._iter_collection_locks(self.root_path / collection_name, collection_name, lock_type))
         else:
             for directory in Path(self.root_path).iterdir():
                 if (
@@ -524,6 +582,7 @@ class Client(SelfLoggerMixin):
                 locks.extend(self._iter_collection_locks(directory, directory.name, lock_type))
         return locks
 
+    @_open_client_only
     def clear_locks(self, collection_name: str | None = None) -> None:
         """Clear the readlocks of Arrays and/or VArrays.
 
@@ -546,6 +605,7 @@ class Client(SelfLoggerMixin):
 
         print(f"{files_count} files removed")
 
+    @_open_client_only
     def check_integrity(
         self,
         level: int = 1,
@@ -588,12 +648,13 @@ class Client(SelfLoggerMixin):
 
     def __iter__(self) -> Generator[Collection]:
         """Iterate over all collections in the storage."""
-        for meta in self.__adapter:
-            collection = self.__adapter.create_collection_from_meta(
-                meta,
-                self.__factory,
-            )
-            yield collection
+        if self.is_closed:
+            raise DekerClientError("Client is closed")
+        try:
+            for meta in self._adapter:
+                yield self._adapter.create_collection_from_meta(meta, self._factory)
+        except DekerAdapterClosedError:
+            raise DekerClientError("Client is closed") from None
 
     def __enter__(self) -> "Client":
         self._open()

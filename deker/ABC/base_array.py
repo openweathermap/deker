@@ -22,18 +22,18 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from datetime import datetime, timedelta
 from types import EllipsisType, NoneType
-from typing import TYPE_CHECKING, Any, Optional, TypeGuard, TypeVar, Union
+from typing import TYPE_CHECKING, Any, Generic, Optional, TypeGuard, TypeVar, Union
 
 import numpy as np
 
 from deker_tools.slices import create_shape_from_slice
 from deker_tools.time import get_utc
 
+from deker.ABC.base_subset import BaseSubset
 from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerInvalidSchemaError, DekerMetaDataError, DekerValidationError
 from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, VArraySchema
-from deker.subset import Subset, VSubset
 from deker.tools.array import check_memory, get_id
 from deker.tools.attributes import make_ordered_dict, serialize_attribute_value
 from deker.tools.schema import create_dimensions
@@ -48,6 +48,7 @@ if TYPE_CHECKING:
 
 
 ArrayT = TypeVar("ArrayT", bound="BaseArray")
+SubsetT = TypeVar("SubsetT", bound=BaseSubset)
 
 
 class _FancySlicer:
@@ -130,7 +131,7 @@ class _FancySlicer:
             raise IndexError(f"Dimension {dimension.name} wrong indexing: {value} is out of range")
         return dim_pos
 
-    def _convert_fancy_slice(self, slice_: FancySlice, dimension: TimeDimension | Dimension) -> slice:
+    def _convert_fancy_slice(self, slice_: slice, dimension: TimeDimension | Dimension) -> slice:
         """Convert FancySlice to slice.
 
         :param slice_: FancySlice to be converted into slice
@@ -219,7 +220,7 @@ class _FancySlicer:
         )
 
 
-class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
+class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]):
     """Arrays abstract class providing all its inheritors with common actions and methods."""
 
     __slots__ = (
@@ -230,6 +231,9 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         "custom_attributes",
         "primary_attributes",
     )
+
+    primary_attributes: dict
+    custom_attributes: dict
 
     def _validate(
         self,
@@ -438,17 +442,16 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         :param varray_adapter: VArray adapter instance
         :returns: ``Array`` or ``VArray`` built from the metadata
         """
-        if varray_adapter:
-            attrs_schema = collection.varray_schema.attributes
-        else:
-            attrs_schema = collection.array_schema.attributes
+        schema = collection.varray_schema if varray_adapter else collection.array_schema
+        if schema is None:  # pragma: no cover
+            raise DekerMetaDataError(f"{cls} cannot be created: the collection has no VArraySchema")
 
         try:
             # To ensure the order of attributes
             primary_attributes, custom_attributes = make_ordered_dict(
                 meta["primary_attributes"],
                 meta["custom_attributes"],
-                attrs_schema or (),
+                schema.attributes or (),
             )
 
             arr_params: dict[str, Any] = {
@@ -465,7 +468,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
             raise DekerMetaDataError(f"{cls} metadata invalid/corrupted: {e}")
 
     @abstractmethod
-    def _create_subset(self, bounds: tuple[slice | int, ...], shape: tuple[int, ...]) -> Subset | VSubset:
+    def _create_subset(self, bounds: tuple[slice | int, ...], shape: tuple[int, ...]) -> SubsetT:
         """Create a lazy subset bound to the array with its own adapters.
 
         :param bounds: validated and normalized index expression
@@ -474,7 +477,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
         """
         pass
 
-    def __getitem__(self, item: FancySlice) -> Subset | VSubset:
+    def __getitem__(self, item: FancySlice) -> SubsetT:
         """Get a subset from Array or VArray.
 
         :param item: index expression
@@ -510,7 +513,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC):
 
         check_memory(shape, self.dtype, self.__adapter.ctx.config.memory_limit)
         pre_bounds = np.index_exp[item]
-        bounds: list | tuple = []
+        bounds: list[Any] = []
         for i in pre_bounds:
             if i is ...:
                 bounds.extend(np.index_exp[:])

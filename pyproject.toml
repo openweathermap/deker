@@ -184,7 +184,6 @@ exclude = [
     '^tmp/',
     '^examples/'
 ]
-disable_error_code = "misc,no-redef,override,union-attr,index,assignment"
 
 [[tool.mypy.overrides]]
 module = "tests/*"

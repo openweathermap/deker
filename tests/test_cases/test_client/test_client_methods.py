@@ -53,6 +53,41 @@ class TestClientMethods:
         client.close()
         assert client._ctx.is_closed
 
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda client: client.get_collection("x"),
+            lambda client: client.create_collection(
+                "x", ArraySchema(dtype=int, dimensions=[DimensionSchema(name="d", size=1)])
+            ),
+            lambda client: client.collection_from_dict({}),
+            lambda client: client.meta_version,
+            lambda client: client.root_path,
+            lambda client: client.calculate_storage_size(),
+            lambda client: client.clear_locks(),
+            lambda client: client.check_integrity(),
+            lambda client: list(client),
+        ],
+    )
+    def test_closed_client_raises_its_own_error(self, root_path, call):
+        """Tests if every call of a closed client answers with a plain DekerClientError, without a traceback chain."""
+        client = Client(str(embedded_uri(root_path)))
+        client.close()
+        with pytest.raises(DekerClientError) as info:
+            call(client)
+        assert type(info.value) is DekerClientError
+        assert info.value.__cause__ is None
+        assert info.value.__suppress_context__ or info.value.__context__ is None
+
+    def test_adapter_error_of_closed_client_is_translated(self, root_path):
+        """Tests if an adapter closed by its context is answered by the client with its own error."""
+        client = Client(str(embedded_uri(root_path)))
+        client._ctx.is_closed = True  # the context is closed, the client itself does not know it yet
+        with pytest.raises(DekerClientError) as info:
+            client.get_collection("x")
+        assert type(info.value) is DekerClientError
+        assert info.value.__suppress_context__
+
     def test_client_open_close(self, root_path):
         """Test client open and close methods."""
         set_logging_level("DEBUG")

@@ -49,5 +49,5 @@ def set_logging_level(level: str) -> None:
     items = list(_logger.manager.loggerDict.items())  # for Python 2 and 3
     items.sort()
     for name, logger in items:
-        if _logger.name in name:
+        if _logger.name in name and isinstance(logger, logging.Logger):
             logger.setLevel(level)

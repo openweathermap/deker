@@ -141,6 +141,8 @@ class BaseSubset(SelfLoggerMixin, ABC):
         new_shape = tuple(len(description[dim]) for dim in description)
         check_memory(self.shape, self.dtype, self.__adapter.ctx.config.memory_limit)
         data = self.read()
+        if not isinstance(data, np.ndarray):  # pragma: no cover
+            raise DekerSubsetError(f"Cannot convert {type(data)} data of deker.{subset_name} to xarray.DataArray")
         data = data.reshape(new_shape)
 
         data_array = DataArray(
@@ -200,11 +202,14 @@ class BaseSubset(SelfLoggerMixin, ABC):
         :param dimension: dimension with non-empty `scale` attribute
         :returns: scale values of the whole dimension
         """
-        step = dimension.scale.step
-        start_value = dimension.scale.start_value
+        scale = dimension.scale
+        if scale is None:  # pragma: no cover
+            raise DekerSubsetError(f"Dimension {dimension.name} has no scale to describe")
+        step = scale.step
+        start_value = scale.start_value
         end = start_value + dimension.size * step
         rounder = len(str(step).split(".")[-1])
-        value = np.around(np.arange(start_value, end, dimension.scale.step), rounder)
+        value = np.around(np.arange(start_value, end, step), rounder)
         return value.tolist()[: dimension.size]
 
     def __describe_full_dimension(self, dimension: TimeDimension | Dimension) -> list:

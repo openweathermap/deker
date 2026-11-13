@@ -18,7 +18,7 @@
 
 import datetime
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -85,19 +85,19 @@ class BaseArraysSchema:
 
     dtype: type[Numeric]
     fill_value: Numeric | None
-    dimensions: list[BaseDimensionSchema] | tuple[BaseDimensionSchema, ...]
-    attributes: list[BaseAttributeSchema] | tuple[BaseAttributeSchema, ...] | None
+    dimensions: Sequence[BaseDimensionSchema]
+    attributes: Sequence[BaseAttributeSchema] | None
 
     @property
     def primary_attributes(self) -> tuple[BaseAttributeSchema, ...] | None:
         """Return only primary attributes."""
-        attrs = tuple(attr for attr in self.attributes if attr.primary)
+        attrs = tuple(attr for attr in self.attributes or () if attr.primary)
         return attrs if attrs else None
 
     @property
     def custom_attributes(self) -> tuple[BaseAttributeSchema, ...] | None:
         """Return only custom attributes."""
-        attrs = tuple(attr for attr in self.attributes if not attr.primary)
+        attrs = tuple(attr for attr in self.attributes or () if not attr.primary)
         return attrs if attrs else None
 
     def __attrs_post_init__(self) -> None:
@@ -166,7 +166,7 @@ class BaseArraysSchema:
             return {
                 "dimensions": tuple(dim.as_dict for dim in self.dimensions),
                 "dtype": dtype,
-                "attributes": tuple(attr.as_dict for attr in self.attributes),
+                "attributes": tuple(attr.as_dict for attr in self.attributes or ()),
                 "fill_value": fill_value,
             }
         except (KeyError, ValueError) as e:

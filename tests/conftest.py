@@ -1,10 +1,12 @@
 import logging
+import multiprocessing
 import os
 import platform
 import shutil
 
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
+from multiprocessing.context import BaseContext
 from pathlib import Path
 from random import choices
 from string import ascii_letters
@@ -117,3 +119,17 @@ def client(
         loglevel="ERROR",
     ) as client:
         yield client
+
+
+@pytest.fixture(params=multiprocessing.get_all_start_methods())
+def mp_context(request: pytest.FixtureRequest) -> BaseContext:
+    """Multiprocessing context for every way of starting processes on this platform.
+
+    Linux: fork, spawn, forkserver; macOS and Windows: without fork.
+    Tests shall take Process, Pool and Manager from the context, not from the multiprocessing module,
+    so each test runs once per start method and its id shows which one failed.
+
+    :param request: pytest request with the start method name in ``param``
+    :returns: multiprocessing context of the requested start method
+    """
+    return multiprocessing.get_context(request.param)

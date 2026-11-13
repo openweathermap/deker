@@ -167,5 +167,5 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
         netloc, servers = self.__get_servers_and_netloc(self.netloc, self.scheme)
         return Uri(self.scheme, netloc, path, self.params, self.query, self.fragment, servers)
 
-    def __itruediv__(self, other: str) -> "Uri":
+    def __itruediv__(self, other: str | Path) -> "Uri":
         return self.__truediv__(other)

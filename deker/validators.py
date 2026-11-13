@@ -212,11 +212,11 @@ def validate_custom_attributes_update(
                 continue
             if s.start_value[1:] not in attributes:
                 for d in dimensions:
-                    if d.name == s.name:
+                    if isinstance(d, TimeDimension) and d.name == s.name:
                         attributes[s.start_value[1:]] = d.start_value
         else:
             # fill attributes to update dict with already existing custom attributes values
-            for attr in schema.attributes:
+            for attr in schema.attributes or ():
                 if not attr.primary and attr.name not in attributes:
                     attributes[attr.name] = custom_attributes[attr.name]
 

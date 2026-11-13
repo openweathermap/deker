@@ -44,7 +44,7 @@ class BaseChecker(ABC):
         self.client = client
         self.root_path = root_path
         self.ctx = client._ctx
-        self.next_checker = None
+        self.next_checker: BaseChecker | None = None
 
     def _parse_errors(self) -> str:
         """Parse self.errors and return string."""
@@ -68,10 +68,11 @@ class BaseChecker(ABC):
         )
 
     @abstractmethod
-    def check(self, *args: Any, **kwargs: Any) -> None:
+    def check(self, *args: Any, **kwargs: Any) -> str | None:
         """Check integrity. Shall be implemented in every Checker.
 
         :param *args: args
         :param **kwargs: kwargs
+        :returns: report of the found errors by the chain head, nothing from the other checkers
         """
         pass
