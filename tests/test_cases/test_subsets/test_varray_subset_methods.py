@@ -19,8 +19,8 @@ from deker.client import Client
 from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerSubsetError, DekerVSubsetError
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
-from deker.subset import VSubset
-from deker.types.private.classes import ArrayPosition
+from deker.subset import VSubset, _DataSliceCalculator
+from deker.types.private.classes import ArrayPosition, ArrayPositionedData
 from deker.types.private.typings import Slice
 from deker.types.public.classes import Scale
 
@@ -534,6 +534,324 @@ class TestVArraySubset:
 
         test_time = int(time.monotonic() - timer)
         assert test_time <= sleep_time
+
+
+class TestDataSliceCalculator:
+    """Slices of the subset data that belong to the inner Arrays, in the order the Arrays are walked."""
+
+    @pytest.mark.parametrize(
+        ("slice_expression", "arrays_shape", "calls", "expected"),
+        [
+            # 1 dimension, 3 full tiles of 2 elements
+            (
+                (slice(None, None),),
+                (2,),
+                [(0, slice(None, None), [0]), (0, slice(None, None), [1]), (0, slice(None, None), [2])],
+                [slice(0, 2), slice(2, 4), slice(4, 6)],
+            ),
+            # 1 dimension, the second tile is cut
+            (
+                (slice(0, 3),),
+                (2,),
+                [(0, slice(None, None), [0]), (0, slice(0, 1), [1])],
+                [slice(0, 2), slice(2, 3)],
+            ),
+            # 2 dimensions, 4 full tiles of 5x5: rows continue in the first dimension, columns in the second
+            (
+                (slice(None, None), slice(None, None)),
+                (5, 5),
+                [
+                    (0, slice(None, None), [0, 0]),
+                    (1, slice(None, None), [0, 0]),
+                    (0, slice(None, None), [0, 1]),
+                    (1, slice(None, None), [0, 1]),
+                    (0, slice(None, None), [1, 0]),
+                    (1, slice(None, None), [1, 0]),
+                    (0, slice(None, None), [1, 1]),
+                    (1, slice(None, None), [1, 1]),
+                ],
+                [
+                    slice(0, 5),
+                    slice(0, 5),
+                    slice(0, 5),
+                    slice(5, 10),
+                    slice(5, 10),
+                    slice(0, 5),
+                    slice(5, 10),
+                    slice(5, 10),
+                ],
+            ),
+            # 2 dimensions, the subset [0:7, 2:8] cuts every tile
+            (
+                (slice(0, 7), slice(2, 8)),
+                (5, 5),
+                [
+                    (0, slice(None, None), [0, 0]),
+                    (1, slice(2, 5), [0, 0]),
+                    (0, slice(None, None), [0, 1]),
+                    (1, slice(0, 3), [0, 1]),
+                    (0, slice(0, 2), [1, 0]),
+                    (1, slice(2, 5), [1, 0]),
+                    (0, slice(0, 2), [1, 1]),
+                    (1, slice(0, 3), [1, 1]),
+                ],
+                [
+                    slice(0, 5),
+                    slice(0, 3),
+                    slice(0, 5),
+                    slice(3, 6),
+                    slice(5, 7),
+                    slice(0, 3),
+                    slice(5, 7),
+                    slice(3, 6),
+                ],
+            ),
+        ],
+    )
+    def test_calc_slices_follow_the_tiles(self, slice_expression, arrays_shape, calls, expected):
+        """Tests if the slices of consecutive tiles continue each other in every dimension."""
+        calculator = _DataSliceCalculator(slice_expression, arrays_shape)
+        assert [calculator.calc(*call) for call in calls] == expected
+
+    @pytest.mark.parametrize(
+        ("slice_expression", "dim", "expected"),
+        [
+            ((3, slice(None, None)), 3, None),  # the subset bound is an index: no data dimension
+            ((slice(None, None), slice(None, None)), 2, 2),  # the tile bound is an index: kept as is
+        ],
+    )
+    def test_calc_integer_bounds(self, slice_expression, dim, expected):
+        """Tests the integer bounds: an index in the subset gives no slice, an index of a tile is returned as is."""
+        calculator = _DataSliceCalculator(slice_expression, (5, 5))
+        assert calculator.calc(0, dim, [0, 1]) == expected
+
+    def test_calc_restarts_at_the_first_tile(self):
+        """Tests if the counting restarts when the tile position in a dimension returns to zero."""
+        calculator = _DataSliceCalculator((slice(None, None),), (2,))
+        assert calculator.calc(0, slice(None, None), [0]) == slice(0, 2)
+        assert calculator.calc(0, slice(None, None), [1]) == slice(2, 4)
+        assert calculator.calc(0, slice(None, None), [0]) == slice(0, 2)
+
+    @pytest.mark.parametrize(
+        ("current_dimension", "dim", "vposition", "error"),
+        [
+            (3, slice(None, None), [0], IndexError),  # no such dimension
+            (0, slice(None, None), [], IndexError),  # position shorter than the dimensions
+            (0, "x", [0], AttributeError),  # a bound that is neither a slice nor an index
+        ],
+    )
+    def test_calc_raises_on_wrong_input(self, current_dimension, dim, vposition, error):
+        """Tests if wrong dimensions, positions and bounds are not silently accepted."""
+        calculator = _DataSliceCalculator((slice(None, None),), (2,))
+        with pytest.raises(error):
+            calculator.calc(current_dimension, dim, vposition)
+
+
+class TestVSubsetOffsets:
+    """Offsets of a tile's data within the subset, by the tile's place among the covered tiles."""
+
+    @pytest.mark.parametrize(
+        ("i", "step", "offset_start", "start", "offset_end", "end", "expected"),
+        [
+            (0, 3, 0, 0, 0, 6, {"start": 0, "end": 0}),  # first of several tiles, no offsets
+            (0, 3, 1, 1, -1, 2, {"start": 1, "end": 2}),  # the only tile, cut from both ends
+            (3, 3, 0, 0, -1, 5, {"start": 0, "end": 2}),  # last tile, cut from the end
+            (3, 3, 0, 0, 0, 9, {"start": 0, "end": 0}),  # a tile in the middle
+            (3, 3, 1, 1, -1, 5, {"start": 0, "end": 2}),  # last tile when the first one was cut from the start
+        ],
+    )
+    def test_get_offset(self, i, step, offset_start, start, offset_end, end, expected):
+        """Tests the offsets of the tile data for every place of the tile among the covered ones."""
+        assert VSubset._VSubset__get_offset(i, step, offset_start, start, offset_end, end) == expected
+
+
+class TestVSubsetArrayWorkers:
+    """Methods that read, update and clear one inner Array of the subset."""
+
+    @pytest.mark.parametrize("index_exp", [np.index_exp[:], np.index_exp[0:5, 0:5, 0:5], np.index_exp[7, 1:3, :]])
+    def test_read_array_data_of_existing_tiles(self, inserted_varray: VArray, array_data: np.ndarray, index_exp: Slice):
+        """Tests if every tile of a written VArray is read with its slice of the subset data."""
+        vsubset: VSubset = inserted_varray[index_exp]
+        expected = array_data[index_exp]
+        for array_pos in vsubset._VSubset__arrays:
+            data_slice, data = vsubset._VSubset__read_array_data(array_pos)
+            assert data_slice == array_pos.data_slice
+            assert np.array_equal(np.asarray(data), np.asarray(expected)[data_slice])
+
+    @pytest.mark.parametrize("index_exp", [np.index_exp[:], np.index_exp[0:5, 0:5, 0:5], np.index_exp[2, 3:9, 1]])
+    def test_read_array_data_of_missing_tiles(self, varray: VArray, index_exp: Slice):
+        """Tests if a missing tile is read as its fill value with the shape of its bounds."""
+        varray._adapter.create(varray)
+        vsubset: VSubset = varray[index_exp]
+        for array_pos in vsubset._VSubset__arrays:
+            data_slice, data = vsubset._VSubset__read_array_data(array_pos)
+            assert data_slice == array_pos.data_slice
+            assert np.all(np.isnan(data))
+            assert np.asarray(data).shape == np.asarray(np.empty(varray.arrays_shape)[array_pos.bounds]).shape
+
+    @pytest.mark.parametrize("bounds", [(99, 0, 0), (0, 99, 0), (0, 0, -99)])
+    def test_read_array_data_raises_on_wrong_bounds(self, inserted_varray: VArray, bounds: tuple):
+        """Tests if an index outside the tile is rejected."""
+        vsubset: VSubset = inserted_varray[:]
+        array_pos = vsubset._VSubset__arrays[0]
+        wrong = ArrayPosition(array_pos.vposition, bounds, array_pos.data_slice)
+        with pytest.raises(IndexError):
+            vsubset._VSubset__read_array_data(wrong)
+
+    def test_update_array_data_creates_missing_tile(self, varray: VArray):
+        """Tests if updating a missing tile creates it with the data."""
+        varray._adapter.create(varray)
+        vsubset: VSubset = varray[:]
+        array_pos = vsubset._VSubset__arrays[0]
+        assert vsubset._create_array_from_vposition(array_pos.vposition) is None
+        data = np.full(varray.arrays_shape, 7.0, dtype=varray.dtype)
+        vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
+        array = vsubset._create_array_from_vposition(array_pos.vposition)
+        assert array is not None
+        assert np.array_equal(array[:].read(), data)
+
+    def test_update_array_data_updates_existing_tile(self, inserted_varray: VArray):
+        """Tests if an existing tile is updated in place."""
+        vsubset: VSubset = inserted_varray[:]
+        array_pos = vsubset._VSubset__arrays[-1]
+        data = np.full(inserted_varray.arrays_shape, -1.0, dtype=inserted_varray.dtype)
+        vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
+        array = vsubset._create_array_from_vposition(array_pos.vposition)
+        assert np.array_equal(array[:].read(), data)
+
+    @pytest.mark.parametrize(
+        ("dimensions", "vgrid", "time_index"),
+        [
+            # 1D: the time axis is the only one
+            ([("t", 6)], (3,), 0),
+            # 2D: time first / time last, split along time only, along the other axis only, along both
+            ([("t", 8), ("x", 4)], (4, 1), 0),
+            ([("x", 4), ("t", 8)], (1, 4), 1),
+            ([("x", 6), ("t", 6)], (3, 1), 1),
+            ([("x", 6), ("t", 6)], (2, 3), 1),
+            # 3D: time in the middle, uneven splits
+            ([("x", 4), ("t", 12), ("y", 6)], (2, 4, 3), 1),
+            ([("x", 4), ("t", 12), ("y", 6)], (1, 6, 1), 1),
+            ([("x", 9), ("t", 10), ("y", 4)], (3, 5, 2), 1),
+            # 4D: time last
+            ([("a", 4), ("b", 4), ("c", 2), ("t", 8)], (2, 2, 1, 4), 3),
+        ],
+    )
+    def test_update_array_data_sets_time_attribute_of_new_tiles(self, client: Client, dimensions, vgrid, time_index):
+        """Tests if every new tile starts where its first cell is on the VArray time axis.
+
+        The tile attribute is ``start + step * tile_size * position``, so a tile's own time axis
+        is the matching piece of the VArray time axis, whatever the number of dimensions and the grid.
+        """
+        step = timedelta(hours=1)
+        schema = VArraySchema(
+            dtype=float,
+            dimensions=[
+                TimeDimensionSchema(name=name, size=size, start_value="$start", step=step)
+                if i == time_index
+                else DimensionSchema(name=name, size=size)
+                for i, (name, size) in enumerate(dimensions)
+            ],
+            vgrid=vgrid,
+            attributes=[AttributeSchema(name="start", dtype=datetime, primary=False)],
+        )
+        collection = client.create_collection(f"tiles_time_{len(dimensions)}d_{'_'.join(map(str, vgrid))}", schema)
+        try:
+            start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+            varray = collection.create(custom_attributes={"start": start})
+            vsubset: VSubset = varray[:]
+            tile_size = varray.arrays_shape[time_index]
+            assert len(vsubset._VSubset__arrays) == np.prod(vgrid)
+            for array_pos in vsubset._VSubset__arrays:
+                data = np.zeros(varray.arrays_shape, dtype=varray.dtype)
+                vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
+                tile = vsubset._create_array_from_vposition(array_pos.vposition)
+                expected = start + step * tile_size * array_pos.vposition[time_index]
+                assert tile.custom_attributes["parent.start"] == expected
+                assert tile.dimensions[time_index].start_value == expected
+        finally:
+            collection.delete()
+
+    @pytest.mark.parametrize(
+        ("dimensions", "vgrid", "time_index"),
+        [
+            ([("t", 6)], (3,), 0),
+            ([("t", 8), ("x", 4)], (4, 2), 0),
+            ([("x", 6), ("t", 6)], (2, 3), 1),
+            ([("x", 4), ("t", 12), ("y", 6)], (2, 4, 3), 1),
+            ([("a", 4), ("b", 4), ("c", 2), ("t", 8)], (2, 2, 1, 4), 3),
+        ],
+    )
+    def test_tiles_time_axes_match_the_varray_time_axis(self, client: Client, dimensions, vgrid, time_index):
+        """Tests if the time axis of every tile, read as an Array, is the matching piece of the VArray time axis."""
+        step = timedelta(minutes=30)
+        schema = VArraySchema(
+            dtype=float,
+            dimensions=[
+                TimeDimensionSchema(name=name, size=size, start_value="$start", step=step)
+                if i == time_index
+                else DimensionSchema(name=name, size=size)
+                for i, (name, size) in enumerate(dimensions)
+            ],
+            vgrid=vgrid,
+            attributes=[AttributeSchema(name="start", dtype=datetime, primary=False)],
+        )
+        collection = client.create_collection(f"tiles_axis_{len(dimensions)}d_{'_'.join(map(str, vgrid))}", schema)
+        try:
+            varray = collection.create(custom_attributes={"start": datetime(2024, 6, 1, tzinfo=timezone.utc)})
+            varray[:].update(np.zeros(varray.shape, dtype=varray.dtype))
+            time_name = dimensions[time_index][0]
+            varray_axis = varray[:].describe()[time_name]
+            tile_size = varray.arrays_shape[time_index]
+            tiles = [tile for tile in collection.arrays if tile._vid == varray.id]
+            assert len(tiles) == np.prod(vgrid)
+            for tile in tiles:
+                position = tile.primary_attributes["v_position"][time_index]
+                first_cell = position * tile_size
+                assert tile[:].describe()[time_name] == varray_axis[first_cell : first_cell + tile_size]
+        finally:
+            collection.delete()
+
+    @pytest.mark.parametrize(
+        ("data", "error"),
+        [
+            (np.zeros((2, 2, 2)), IndexError),  # wrong shape
+            (np.zeros((5, 5, 5), dtype=np.int8), DekerArrayError),  # wrong dtype
+            ("text", DekerArrayError),  # not an array at all
+        ],
+    )
+    def test_update_array_data_raises_on_wrong_data(self, inserted_varray: VArray, data, error):
+        """Tests if data that does not fit the tile is rejected."""
+        vsubset: VSubset = inserted_varray[:]
+        array_pos = vsubset._VSubset__arrays[0]
+        with pytest.raises(error):
+            vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
+
+    def test_clear_array_deletes_fully_covered_tile(self, inserted_varray: VArray):
+        """Tests if a tile fully covered by the subset is deleted."""
+        vsubset: VSubset = inserted_varray[:]
+        array_pos = vsubset._VSubset__arrays[0]
+        vsubset._VSubset__clear_array(array_pos)
+        assert vsubset._create_array_from_vposition(array_pos.vposition) is None
+
+    def test_clear_array_clears_partially_covered_tile(self, inserted_varray: VArray, array_data: np.ndarray):
+        """Tests if a tile partially covered by the subset is cleared only inside the bounds and kept."""
+        vsubset: VSubset = inserted_varray[0:2, 0:2, 0:2]
+        array_pos = vsubset._VSubset__arrays[0]
+        vsubset._VSubset__clear_array(array_pos)
+        array = vsubset._create_array_from_vposition(array_pos.vposition)
+        assert array is not None
+        tile = array[:].read()
+        assert np.all(np.isnan(tile[0:2, 0:2, 0:2]))
+        assert np.array_equal(tile[2:, 2:, 2:], array_data[2:5, 2:5, 2:5])
+
+    def test_clear_array_ignores_missing_tile(self, varray: VArray):
+        """Tests if clearing a tile that was never written does nothing and raises nothing."""
+        varray._adapter.create(varray)
+        vsubset: VSubset = varray[:]
+        array_pos = vsubset._VSubset__arrays[0]
+        vsubset._VSubset__clear_array(array_pos)
+        assert vsubset._create_array_from_vposition(array_pos.vposition) is None
 
 
 class TestVSubsetForXArray:

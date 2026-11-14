@@ -17,7 +17,7 @@
 import builtins
 import traceback
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import TYPE_CHECKING, Optional
 
 import numpy as np
@@ -147,6 +147,70 @@ class Subset(BaseSubset):
         self.logger.info(f"{self!s} data cleared")
 
 
+class _DataSliceCalculator:
+    """Calculator of the slices of the subset data that belong to its inner Arrays.
+
+    The inner Arrays of a subset are walked in order; for every dimension the calculator remembers
+    the position of the previous Array and how many elements the previous Arrays took, so that the
+    slice of the subset data for the current Array continues where the previous one ended.
+
+    :param filled_slice_expression: subset bounds, one slice or index per dimension of the VArray
+    :param arrays_shape: shape of the inner Arrays
+    """
+
+    def __init__(self, filled_slice_expression: Sequence[slice | int], arrays_shape: Sequence[int]) -> None:
+        self.filled_slice_expression = tuple(filled_slice_expression)
+        self.arrays_shape = tuple(arrays_shape)
+        length = len(self.filled_slice_expression)
+        # Position of the previous Array in each dimension
+        self.prev_position = [-1] * length
+        # Elements taken by the previous Arrays in each dimension
+        self.prev_sizes = [0] * length
+        # Buffer of sizes, written to prev_sizes only for a dimension whose position has changed
+        self.prev_sizes_buffer = [0] * length
+
+    def calc(self, current_dimension: int, dim: slice | int, array_vposition: Sequence[int]) -> slice | int | None:
+        """Calculate the slice of the subset data for one dimension of an inner Array.
+
+        :param current_dimension: index of the dimension
+        :param dim: bounds of the Array in this dimension (e.g. slice(0, 5)) or an index
+        :param array_vposition: position of the Array in the VArray grid
+        :returns: slice of the subset data for the dimension, an index for an integer bound,
+            ``None`` if the subset bound in this dimension is an integer
+        """
+        if isinstance(self.filled_slice_expression[current_dimension], int):
+            self.prev_position[current_dimension] = array_vposition[current_dimension]
+            return None
+
+        if isinstance(dim, int):
+            self.prev_position[current_dimension] = array_vposition[current_dimension]
+            return dim
+
+        dim_start, dim_stop, _ = match_slice_size(self.arrays_shape[current_dimension], dim)
+        positions_length = len(array_vposition)
+
+        if self.prev_position[current_dimension] == array_vposition[current_dimension]:
+            self.prev_sizes_buffer[current_dimension] = self.prev_sizes[current_dimension]
+        if self.prev_position[current_dimension] != array_vposition[current_dimension]:
+            self.prev_sizes[current_dimension] = self.prev_sizes_buffer[current_dimension]
+
+        for i in range(positions_length):
+            if self.prev_position[i] != array_vposition[i] and i < positions_length - 1:
+                self.prev_sizes_buffer[i + 1 : :] = [0] * (positions_length - i - 1)
+
+        elems_in_dimension = abs(dim_stop - dim_start)
+        if array_vposition[current_dimension] == 0:
+            self.prev_sizes[current_dimension] = self.prev_sizes_buffer[current_dimension] = 0
+
+        slice_start = self.prev_sizes[current_dimension]
+        slice_stop = slice_start + elems_in_dimension
+        # what was prev position in that dimension
+        self.prev_position[current_dimension] = array_vposition[current_dimension]
+        # how many elements in that dimension
+        self.prev_sizes_buffer[current_dimension] += elems_in_dimension
+        return slice(slice_start, slice_stop)
+
+
 class VSubset(BaseSubset):
     """``VArray`` subset.
 
@@ -205,6 +269,32 @@ class VSubset(BaseSubset):
         "__arrays",
     )
 
+    @staticmethod
+    def __get_offset(i: int, step: int, offset_start: int, start: int, offset_end: int, end: int) -> ArrayOffset:
+        """Calculate an offset for array.
+
+        If it's first array, and there are more arrays in result, return offset from start and zero.
+        If it's only one array, offset from end would be equal to the one, which was provided.
+        For last array start offset is always zero, and offset form end would be equal
+        to the one, which was provided. For any array in between, offsets would be zeroes.
+
+        :param i: current array start point. i % step always equals 0
+        :param step: step of vgrid
+        :param offset_start: offset from start
+        :param start: start of current array( with offset)
+        :param offset_end: offset from end
+        :param end: start of current array( with offset)
+        :returns: offset of the array data within the subset
+        """
+        if i == start - offset_start:
+            if end < i + step:
+                return {"start": offset_start, "end": step + offset_end}
+            return {"start": offset_start, "end": 0}
+
+        if i == end - offset_end - step and end < i + step:
+            return {"start": 0, "end": step + offset_end}
+        return {"start": 0, "end": 0}
+
     def __match_slice_exp(
         self, slice_exp: slice | int | None, current_index: int, array: "VArray"
     ) -> ArraysCoordinates:
@@ -220,31 +310,6 @@ class VSubset(BaseSubset):
 
         # Step in vgrid
         step = dim_size // array.vgrid[current_index]
-
-        def get_offset(i: int, step: int, offset_start: int, start: int, offset_end: int, end: int) -> ArrayOffset:
-            """Calculate an offset for array.
-
-            If it's first array, and there are more arrays in result, return offset from start and zero.
-            If it's only one array, offset from end would be equal to the one, which was provided.
-            For last array start offset is always zero, and offset form end would be equal
-            to the one, which was provided. For any array in between, offsets would be zeroes.
-
-            :param i: current array start point. i % step always equals 0
-            :param offset_start: offset from start
-            :param offset_end: offset from end
-            :param step: step of vgrid
-            :param start: start of current array( with offset)
-            :param end: start of current array( with offset)
-            :returns: offset of the array data within the subset
-            """
-            if i == start - offset_start:
-                if end < i + step:
-                    return {"start": offset_start, "end": step + offset_end}
-                return {"start": offset_start, "end": 0}
-
-            if i == end - offset_end - step and end < i + step:
-                return {"start": 0, "end": step + offset_end}
-            return {"start": 0, "end": 0}
 
         if type(slice_exp) is builtins.int:
             # We may receive an int.
@@ -278,7 +343,7 @@ class VSubset(BaseSubset):
             [
                 ArraysCoordinatesWithOffset(
                     i // step,
-                    ArrayOffset(**get_offset(i, step, offset_start, start, offset_end, stop)),
+                    ArrayOffset(**self.__get_offset(i, step, offset_start, start, offset_end, stop)),
                 )
             ]
             for i in range(start - offset_start, stop - offset_end, step)
@@ -386,55 +451,10 @@ class VSubset(BaseSubset):
         # Reformat to have position and bounds side by side
         array_positions = []
 
-        # Check if dimension index has changed
-        prev_position = [-1] * len(filled_slice_expression)
-        # Sizes of previous elements
-        prev_sizes = [0] * len(filled_slice_expression)
-        # Buffer of sizes, writes to prev sizes, only for dimension that has changed
-        prev_sizes_buffer = [0] * len(filled_slice_expression)
-
-        def calc_data_slice(current_dimension: int, dim: slice | int, array_vposition: list) -> slice | int | None:
-            """Calculate slice for data part.
-
-            :param current_dimension: Index of current dimension
-            :param dim: Subset dimension (e.g slice(0, 5))
-            :param array_vposition: Position of array
-            :returns: slice of the array data for the dimension, an index for an integer dimension,
-                ``None`` if the subset dimension is an integer
-            """
-            if isinstance(filled_slice_expression[current_dimension], int):
-                prev_position[current_dimension] = array_vposition[current_dimension]
-                return None
-
-            if isinstance(dim, int):
-                prev_position[current_dimension] = array_vposition[current_dimension]
-                return dim
-
-            dim_start, dim_stop, _ = match_slice_size(
-                array.dimensions[current_dimension].size // array.vgrid[current_dimension], dim
-            )
-            positions_length = len(array_vposition)
-
-            if prev_position[current_dimension] == array_vposition[current_dimension]:
-                prev_sizes_buffer[current_dimension] = prev_sizes[current_dimension]
-            if prev_position[current_dimension] != array_vposition[current_dimension]:
-                prev_sizes[current_dimension] = prev_sizes_buffer[current_dimension]
-
-            for i in range(positions_length):
-                if prev_position[i] != array_vposition[i] and i < positions_length - 1:
-                    prev_sizes_buffer[i + 1 : :] = [0] * (positions_length - i - 1)
-
-            elems_in_dimension = abs(dim_stop - dim_start)
-            if array_vposition[current_dimension] == 0:
-                prev_sizes[current_dimension] = prev_sizes_buffer[current_dimension] = 0
-
-            slice_start = prev_sizes[current_dimension]
-            slice_stop = slice_start + elems_in_dimension
-            # what was prev position in that dimension
-            prev_position[current_dimension] = array_vposition[current_dimension]
-            # how many elements in that dimension
-            prev_sizes_buffer[current_dimension] += elems_in_dimension
-            return slice(slice_start, slice_stop)
+        calculator = _DataSliceCalculator(
+            filled_slice_expression,
+            tuple(array.dimensions[i].size // array.vgrid[i] for i in range(len(filled_slice_expression))),
+        )
 
         for array_ in arrays:
             vposition: list[int] = []
@@ -452,7 +472,7 @@ class VSubset(BaseSubset):
                         continue
                 bounds.append(slice(start, end))
 
-            dt_slice = [calc_data_slice(i, dim, vposition) for i, dim in enumerate(bounds)]
+            dt_slice = [calculator.calc(i, dim, vposition) for i, dim in enumerate(bounds)]
             array_positions.append(
                 ArrayPosition(
                     vposition=tuple(vposition),
@@ -498,22 +518,25 @@ class VSubset(BaseSubset):
         self.logger.debug(f"Created Array from meta for v_position {vpos}: {array.id}")
         return array
 
+    def __clear_array(self, array_pos: ArrayPosition) -> None:
+        """Clear the part of one inner ``Array`` covered by the subset; a fully covered ``Array`` is deleted.
+
+        :param array_pos: position and bounds of the inner Array
+        """
+        array = self._create_array_from_vposition(array_pos.vposition)
+        if array:
+            subset = array[array_pos.bounds]
+            if subset.shape == array.shape:
+                array.delete()
+            else:
+                subset.clear()
+
     @not_deleted
     @WriteVarrayLock()
     def clear(self) -> None:
         """Clear data in ``VArray`` by slice."""
-
-        def _clear(array_pos: ArrayPosition) -> None:
-            array = self._create_array_from_vposition(array_pos.vposition)
-            if array:
-                subset = array[array_pos.bounds]
-                if subset.shape == array.shape:
-                    array.delete()
-                else:
-                    subset.clear()
-
         self.logger.debug(f"Trying to clear data for {self.__str__()}")
-        results = self.__adapter.executor.map(_clear, self.__arrays)
+        results = self.__adapter.executor.map(self.__clear_array, self.__arrays)
         list(results)
         self.logger.info(f"{self!s} data cleared")
 
@@ -530,28 +553,68 @@ class VSubset(BaseSubset):
             results[position] = data
         return results
 
+    def __read_array_data(self, array_pos: ArrayPosition) -> tuple[Slice, Numeric | ndarray | None]:
+        """Read the part of one inner ``Array`` covered by the subset.
+
+        A missing ``Array`` reads as its fill value.
+
+        :param array_pos: position and bounds of the inner Array and the slice of the subset data it fills
+        :returns: slice of the subset data and the data read
+        """
+        array = self._create_array_from_vposition(array_pos.vposition)
+        if array:
+            subset = array[array_pos.bounds]
+            result = subset.read()
+        else:
+            result = np.empty(
+                shape=create_shape_from_slice(self.__array.arrays_shape, array_pos.bounds),
+                dtype=self.__array.dtype,
+            )
+            result.fill(self.__array.fill_value)
+        return array_pos.data_slice, result
+
     @not_deleted
     def read(self) -> Numeric | np.ndarray:
         """Read data from ``VArray`` slice."""
-
-        def _read_data(array_pos: ArrayPosition) -> tuple[Slice, Numeric | ndarray | None]:
-            array = self._create_array_from_vposition(array_pos.vposition)
-            if array:
-                subset = array[array_pos.bounds]
-                result = subset.read()
-            else:
-                result = np.empty(
-                    shape=create_shape_from_slice(self.__array.arrays_shape, array_pos.bounds),
-                    dtype=self.__array.dtype,
-                )
-                result.fill(self.__array.fill_value)
-            return array_pos.data_slice, result
-
         self.logger.debug(f"Trying to read data from {self!s}")
-        arrays_data = self.__adapter.executor.map(_read_data, self.__arrays)
+        arrays_data = self.__adapter.executor.map(self.__read_array_data, self.__arrays)
         data = self.__sum_results(arrays_data)
         self.logger.info(f"{self!s} data read")
         return data
+
+    def __update_array_data(self, array_data: ArrayPositionedData) -> None:
+        """Update the part of one inner ``Array`` covered by the subset, creating the ``Array`` if it is missing.
+
+        A new ``Array`` gets the start values of its time dimensions calculated from its position:
+        ``VATD.step * ATD.size * vpos[vpos.index(ATD)] + VATD.start_value``
+        (ATD - Array time dimension, VATD - VArray time dimension, vpos - v_position).
+
+        :param array_data: position and bounds of the inner Array and the data for it
+        """
+        from deker.arrays import Array
+
+        array = self._create_array_from_vposition(array_data.vposition)
+        if not array:
+            custom_attributes = {}
+            for n, dim_schema in enumerate(self.__collection.array_schema.dimensions):
+                if isinstance(dim_schema, TimeDimensionSchema) and isinstance(dim_schema.start_value, str):
+                    attr_name = dim_schema.start_value[1:]
+                    dim = self.__array.dimensions[n]
+                    if not isinstance(dim, TimeDimension):  # pragma: no cover
+                        raise DekerVSubsetError(f"Dimension {dim.name} is not a TimeDimension", [])
+                    # the tile starts where its first cell is on the VArray time axis
+                    first_cell = array_data.vposition[n] * self.__array.arrays_shape[n]
+                    custom_attributes[attr_name] = get_start_datetime(dim) + dim.step * first_cell
+
+            array = Array(
+                collection=self.__collection,
+                adapter=self.__array_adapter,
+                primary_attributes={"vid": self.__array.id, "v_position": array_data.vposition},
+                custom_attributes=custom_attributes,
+            )
+            self.__array_adapter.create(array)
+        subset = array[array_data.bounds]
+        subset.update(array_data.data)
 
     @not_deleted
     @WriteVarrayLock()
@@ -564,39 +627,6 @@ class VSubset(BaseSubset):
 
         :param data: new data which shall match subset slicing
         """
-        from deker.arrays import Array
-
-        def _update(array_data: ArrayPositionedData) -> None:
-            """If there is a need in the future to calculate Array's time dimension start value.
-
-            ATD - Array time dimension
-            VATD - VArray time dimension
-            vpos - v_position
-
-            start_value = VATD.step * ATD.size * vpos[vpos.index(ATD)] + VATD.start_value
-            """
-            array = self._create_array_from_vposition(array_data.vposition)
-            if not array:
-                custom_attributes = {}
-                for n, dim_schema in enumerate(self.__collection.array_schema.dimensions):
-                    if isinstance(dim_schema, TimeDimensionSchema) and isinstance(dim_schema.start_value, str):
-                        attr_name = dim_schema.start_value[1:]
-                        dim = self.__array.dimensions[n]
-                        if not isinstance(dim, TimeDimension):  # pragma: no cover
-                            raise DekerVSubsetError(f"Dimension {dim.name} is not a TimeDimension", [])
-                        pos = array_data.vposition[n]
-                        custom_attributes[attr_name] = get_start_datetime(dim) + dim.step * pos
-
-                array = Array(
-                    collection=self.__collection,
-                    adapter=self.__array_adapter,
-                    primary_attributes={"vid": self.__array.id, "v_position": array_data.vposition},
-                    custom_attributes=custom_attributes,
-                )
-                self.__array_adapter.create(array)
-            subset = array[array_data.bounds]
-            subset.update(array_data.data)
-
         self.logger.debug(f"Trying to update data for {self!s}")
         if data is None:
             raise DekerArrayError("Updating data shall not be None")
@@ -611,7 +641,7 @@ class VSubset(BaseSubset):
             ArrayPositionedData(vpos, array_bounds, data_array[data_bounds])
             for vpos, array_bounds, data_bounds in self.__arrays
         ]
-        futures = [self.__adapter.executor.submit(_update, position) for position in positions]
+        futures = [self.__adapter.executor.submit(self.__update_array_data, position) for position in positions]
 
         exceptions = []
         for future in futures:

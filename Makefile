@@ -37,12 +37,12 @@ docs-lint:  ## Lint the RST documentation (doc8)
 check: lint typecheck docstrings docs-lint  ## Run every static check
 
 test:  ## Run the tests in random order
-	uv run pytest --random-order
+	uv run pytest --random-order $(PYTEST_ARGS)
 
 coverage:  ## Run the tests with coverage and enforce the threshold from pyproject.toml
-	uv run pytest --cov=. tests/ --cov-report=term-missing --cov-report html
+	uv run pytest --random-order --cov=. tests/ --cov-report=term-missing --cov-report html
 
-ci: format check test coverage  ## Run every check and the tests sequentially, as CI does
+ci: format check coverage  ## Run every check and the tests sequentially, as CI does
 
 pre-commit:  ## Run all pre-commit hooks on all files
 	uv run pre-commit run --all-files
