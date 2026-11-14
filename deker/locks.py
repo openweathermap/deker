@@ -310,41 +310,54 @@ class WriteVarrayLock(BaseLock):
         open(f"{filename}:{os.getpid()}{LocksExtensions.varray_lock.value}", "w").close()
         return lock
 
-    def check_arrays_locks(
-        self,
-        adapter: "LocalArrayAdapter",
-        varray: "VArray",
-    ) -> list[Path]:
-        """Check all Arrays that are in current VArray.
+    def _tiles_paths(self, adapter: "LocalArrayAdapter", varray: "VArray") -> list[Path]:
+        """Get the main files of the tiles (inner Arrays) covered by the subset.
 
-        :param adapter: Array Adapter instance
+        :param adapter: Array adapter instance
         :param varray: VArray
-        :returns: paths of the arrays that are locked by someone else
+        :returns: paths of the existing tiles' main files, resolved from their symlinks
         """
-        currently_locked = []
-
         collection = self.instance._VSubset__collection
+        paths = []
         for array_position in self.instance._VSubset__arrays:
             filename = adapter._get_symlink_filename(
                 varray.id,
                 array_position.vposition,
                 collection.array_schema.primary_attributes,
             )
-            if not filename:
-                continue
+            if filename:
+                # Path to the main file (not symlink)
+                paths.append(filename.resolve())
+        return paths
 
-            # Path to the main file (not symlink)
-            filename = filename.resolve()
+    def _release_tiles(self) -> None:
+        """Release the tiles acquired so far: flocks and own markers."""
+        for lock, filename in self.locks:
+            lock.release()
+            Path(f"{filename}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink(missing_ok=True)
+        self.locks = []
+
+    def _acquire_tiles(self, paths: Sequence[Path]) -> bool:
+        """Acquire all the tiles or none of them.
+
+        The first busy tile releases everything acquired before it, so a waiting writer
+        holds nothing and does not block the writers of other tiles.
+
+        :param paths: main files of the tiles
+        :returns: ``True`` if every tile is acquired, ``False`` if some tile is busy and nothing is held
+        """
+        for filename in paths:
             try:
                 lock = self.check_locks_for_array_and_set_flock(filename)
-                self.locks.append((lock, filename))
             except DekerLockError:
-                currently_locked.append(filename)
-
-        return currently_locked
+                self._release_tiles()
+                self.logger.debug(f"Tile {filename} is busy, released the tiles acquired so far")
+                return False
+            self.locks.append((lock, filename))
+        return True
 
     def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
-        """If there are any array write/read lock, we shouldn't update varray.
+        """Acquire every tile of the subset, waiting for busy tiles without holding the others.
 
         :param func_args: arguments of the function that has been called.
         :param func_kwargs: keyword arguments of the function that has been called.
@@ -354,24 +367,20 @@ class WriteVarrayLock(BaseLock):
 
         # Clear links to locks
         self.locks = []
-        # Locks that have been acquired by third party process
+        paths = self._tiles_paths(adapter, varray)
 
-        # Iterate over Arrays in VArray and try to lock them. If locking fails - wait.
-        # If it fails again - release all locks.
-        currently_locked = self.check_arrays_locks(adapter, varray)
-        if not currently_locked:
-            # Release array locks
+        if self._acquire_tiles(paths):
             return
 
-        # Wait till there are no more read locks
+        # Some tiles are busy: nothing is held now, retry the whole acquisition until the timeout
         if wait_for_unlock(
-            check_func=lambda: not self.check_arrays_locks(adapter, varray),
-            check_func_args=tuple(),
+            check_func=self._acquire_tiles,
+            check_func_args=(paths,),
             timeout=adapter.ctx.config.write_lock_timeout,
             interval=adapter.ctx.config.write_lock_check_interval,
         ):
             return
-        # Release all locks
+        # Nothing is held after a failed acquisition; release keeps the contract of the base lock
         self.release()
         raise DekerLockError(f"VArray {varray} is locked")
 
@@ -380,10 +389,7 @@ class WriteVarrayLock(BaseLock):
 
         :param e: Exception that may have been raised.
         """
-        # Release array locks
-        for lock, filename in self.locks:
-            lock.release()
-            Path(f"{filename}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink(missing_ok=True)
+        self._release_tiles()
         super().release()
 
     def acquire(self, path: Path | None) -> None:

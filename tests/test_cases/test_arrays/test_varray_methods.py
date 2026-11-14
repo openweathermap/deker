@@ -11,7 +11,6 @@ import pytest
 
 from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter, LocalVArrayAdapter
 from deker_local_adapters.factory import AdaptersFactory
-from deker_tools.path import is_empty
 from numpy import ndarray
 
 from tests.parameters.array_params import attributes_validation_params
@@ -212,10 +211,12 @@ class TestVArrayMethods:
             / array_adapter.data_dir
             / inserted_varray.id
         ).exists()
-        assert is_empty(
+        # the symlinks of the tiles live under the VArray id; the collection is shared with other tests
+        assert not (
             inserted_varray._VArray__collection.path  # type: ignore[attr-defined]
             / array_adapter.symlinks_dir
-        )
+            / inserted_varray.id
+        ).exists()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
     def test_update_varray(self, inserted_varray: VArray, array_data: np.ndarray, index_exp):

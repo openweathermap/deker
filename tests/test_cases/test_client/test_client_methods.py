@@ -13,6 +13,7 @@ import numpy as np
 import pytest
 
 from deker_local_adapters import LocalCollectionAdapter
+from deker_tools.data import convert_size_to_human
 
 from tests.parameters.collection_params import ClientParams
 from tests.parameters.common import random_string
@@ -777,6 +778,9 @@ class TestStorageSizeCalculation:
         schema = ArraySchema(dtype=np.int8, dimensions=dimensions)
         data = np.random.randint(-128, 128, size=schema.shape, dtype=schema.dtype)  # type: ignore[arg-type]
         iters = 2
+        # the storage is shared by the whole test session: measure the growth, not the absolute size
+        with pytest.warns(DekerWarning):
+            before = client.calculate_storage_size().bytes
         collections = [client.create_collection(name=f"test_size_coll_{i}", schema=schema) for i in range(iters)]
         try:
             arrays = [collection.create() for collection in collections for _ in range(iters)]
@@ -784,8 +788,8 @@ class TestStorageSizeCalculation:
                 array[:].update(data)
             with pytest.warns(DekerWarning):
                 real_size = client.calculate_storage_size()
-                assert real_size.bytes == size * 4
-                assert real_size.human == human_size
+                assert real_size.bytes - before == size * 4
+                assert convert_size_to_human(size * 4) == human_size
         finally:
             for collection in collections:
                 collection.delete()

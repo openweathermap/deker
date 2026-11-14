@@ -4,7 +4,7 @@ import re
 from multiprocessing.context import BaseContext
 from multiprocessing.synchronize import Event
 from pathlib import Path
-from threading import get_native_id
+from threading import Thread, Timer, get_native_id
 from time import sleep
 from uuid import UUID, uuid4
 
@@ -42,6 +42,18 @@ def make_read_lock(filepath: str, array_id: UUID, file_created: Event, error_rai
         error_raised.wait()
 
     lock.unlink()
+
+
+def call_check_existing_lock(lock: WriteVarrayLock, errors: list[Exception]) -> None:
+    """Call the lock's check in a thread, collecting the exception instead of losing it.
+
+    :param lock: VArray write lock bound to a subset
+    :param errors: list to put the raised exception into
+    """
+    try:
+        lock.check_existing_lock(func_args=[], func_kwargs={})
+    except Exception as e:
+        errors.append(e)
 
 
 class TestReadArrayLock:
@@ -292,6 +304,84 @@ class TestWriteVarrayLock:
         )
         write_varray_lock.kwargs = {"array": inserted_varray}
         assert path == write_varray_lock.get_path()
+
+    def test_varray_lock_holds_nothing_while_a_tile_is_busy(
+        self,
+        mocker: MockerFixture,
+        write_varray_lock: WriteVarrayLock,
+        varray_collection: Collection,
+        inserted_varray: VArray,
+        mp_context: BaseContext,
+    ):
+        """A writer waiting for a busy tile shall hold no other tile: no flock and no own marker on them."""
+        file_created = mp_context.Event()
+        error_raised = mp_context.Event()
+        config = write_varray_lock.instance._VSubset__array_adapter.ctx.config
+        mocker.patch.object(config, "write_lock_timeout", 3)
+        mocker.patch.object(config, "write_lock_check_interval", 0.1)
+
+        arrays = list(varray_collection.arrays)
+        busy, *free = arrays
+        busy_path = busy._Array__adapter._get_main_path_to_file(busy)
+        process = mp_context.Process(target=make_read_lock, args=(busy_path, busy.id, file_created, error_raised))
+        process.start()
+        file_created.wait()
+
+        errors: list[Exception] = []
+        writer = Thread(target=call_check_existing_lock, args=(write_varray_lock, errors))
+        writer.start()
+        try:
+            sleep(1)  # the writer is waiting for the busy tile now
+            assert writer.is_alive()
+            for array in free:
+                path = array._Array__adapter._get_main_path_to_file(array)
+                assert not list(path.parent.glob(f"{path.name}:*{LocksExtensions.varray_lock.value}"))
+                flock = Flock(path)
+                flock.acquire()
+                flock.release()
+        finally:
+            error_raised.set()
+            writer.join()
+            process.join()
+        assert errors == []
+        assert len(write_varray_lock.locks) == len(arrays)
+        write_varray_lock.release()
+
+    def test_varray_lock_acquires_tiles_once_they_are_free(
+        self,
+        mocker: MockerFixture,
+        write_varray_lock: WriteVarrayLock,
+        varray_collection: Collection,
+        inserted_varray: VArray,
+        mp_context: BaseContext,
+    ):
+        """A writer shall get all the tiles once the busy one is released, instead of failing by timeout."""
+        file_created = mp_context.Event()
+        error_raised = mp_context.Event()
+        config = write_varray_lock.instance._VSubset__array_adapter.ctx.config
+        mocker.patch.object(config, "write_lock_timeout", 5)
+        mocker.patch.object(config, "write_lock_check_interval", 0.1)
+
+        arrays = list(varray_collection.arrays)
+        busy = arrays[0]
+        busy_path = busy._Array__adapter._get_main_path_to_file(busy)
+        process = mp_context.Process(target=make_read_lock, args=(busy_path, busy.id, file_created, error_raised))
+        process.start()
+        file_created.wait()
+
+        releaser = Timer(0.5, error_raised.set)
+        releaser.start()
+        try:
+            write_varray_lock.check_existing_lock(func_args=[], func_kwargs={})
+        finally:
+            releaser.join()
+            process.join()
+        assert len(write_varray_lock.locks) == len(arrays)
+        write_varray_lock.release()
+        assert write_varray_lock.locks == []
+        for array in arrays:
+            path = array._Array__adapter._get_main_path_to_file(array)
+            assert not list(path.parent.glob(f"{path.name}:*{LocksExtensions.varray_lock.value}"))
 
     def test_check_existing_locks_fail(
         self,
