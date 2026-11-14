@@ -12,7 +12,6 @@ import traceback
 from collections.abc import Callable
 from multiprocessing import Event, cpu_count
 from multiprocessing.context import BaseContext
-from multiprocessing.pool import Pool
 from pathlib import Path
 from typing import Literal
 from unittest.mock import patch
@@ -279,7 +278,7 @@ class TestLocks:
         lock_set.wait()
         try:
             methods = ["update", "clear"]
-            with Pool(WORKERS) as pool:
+            with mp_context.Pool(WORKERS) as pool:
                 result = pool.starmap(
                     call_array_method,
                     [

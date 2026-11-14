@@ -5,6 +5,7 @@ import shutil
 import time
 
 from concurrent.futures import ProcessPoolExecutor
+from multiprocessing.context import BaseContext
 from pathlib import Path
 
 import h5py
@@ -95,12 +96,12 @@ class TestFlock:
         finally:
             flock1.release()
 
-    def test_multiple_sync_processes_flock(self):
+    def test_multiple_sync_processes_flock(self, mp_context: BaseContext):
         """Tests multiple processes cannot acquire lock on the same file."""
         cores = multiprocessing.cpu_count() // 2
         processes = cores if cores > 2 else 2
         with ProcessPoolExecutor(max_workers=processes) as ex:
-            p = multiprocessing.Process(
+            p = mp_context.Process(
                 target=os.system,
                 args=(f"python {os.path.dirname(__file__)}/long_mpt.py -c sync",),
             )

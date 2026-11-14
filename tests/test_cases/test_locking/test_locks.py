@@ -1,7 +1,8 @@
 import os
 import re
 
-from multiprocessing import Event, Process
+from multiprocessing.context import BaseContext
+from multiprocessing.synchronize import Event
 from pathlib import Path
 from threading import get_native_id
 from time import sleep
@@ -184,9 +185,10 @@ class TestWriteArrayLock:
         inserted_array: Array,
         local_array_adapter: LocalArrayAdapter,
         mocker: MockerFixture,
+        mp_context: BaseContext,
     ):
         """Check correctness of check_existing_lock method."""
-        file_created = Event()
+        file_created = mp_context.Event()
 
         # Mock acquire as we do not want to lock file here.
         mocker.patch.object(write_array_lock, "acquire", lambda *a, **kw: file_created.wait(10), spec=True)
@@ -195,7 +197,7 @@ class TestWriteArrayLock:
         # Make read lock
         write_array_lock.kwargs = {"array": inserted_array}
         filepath = write_array_lock.get_path()
-        process = Process(target=make_read_lock, args=(filepath, inserted_array.id, file_created))
+        process = mp_context.Process(target=make_read_lock, args=(filepath, inserted_array.id, file_created))
         process.start()
 
         write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
@@ -209,9 +211,10 @@ class TestWriteArrayLock:
         inserted_array: Array,
         local_array_adapter: LocalArrayAdapter,
         mocker: MockerFixture,
+        mp_context: BaseContext,
     ):
         """Test if checking existing lock fails with timeout."""
-        file_created = Event()
+        file_created = mp_context.Event()
 
         # Set lock timeout to wait minimal amount of time
         mocker.patch.object(write_array_lock.instance.ctx.config, "write_lock_timeout", 1)
@@ -223,7 +226,7 @@ class TestWriteArrayLock:
         # Make read lock
         write_array_lock.kwargs = {"array": inserted_array}
         filepath = write_array_lock.get_path()
-        process = Process(target=make_read_lock, args=(filepath, inserted_array.id, file_created))
+        process = mp_context.Process(target=make_read_lock, args=(filepath, inserted_array.id, file_created))
         process.start()
 
         # Call check existing
@@ -296,6 +299,7 @@ class TestWriteVarrayLock:
         write_varray_lock,
         varray_collection: Collection,
         inserted_varray: VArray,
+        mp_context: BaseContext,
     ):
         """
         Deker checks for each affected Array if Array read and write lock count == 0
@@ -308,8 +312,8 @@ class TestWriteVarrayLock:
 
         :return:
         """
-        file_created = Event()
-        error_raised = Event()
+        file_created = mp_context.Event()
+        error_raised = mp_context.Event()
 
         release = mocker.patch.object(write_varray_lock, "release", autospec=True)
 
@@ -321,7 +325,7 @@ class TestWriteVarrayLock:
             adapter = array._Array__adapter
             filepath = adapter._get_main_path_to_file(array)
             # We don't use pool here, as we should keep state of locks
-            process = Process(target=make_read_lock, args=(filepath, array.id, file_created, error_raised))
+            process = mp_context.Process(target=make_read_lock, args=(filepath, array.id, file_created, error_raised))
             process.start()
             processes.append(process)
 
@@ -344,6 +348,7 @@ class TestWriteVarrayLock:
         write_varray_lock,
         varray_collection: Collection,
         inserted_varray: VArray,
+        mp_context: BaseContext,
     ):
         """
         Deker checks for each affected Array if Array read and write lock count == 0
@@ -354,8 +359,8 @@ class TestWriteVarrayLock:
         on affected Arrays and returns lock error
         Array read and write lock count == 0, Deker increments its write lock count
         """
-        file_created = Event()
-        error_raised = Event()
+        file_created = mp_context.Event()
+        error_raised = mp_context.Event()
 
         release = mocker.patch.object(write_varray_lock, "release", autospec=True)
 
@@ -367,7 +372,7 @@ class TestWriteVarrayLock:
             adapter = array._Array__adapter
             filepath = adapter._get_main_path_to_file(array)
             # We don't use pool here, as we should keep state of locks
-            process = Process(target=make_read_lock, args=(filepath, array.id, file_created, error_raised))
+            process = mp_context.Process(target=make_read_lock, args=(filepath, array.id, file_created, error_raised))
             process.start()
             processes.append(process)
 

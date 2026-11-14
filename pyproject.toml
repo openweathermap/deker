@@ -86,6 +86,11 @@ url = "https://test.pypi.org/simple/"
 [tool.uv]
 default-groups = ["dev", "docs"]
 
+[tool.uv.sources]
+deker-local-adapters = { path = "../deker-local-adapters", editable = true }
+deker-server-adapters = { path = "../deker-server-adapters", editable = true }
+deker-tools = { path = "../deker-tools", editable = true }
+
 
                                 ####################
                                 ### DEPENDENCIES ###

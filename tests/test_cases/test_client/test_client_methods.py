@@ -690,7 +690,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="y", size=1024),
                     DimensionSchema(name="x", size=1024),
                 ],
-                1052810,
+                1052777,
                 "1.0 MB",
             ),
             (
@@ -698,7 +698,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="y", size=1024),
                     DimensionSchema(name="x", size=10240),
                 ],
-                10489994,
+                10489961,
                 "10.0 MB",
             ),
             (
@@ -706,7 +706,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="y", size=10240),
                     DimensionSchema(name="x", size=10240),
                 ],
-                104861834,
+                104861801,
                 "100.0 MB",
             ),
             (
@@ -715,7 +715,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="x", size=1024),
                     DimensionSchema(name="z", size=1024),
                 ],
-                1073746058,
+                1073746025,
                 "1.0 GB",
             ),
         ],
@@ -743,7 +743,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="y", size=1024),
                     DimensionSchema(name="x", size=1024),
                 ],
-                1052810,
+                1052777,
                 "4.02 MB",
             ),
             (
@@ -751,7 +751,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="y", size=1024),
                     DimensionSchema(name="x", size=10240),
                 ],
-                10489994,
+                10489961,
                 "40.02 MB",
             ),
             (
@@ -759,7 +759,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="y", size=10240),
                     DimensionSchema(name="x", size=10240),
                 ],
-                104861834,
+                104861801,
                 "400.02 MB",
             ),
             (
@@ -768,7 +768,7 @@ class TestStorageSizeCalculation:
                     DimensionSchema(name="x", size=1024),
                     DimensionSchema(name="z", size=1024),
                 ],
-                1073746058,
+                1073746025,
                 "4.0 GB",
             ),
         ],
