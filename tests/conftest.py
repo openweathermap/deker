@@ -4,6 +4,7 @@ import os
 import platform
 import shutil
 
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from multiprocessing import cpu_count
 from multiprocessing.context import BaseContext
@@ -19,6 +20,7 @@ from deker.ABC import BaseStorageAdapter
 from deker.client import Client
 from deker.config import DekerConfig
 from deker.ctx import CTX
+from deker.log import _ROOT_DEKER_LOGGER_NAME
 from deker.uri import Uri
 
 logging.basicConfig(level="ERROR")
@@ -64,6 +66,32 @@ def config(root_path: Path, workers) -> DekerConfig:
         memory_limit=104857600,
         loglevel="ERROR",
     )
+
+
+@pytest.fixture
+def deker_log(caplog: pytest.LogCaptureFixture) -> Iterator[pytest.LogCaptureFixture]:
+    """Capture the records of the Deker loggers, which do not propagate to the root logger.
+
+    The records of every level are captured: the fixture lowers the level of the Deker loggers for the test.
+
+    :param caplog: pytest log capture
+    :returns: the same capture, fed by the Deker loggers
+    """
+    logger = logging.getLogger(_ROOT_DEKER_LOGGER_NAME)
+    loggers = [
+        logger,
+        *(child for name, child in logger.manager.loggerDict.items() if name.startswith(f"{logger.name}.")),
+    ]
+    levels = {child: child.level for child in loggers if isinstance(child, logging.Logger)}
+    for child in levels:
+        child.setLevel(logging.DEBUG)
+    logger.addHandler(caplog.handler)
+    try:
+        yield caplog
+    finally:
+        logger.removeHandler(caplog.handler)
+        for child, level in levels.items():
+            child.setLevel(level)
 
 
 @pytest.fixture

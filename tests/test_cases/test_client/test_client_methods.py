@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 import shutil
 import string
@@ -338,12 +339,16 @@ class TestClientMethods:
             for col in collections:
                 col.delete()
 
-    def test_client_check_integrity_ok(self, client: Client, array_schema: ArraySchema) -> None:
-        """Tests if method raises no exceptions by default."""
+    def test_client_check_integrity_ok(
+        self, client: Client, array_schema: ArraySchema, deker_log: pytest.LogCaptureFixture
+    ) -> None:
+        """Tests if method raises no exceptions by default and reports no errors to the log."""
         collections = [client.create_collection(i, array_schema) for i in ["test_col1", "test_col2"]]
         try:
             [col.create() for _ in range(20) for col in collections]
             client.check_integrity(2)
+            assert "Integrity check is running..." in deker_log.messages
+            assert "Integrity check found no errors" in deker_log.messages
         finally:
             for col in collections:
                 col.delete()
@@ -385,9 +390,9 @@ class TestClientMethods:
         array_collection_with_attributes: Collection,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
-        capsys: pytest.CaptureFixture,
+        deker_log: pytest.LogCaptureFixture,
     ) -> None:
-        """Tests if ``to_file=True`` writes a default-named report to the current directory."""
+        """Tests if ``to_file=True`` writes a default-named report to the current directory and logs it."""
         monkeypatch.chdir(tmp_path)
         array = array_collection_with_attributes.create(
             primary_attributes={"primary_attribute": 11},
@@ -410,7 +415,9 @@ class TestClientMethods:
                 f"\n\t- Symlink {symlink_path} not found\n"
             )
             assert reports[0].read_text() == expected
-            assert f"Integrity check logged errors in {reports[0].absolute()}" in capsys.readouterr().out
+            errors = [record for record in deker_log.records if record.levelno == logging.ERROR]
+            assert len(errors) == 1
+            assert errors[0].getMessage() == f"{expected}\n\nIntegrity check logged errors in {reports[0].absolute()}"
         finally:
             array.delete()
             array_collection_with_attributes.delete()
@@ -433,7 +440,6 @@ class TestClientMethods:
         client: Client,
         params: dict,
         array_schema: ArraySchema,
-        capsys,
         collection_adapter: LocalCollectionAdapter,
     ) -> None:
         """Tests if method raises exception only for collection name."""
@@ -454,7 +460,6 @@ class TestClientMethods:
             client.check_integrity(2, stop_on_error=False, collection=collection_1.name)
         except Exception as e:
             assert str(e) == f"Collection \"{collection_1.name}\" metadata is invalid/corrupted: 'test'"
-        capsys.readouterr()  # drain the captured output
         collection_1.delete()
         collection_2.delete()
         for root, _, files in os.walk(os.path.curdir):
@@ -910,10 +915,11 @@ class TestClearLocks:
             *ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas(),
         ],
     )
-    def test_client_clear_locks_collection_empty(self, client: Client, params):
+    def test_client_clear_locks_collection_empty(self, client: Client, params, deker_log: pytest.LogCaptureFixture):
         collection = client.create_collection(**params)
         client.clear_locks(collection.name)
         assert not list(Path.rglob(collection.path, f"*{LocksExtensions.array_read_lock.value}"))
+        assert "0 lock files removed" in deker_log.messages
 
     def test_client_clear_locks_inserted_array(self, client: Client, root_path, read_array_lock, inserted_array):
         read_array_lock.args = []
@@ -925,7 +931,7 @@ class TestClearLocks:
         assert not list(Path.rglob(root_path, f"*{LocksExtensions.array_read_lock.value}"))
 
     def test_client_clear_locks_inserted_array_multiple_locks(
-        self, client: Client, root_path, read_array_lock, inserted_array
+        self, client: Client, root_path, read_array_lock, inserted_array, deker_log: pytest.LogCaptureFixture
     ):
         read_array_lock.kwargs = {"array": inserted_array}
         filepath = read_array_lock.get_path()
@@ -936,6 +942,7 @@ class TestClearLocks:
         client.clear_locks()
         assert not list(Path.rglob(root_path, f"*{LocksExtensions.array_read_lock.value}"))
         assert not list(Path.rglob(root_path, f"*{LocksExtensions.varray_lock.value}"))
+        assert "2 lock files removed" in deker_log.messages
 
     @pytest.mark.parametrize("limit_size", [100, "1K", "10k", "25m"])
     def test_client_create_collection_raises_memory_error(self, root_path, limit_size):

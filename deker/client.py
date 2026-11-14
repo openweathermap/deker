@@ -540,7 +540,6 @@ class Client(SelfLoggerMixin):
                     "Type": lock_type.value,
                     "Creation": datetime.fromtimestamp(file.stat().st_ctime).isoformat(),
                 }
-                print(lock)
                 locks.append(lock)
         return locks
 
@@ -577,7 +576,6 @@ class Client(SelfLoggerMixin):
                         "Type": LocksTypes.collection_lock.value,
                         "Creation": datetime.fromtimestamp(directory.stat().st_ctime).isoformat(),
                     }
-                    print(lock)
                     locks.append(lock)
                 locks.extend(self._iter_collection_locks(directory, directory.name, lock_type))
         return locks
@@ -603,7 +601,7 @@ class Client(SelfLoggerMixin):
                 file.unlink()
                 files_count += 1
 
-        print(f"{files_count} files removed")
+        self.logger.info(f"{files_count} lock files removed")
 
     @_open_client_only
     def check_integrity(
@@ -631,7 +629,7 @@ class Client(SelfLoggerMixin):
         """
         errors: str = IntegrityChecker(self, self.root_path, stop_on_error, level).check(collection)
         if not errors:
-            print("Integrity check found no errors")
+            self.logger.info("Integrity check found no errors")
             return
         if to_file:
             if isinstance(to_file, Path):
@@ -644,7 +642,7 @@ class Client(SelfLoggerMixin):
             with filename.open("w") as f:
                 f.write(errors)
             errors += f"\n\nIntegrity check logged errors in {filename.absolute()}"
-        print(errors)
+        self.logger.error(errors)
 
     def __iter__(self) -> Generator[Collection]:
         """Iterate over all collections in the storage."""

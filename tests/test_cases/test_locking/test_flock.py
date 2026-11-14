@@ -13,6 +13,7 @@ import pytest
 
 from deker.errors import DekerLockError
 from deker.locks import Flock
+from deker.types import LocksExtensions
 
 
 @pytest.fixture
@@ -95,6 +96,30 @@ class TestFlock:
             flock1.acquire()
         finally:
             flock1.release()
+
+    def test_flock_acquire_missing_file_raises(self, tmp_path: Path):
+        """Tests Flock.acquire does not pretend to hold a lock on a file that does not exist.
+
+        :param tmp_path: temporary directory
+        """
+        flock = Flock(tmp_path / "missing.hdf5")
+        with pytest.raises(FileNotFoundError):
+            flock.acquire()
+        assert flock.fd is None
+
+    def test_flock_acquire_creates_lock_file(self, tmp_path: Path):
+        """Tests Flock.acquire creates a lock file (.arrlock or .lock) that does not exist yet.
+
+        :param tmp_path: temporary directory
+        """
+        path = tmp_path / "new" / f"collection{LocksExtensions.collection_lock.value}"
+        flock = Flock(path)
+        try:
+            flock.acquire()
+            assert path.exists()
+            assert flock.fd is not None
+        finally:
+            flock.release()
 
     def test_multiple_sync_processes_flock(self, mp_context: BaseContext):
         """Tests multiple processes cannot acquire lock on the same file."""

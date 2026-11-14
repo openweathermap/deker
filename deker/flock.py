@@ -52,8 +52,6 @@ class Flock(SelfLoggerMixin):
             self.logger.debug(f"Opened descriptor for {self.file}")
             fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
             self.logger.debug(f"{self.file} acquired lock")
-        except FileNotFoundError:
-            self.logger.debug(f"{self.file} not found")
         except BlockingIOError:
             if self.fd:
                 self.fd.close()

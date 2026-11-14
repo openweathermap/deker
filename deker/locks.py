@@ -60,6 +60,26 @@ def _get_lock_filename(id_: str, lock_ext: LocksExtensions) -> str:
     return str(name + lock_ext.value)
 
 
+def _varray_lock_marker(filename: Path) -> Path:
+    """Get the path of the marker that tells the array is locked by a VArray of the current process.
+
+    :param filename: main file of the array
+    :returns: path of the marker file
+    """
+    return Path(f"{filename}{META_DIVIDER}{os.getpid()}{LocksExtensions.varray_lock.value}")
+
+
+def _is_own_varray_lock_marker(name: str) -> bool:
+    """Check that the name is a VArray lock marker of the current process.
+
+    The PID is compared together with its divider: otherwise the marker of PID 5123 would match PID 123.
+
+    :param name: name of a file in the directory of the array
+    :returns: ``True`` if the marker belongs to the current process
+    """
+    return name.endswith(f"{META_DIVIDER}{os.getpid()}{LocksExtensions.varray_lock.value}")
+
+
 def _check_write_locks(dir_path: Path, id_: str) -> bool:
     """Checks write locks from VArrays that differs from current.
 
@@ -71,7 +91,7 @@ def _check_write_locks(dir_path: Path, id_: str) -> bool:
     for file in dir_path.iterdir():
         # Skip lock from current process.
         # Used when you have to read meta inside .update operation of varray
-        if file.name.endswith(f"{os.getpid()}{LocksExtensions.varray_lock.value}"):
+        if _is_own_varray_lock_marker(file.name):
             return True
         # If we've found another varray lock, that not from current process.
         if file.name.endswith(LocksExtensions.varray_lock.value):
@@ -307,7 +327,7 @@ class WriteVarrayLock(BaseLock):
         lock.acquire()
 
         # Add flag that this array is locked by varray
-        open(f"{filename}:{os.getpid()}{LocksExtensions.varray_lock.value}", "w").close()
+        _varray_lock_marker(filename).touch()
         return lock
 
     def _tiles_paths(self, adapter: "LocalArrayAdapter", varray: "VArray") -> list[Path]:
@@ -334,7 +354,7 @@ class WriteVarrayLock(BaseLock):
         """Release the tiles acquired so far: flocks and own markers."""
         for lock, filename in self.locks:
             lock.release()
-            Path(f"{filename}:{os.getpid()}{LocksExtensions.varray_lock.value}").unlink(missing_ok=True)
+            _varray_lock_marker(filename).unlink(missing_ok=True)
         self.locks = []
 
     def _acquire_tiles(self, paths: Sequence[Path]) -> bool:

@@ -20,11 +20,13 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from deker.log import SelfLoggerMixin
+
 if TYPE_CHECKING:
     from deker.client import Client
 
 
-class BaseChecker(ABC):
+class BaseChecker(SelfLoggerMixin, ABC):
     """Checker abstract object. Implements chain of responsibility pattern for integrity check."""
 
     def __init__(

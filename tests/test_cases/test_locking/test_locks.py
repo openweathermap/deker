@@ -17,7 +17,16 @@ from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.errors import DekerLockError, DekerMemoryError
-from deker.locks import Flock, ReadArrayLock, WriteArrayLock, WriteVarrayLock
+from deker.locks import (
+    META_DIVIDER,
+    Flock,
+    ReadArrayLock,
+    WriteArrayLock,
+    WriteVarrayLock,
+    _check_write_locks,
+    _is_own_varray_lock_marker,
+    _varray_lock_marker,
+)
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_main_path
 from deker.types import LocksExtensions
@@ -54,6 +63,79 @@ def call_check_existing_lock(lock: WriteVarrayLock, errors: list[Exception]) -> 
         lock.check_existing_lock(func_args=[], func_kwargs={})
     except Exception as e:
         errors.append(e)
+
+
+class TestVArrayLockMarker:
+    """Test the markers that tell an Array is locked by a VArray of the current process."""
+
+    def test_marker_path(self, tmp_path: Path):
+        """Tests the marker lies next to the main file and carries the PID with its divider.
+
+        :param tmp_path: temporary directory
+        """
+        filename = tmp_path / "array.hdf5"
+        marker = _varray_lock_marker(filename)
+        assert marker.parent == tmp_path
+        assert marker.name == f"array.hdf5{META_DIVIDER}{os.getpid()}{LocksExtensions.varray_lock.value}"
+
+    def test_own_marker_is_recognized(self, tmp_path: Path):
+        """Tests the marker of the current process is recognized as its own.
+
+        :param tmp_path: temporary directory
+        """
+        assert _is_own_varray_lock_marker(_varray_lock_marker(tmp_path / "array.hdf5").name)
+
+    @pytest.mark.parametrize(
+        "pid",
+        [
+            lambda: os.getpid() + 1,
+            lambda: int(f"1{os.getpid()}"),  # ends with the own PID
+            lambda: int(f"{os.getpid()}0"),  # starts with the own PID
+        ],
+        ids=["other", "own_pid_as_suffix", "own_pid_as_prefix"],
+    )
+    def test_foreign_marker_is_not_recognized(self, pid):
+        """Tests the marker of another process is never taken for the own one.
+
+        :param pid: PID of the other process
+        """
+        name = f"array.hdf5{META_DIVIDER}{pid()}{LocksExtensions.varray_lock.value}"
+        assert not _is_own_varray_lock_marker(name)
+
+    def test_check_write_locks_no_markers(self, tmp_path: Path):
+        """Tests a directory without markers is not locked.
+
+        :param tmp_path: temporary directory
+        """
+        (tmp_path / "array.hdf5").touch()
+        assert _check_write_locks(tmp_path, "array") is False
+
+    def test_check_write_locks_own_marker(self, tmp_path: Path):
+        """Tests the own marker means the array is locked by a VArray of the current process.
+
+        :param tmp_path: temporary directory
+        """
+        _varray_lock_marker(tmp_path / "array.hdf5").touch()
+        assert _check_write_locks(tmp_path, "array") is True
+
+    @pytest.mark.parametrize(
+        "pid",
+        [
+            lambda: os.getpid() + 1,
+            lambda: int(f"1{os.getpid()}"),
+            lambda: int(f"{os.getpid()}0"),
+        ],
+        ids=["other", "own_pid_as_suffix", "own_pid_as_prefix"],
+    )
+    def test_check_write_locks_foreign_marker(self, tmp_path: Path, pid):
+        """Tests the marker of another process means the array is locked by someone else.
+
+        :param tmp_path: temporary directory
+        :param pid: PID of the other process
+        """
+        (tmp_path / f"array.hdf5{META_DIVIDER}{pid()}{LocksExtensions.varray_lock.value}").touch()
+        with pytest.raises(DekerLockError):
+            _check_write_locks(tmp_path, "array")
 
 
 class TestReadArrayLock:

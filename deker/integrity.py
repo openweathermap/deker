@@ -271,7 +271,7 @@ class IntegrityChecker(BaseChecker):
         :param collection_name: optional collection to check
         :returns: report of the found errors, empty if there are none
         """
-        print("Integrity check is running...")
+        self.logger.info("Integrity check is running...")
         if self.next_checker:
             self.next_checker.check(collection_name)
         return self._parse_errors()
