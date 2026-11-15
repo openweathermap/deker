@@ -648,3 +648,21 @@ the write lock.
 
 Please note that operation of custom attributes updating also locks Array or VArray files
 for writing.
+
+The locks are file locks of the operating system (``flock``) taken on the data files themselves,
+so they work for the processes of one machine whatever way they run, in containers sharing
+a volume as well. A read holds a shared lock from its start to its end and leaves no file behind:
+a reader that dies in the middle of a read releases its lock at once, and a writer never waits for
+a dead reader. A writer waits for the readers of the file to leave (``write_lock_timeout``,
+checked every ``write_lock_check_interval`` seconds) and then holds the file exclusively.
+
+The only lock files on the disk are the markers a ``VArray`` write leaves next to its inner
+``Arrays`` while it writes them, named ``<array id>.hdf5:<pid>:<token>.varraylock``; the token
+tells the process apart from the processes of other containers, which may share its PID.
+A process that dies while writing a ``VArray`` leaves its markers behind: ``client.clear_locks()``
+removes them, and ``client.check_integrity()`` reports them.
+
+A tile of a ``VArray`` that does not exist yet is created by the first writer to reach it, under
+a lock on the ``VArray`` itself, so the writers of one fresh ``VArray`` never create two files for
+one position: the later writers find the tile and update it. A writer of a ``VArray`` waits for a
+tile held by a writer of another process the same way it waits for readers.

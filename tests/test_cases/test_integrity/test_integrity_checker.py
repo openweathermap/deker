@@ -455,24 +455,6 @@ class TestArraysChecker:
             collection.delete()
 
     @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
-    def test_check_arrays_locks_read(self, params: dict, client: Client, arrays_checker: ArraysChecker):
-        """Tests if function returns error if there are extra readlock files for arrays.
-
-        :param params: collection params
-        :param client: client instance
-        :param arrays_checker: checker fixture
-        """
-        collection = client.create_collection(**params)
-        array = collection.create()
-        lockfile = collection.path / array._adapter.data_dir / LocksExtensions.array_read_lock.value
-        open(lockfile, mode="w")
-        try:
-            with pytest.raises(DekerIntegrityError):
-                arrays_checker.check_arrays_locks(collection)
-        finally:
-            collection.delete()
-
-    @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
     def test_check_arrays_locks_varray(self, params: dict, client: Client, arrays_checker: ArraysChecker):
         """Tests if function returns error if there are extra lock files for varrays.
 
@@ -482,28 +464,27 @@ class TestArraysChecker:
         """
         collection = client.create_collection(**params)
         array = collection.create()
-        lockfile = collection.path / array._adapter.data_dir / LocksExtensions.varray_lock.value
-        open(lockfile, mode="w")
+        lockfile = (
+            collection.path
+            / array._adapter.data_dir
+            / f"{array.id}.hdf5:1:{'0' * 32}{LocksExtensions.varray_lock.value}"
+        )
+        open(lockfile, mode="w").close()
         try:
             with pytest.raises(DekerIntegrityError):
                 arrays_checker.check_arrays_locks(collection)
         finally:
             collection.delete()
 
-    def test_check_arrays_locks_read_array_in_varray(
+    def test_check_arrays_locks_ignores_a_reading_array(
         self, varray_collection: Collection, arrays_checker: ArraysChecker
     ):
-        """Tests if function returns error if there are extra readlock files for array in varray.
-
-        :param varray_collection: collection instance
-        :param arrays_checker: checker fixture
-        """
+        """Tests a read in progress leaves nothing the checker could report: the read lock is not a file."""
         varray = varray_collection.create()
-        lockfile = varray_collection.path / varray._adapter.data_dir / LocksExtensions.array_read_lock.value
-        open(lockfile, mode="w")
+        varray[:].update(np.zeros(varray.shape))
         try:
-            with pytest.raises(DekerIntegrityError):
-                arrays_checker.check_arrays_locks(varray_collection)
+            arrays_checker.check_arrays_locks(varray_collection)
+            assert not arrays_checker.errors
         finally:
             varray_collection.delete()
 

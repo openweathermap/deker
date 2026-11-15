@@ -32,6 +32,7 @@ from deker.errors import (
     DekerMemoryError,
     DekerValidationError,
 )
+from deker.locks import _varray_lock_marker, process_token
 from deker.log import set_logging_level
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_symlink_path
@@ -841,65 +842,34 @@ class TestGetLocks:
             *ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas(),
         ],
     )
-    def test_client_get_locks_array_read_lock(self, client: Client, params, read_array_lock, inserted_array):
+    def test_client_get_locks_varray_lock(self, client: Client, params, write_array_lock, inserted_array):
+        """Tests the marker of a VArray write is listed with the array, the PID and the token of its process."""
         client.create_collection(**params)
-        read_array_lock.args = []
-        read_array_lock.kwargs = {"array": inserted_array}
-        file = read_array_lock.get_path()
+        write_array_lock.args = []
+        write_array_lock.kwargs = {"array": inserted_array}
+        file = _varray_lock_marker(write_array_lock.get_path())
         file.touch()
-        meta = file.name.split(":")
-        assert {
-            "Lockfile": file.name,
-            "Array": meta[0],
-            "ID": meta[1],
-            "PID": meta[2],
-            "TID": meta[3].split(".")[0],
-            "Collection": inserted_array.collection,
-            "Type": LocksTypes.array_read_lock.value,
-            "Creation": datetime.fromtimestamp(file.stat().st_ctime).isoformat(),
-        } in client._get_locks()
-
-    @pytest.mark.parametrize(
-        "params",
-        [
-            *ClientParams.ArraySchema.OK.multi_array_schemas(),
-            *ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas(),
-        ],
-    )
-    def test_client_get_locks_type_array_read_lock(self, client: Client, params, read_array_lock, inserted_array):
-        client.create_collection(**params)
-        read_array_lock.args = []
-        read_array_lock.kwargs = {"array": inserted_array}
-        file = read_array_lock.get_path()
-        file.touch()
-        meta = file.name.split(":")
-        assert [
-            {
+        try:
+            expected = {
                 "Lockfile": file.name,
-                "Array": meta[0],
-                "ID": meta[1],
-                "PID": meta[2],
-                "TID": meta[3].split(".")[0],
+                "Array": inserted_array.id,
+                "PID": str(os.getpid()),
+                "Token": process_token(),
                 "Collection": inserted_array.collection,
-                "Type": LocksTypes.array_read_lock.value,
+                "Type": LocksTypes.varray_lock.value,
                 "Creation": datetime.fromtimestamp(file.stat().st_ctime).isoformat(),
             }
-        ] == client._get_locks(lock_type=LocksTypes.array_read_lock)
+            assert expected in client._get_locks()
+            assert [expected] == client._get_locks(lock_type=LocksTypes.varray_lock)
+            assert expected in client._get_locks(collection_name=inserted_array.collection)
+            assert expected not in client._get_locks(lock_type=LocksTypes.collection_lock)
+        finally:
+            file.unlink()
 
-    @pytest.mark.parametrize(
-        "params",
-        [
-            *ClientParams.ArraySchema.OK.multi_array_schemas(),
-            *ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas(),
-        ],
-    )
-    def test_client_get_locks_skip_lock(self, client: Client, params, read_array_lock, inserted_array):
-        client.create_collection(**params)
-        read_array_lock.args = []
-        read_array_lock.kwargs = {"array": inserted_array}
-        file = read_array_lock.get_path()
-        open(f"{file}:{os.getpid()}{LocksExtensions.varray_lock.value}", "w").close()
-        assert not client._get_locks(lock_type=LocksTypes.varray_lock)
+    def test_client_get_locks_lists_nothing_during_a_read(self, client: Client, inserted_array):
+        """Tests a read leaves no lock files to list: the read lock lives in the kernel."""
+        inserted_array[:].read()
+        assert not [lock for lock in client._get_locks() if lock["Type"] != LocksTypes.collection_lock.value]
 
 
 @pytest.mark.asyncio
@@ -918,31 +888,29 @@ class TestClearLocks:
     def test_client_clear_locks_collection_empty(self, client: Client, params, deker_log: pytest.LogCaptureFixture):
         collection = client.create_collection(**params)
         client.clear_locks(collection.name)
-        assert not list(Path.rglob(collection.path, f"*{LocksExtensions.array_read_lock.value}"))
+        assert not list(Path.rglob(collection.path, f"*{LocksExtensions.varray_lock.value}"))
         assert "0 lock files removed" in deker_log.messages
 
-    def test_client_clear_locks_inserted_array(self, client: Client, root_path, read_array_lock, inserted_array):
-        read_array_lock.args = []
-        read_array_lock.kwargs = {"array": inserted_array}
-        filepath = read_array_lock.get_path()
-        filepath.touch()
-        assert list(Path.rglob(root_path, f"*{LocksExtensions.array_read_lock.value}"))
-        client.clear_locks()
-        assert not list(Path.rglob(root_path, f"*{LocksExtensions.array_read_lock.value}"))
-
-    def test_client_clear_locks_inserted_array_multiple_locks(
-        self, client: Client, root_path, read_array_lock, inserted_array, deker_log: pytest.LogCaptureFixture
+    def test_client_clear_locks_removes_varray_markers(
+        self, client: Client, root_path, write_array_lock, inserted_array, deker_log: pytest.LogCaptureFixture
     ):
-        read_array_lock.kwargs = {"array": inserted_array}
-        filepath = read_array_lock.get_path()
-        open(f"{filepath}:{os.getpid()}{LocksExtensions.varray_lock.value}", "w").close()
-        filepath.touch()
-        assert list(Path.rglob(root_path, f"*{LocksExtensions.array_read_lock.value}"))
-        assert list(Path.rglob(root_path, f"*{LocksExtensions.varray_lock.value}"))
+        """Tests clear_locks removes the markers of VArray writes, the only lock files there are."""
+        write_array_lock.kwargs = {"array": inserted_array}
+        filepath = write_array_lock.get_path()
+        _varray_lock_marker(filepath).touch()
+        (
+            filepath.parent / f"{filepath.name}:{os.getpid() + 1}:{uuid4().hex}{LocksExtensions.varray_lock.value}"
+        ).touch()
+        assert len(list(Path.rglob(root_path, f"*{LocksExtensions.varray_lock.value}"))) == 2
         client.clear_locks()
-        assert not list(Path.rglob(root_path, f"*{LocksExtensions.array_read_lock.value}"))
         assert not list(Path.rglob(root_path, f"*{LocksExtensions.varray_lock.value}"))
         assert "2 lock files removed" in deker_log.messages
+
+    def test_client_clear_locks_keeps_the_data_files(self, client: Client, root_path, inserted_array):
+        """Tests clear_locks touches nothing but the markers: the data files stay."""
+        before = sorted(path for path in Path.rglob(root_path, "*") if path.is_file())
+        client.clear_locks()
+        assert sorted(path for path in Path.rglob(root_path, "*") if path.is_file()) == before
 
     @pytest.mark.parametrize("limit_size", [100, "1K", "10k", "25m"])
     def test_client_create_collection_raises_memory_error(self, root_path, limit_size):

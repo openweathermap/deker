@@ -511,36 +511,33 @@ class Client(SelfLoggerMixin):
     def _iter_collection_locks(
         path: Path, collection_name: str, lock_type: LocksTypes | None = None
     ) -> list[ArrayLockMeta]:
-        """Return collection ``Arrays'`` lockfiles.
+        """Return the lock files of the ``Arrays`` of a collection.
+
+        The only lock files of arrays are the markers of VArray writes, named
+        ``<array id><ext>:<pid>:<token>.varraylock``; the read locks live in the kernel and leave no files.
 
         :param path: ``Collection`` path
         :param collection_name: name of a ``Collection``
-          If passed - gets locks only from passed collection, else checks every collection in client
         :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
         :returns: lock files of the collection arrays
         """
+        if lock_type is not None and lock_type != LocksTypes.varray_lock:
+            return []
         locks: list[ArrayLockMeta] = []
-        for file in Path.rglob(path, "*lock"):
-            if not lock_type or file.name.endswith(LocksExtensions[lock_type.name].value):
-                meta = file.name.split(META_DIVIDER)
-                meta_separated_numbers = 4
-                if len(meta) != meta_separated_numbers:
-                    # discuss other locks print format
-                    continue
-                if not lock_type:
-                    lock_type_name = LocksExtensions(f".{file.name.split('.')[-1]}").name
-                    lock_type = LocksTypes[lock_type_name]
-                lock: ArrayLockMeta = {
-                    "Lockfile": file.name,
-                    "Collection": collection_name,
-                    "Array": meta[0],
-                    "ID": meta[1],
-                    "PID": meta[2],
-                    "TID": meta[3].split(".")[0],
-                    "Type": lock_type.value,
-                    "Creation": datetime.fromtimestamp(file.stat().st_ctime).isoformat(),
-                }
-                locks.append(lock)
+        for file in Path.rglob(path, f"*{LocksExtensions.varray_lock.value}"):
+            meta = file.name[: -len(LocksExtensions.varray_lock.value)].split(META_DIVIDER)
+            if len(meta) != 3:  # noqa: PLR2004
+                continue  # a marker of another format is not described
+            lock: ArrayLockMeta = {
+                "Lockfile": file.name,
+                "Collection": collection_name,
+                "Array": meta[0].split(".")[0],
+                "PID": meta[1],
+                "Token": meta[2],
+                "Type": LocksTypes.varray_lock.value,
+                "Creation": datetime.fromtimestamp(file.stat().st_ctime).isoformat(),
+            }
+            locks.append(lock)
         return locks
 
     # TODO: decide on private/public method
@@ -582,7 +579,9 @@ class Client(SelfLoggerMixin):
 
     @_open_client_only
     def clear_locks(self, collection_name: str | None = None) -> None:
-        """Clear the readlocks of Arrays and/or VArrays.
+        """Remove the markers of VArray writes left by crashed processes.
+
+        The read locks live in the kernel and die with their processes: there is nothing to clear for them.
 
         :param collection_name: Name of a ``Collection``.
           If passed - clears locks only in the provided collection, else clears locks in every collection in the storage
@@ -596,10 +595,9 @@ class Client(SelfLoggerMixin):
                 raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
             root_path = root_path / collection_name
 
-        for file in Path.rglob(root_path, "*lock"):
-            if file.name.endswith((LocksExtensions.array_read_lock.value, LocksExtensions.varray_lock.value)):
-                file.unlink()
-                files_count += 1
+        for file in Path.rglob(root_path, f"*{LocksExtensions.varray_lock.value}"):
+            file.unlink()
+            files_count += 1
 
         self.logger.info(f"{files_count} lock files removed")
 

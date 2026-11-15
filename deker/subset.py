@@ -27,8 +27,8 @@ from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
 from deker.dimensions import TimeDimension
-from deker.errors import DekerArrayError, DekerSubsetError, DekerVSubsetError
-from deker.locks import WriteVarrayLock
+from deker.errors import DekerArrayError, DekerLockError, DekerSubsetError, DekerVSubsetError
+from deker.locks import TileCreationLock, WriteVarrayLock, wait_for_unlock
 from deker.schemas import TimeDimensionSchema
 from deker.tools import not_deleted
 from deker.tools.time import get_start_datetime
@@ -308,12 +308,40 @@ class VSubset(BaseSubset):
         self.logger.debug(f"Created Array from meta for v_position {vpos}: {array.id}")
         return array
 
+    def _try_find_tile(self, vpos: tuple[int, ...], found: list[Optional["Array"]]) -> bool:
+        """Try to find the tile once; a tile held by a writer of another process cannot be read yet.
+
+        :param vpos: position of the tile in the grid
+        :param found: list to put the tile (or ``None`` for a missing one) into
+        :returns: ``True`` if the search is over, ``False`` if the tile is held by a writer
+        """
+        try:
+            found.append(self._create_array_from_vposition(vpos))
+        except DekerLockError:
+            return False
+        return True
+
+    def _find_tile_for_writing(self, vpos: tuple[int, ...]) -> Optional["Array"]:
+        """Find the tile as a writer does: waiting for a writer of another process to leave it.
+
+        :param vpos: position of the tile in the grid
+        :returns: the tile, ``None`` if there is no tile at the position
+        :raises DekerLockError: if the tile is still held when the write lock timeout is over
+        """
+        found: list[Optional["Array"]] = []
+        config = self.__adapter.ctx.config
+        if not wait_for_unlock(
+            self._try_find_tile, (vpos, found), config.write_lock_timeout, config.write_lock_check_interval
+        ):
+            raise DekerLockError(f"Tile {vpos} of {self.__array} is locked for update operation")
+        return found[0]
+
     def __clear_array(self, array_pos: ArrayPosition) -> None:
         """Clear the part of one inner ``Array`` covered by the subset; a fully covered ``Array`` is deleted.
 
         :param array_pos: position and bounds of the inner Array
         """
-        array = self._create_array_from_vposition(array_pos.vposition)
+        array = self._find_tile_for_writing(array_pos.vposition)
         if array:
             subset = array[array_pos.bounds]
             if subset.shape == array.shape:
@@ -374,37 +402,48 @@ class VSubset(BaseSubset):
         self.logger.info(f"{self!s} data read")
         return data
 
-    def __update_array_data(self, array_data: ArrayPositionedData) -> None:
-        """Update the part of one inner ``Array`` covered by the subset, creating the ``Array`` if it is missing.
+    def __create_tile(self, vposition: tuple[int, ...]) -> "Array":
+        """Create the missing tile (inner ``Array``) at the position.
 
         A new ``Array`` gets the start values of its time dimensions calculated from its position:
         ``VATD.step * ATD.size * vpos[vpos.index(ATD)] + VATD.start_value``
         (ATD - Array time dimension, VATD - VArray time dimension, vpos - v_position).
 
-        :param array_data: position and bounds of the inner Array and the data for it
+        :param vposition: position of the tile in the grid
+        :returns: the created tile
         """
         from deker.arrays import Array
 
-        array = self._create_array_from_vposition(array_data.vposition)
-        if not array:
-            custom_attributes = {}
-            for n, dim_schema in enumerate(self.__collection.array_schema.dimensions):
-                if isinstance(dim_schema, TimeDimensionSchema) and isinstance(dim_schema.start_value, str):
-                    attr_name = dim_schema.start_value[1:]
-                    dim = self.__array.dimensions[n]
-                    if not isinstance(dim, TimeDimension):  # pragma: no cover
-                        raise DekerVSubsetError(f"Dimension {dim.name} is not a TimeDimension", [])
-                    # the tile starts where its first cell is on the VArray time axis
-                    first_cell = array_data.vposition[n] * self.__array.arrays_shape[n]
-                    custom_attributes[attr_name] = get_start_datetime(dim) + dim.step * first_cell
+        custom_attributes = {}
+        for n, dim_schema in enumerate(self.__collection.array_schema.dimensions):
+            if isinstance(dim_schema, TimeDimensionSchema) and isinstance(dim_schema.start_value, str):
+                attr_name = dim_schema.start_value[1:]
+                dim = self.__array.dimensions[n]
+                if not isinstance(dim, TimeDimension):  # pragma: no cover
+                    raise DekerVSubsetError(f"Dimension {dim.name} is not a TimeDimension", [])
+                # the tile starts where its first cell is on the VArray time axis
+                first_cell = vposition[n] * self.__array.arrays_shape[n]
+                custom_attributes[attr_name] = get_start_datetime(dim) + dim.step * first_cell
 
-            array = Array(
-                collection=self.__collection,
-                adapter=self.__array_adapter,
-                primary_attributes={"vid": self.__array.id, "v_position": array_data.vposition},
-                custom_attributes=custom_attributes,
-            )
-            self.__array_adapter.create(array)
+        array = Array(
+            collection=self.__collection,
+            adapter=self.__array_adapter,
+            primary_attributes={"vid": self.__array.id, "v_position": vposition},
+            custom_attributes=custom_attributes,
+        )
+        self.__array_adapter.create(array)
+        return array
+
+    def __update_array_data(self, array_data: ArrayPositionedData) -> None:
+        """Update the part of one inner ``Array`` covered by the subset, creating the ``Array`` if it is missing.
+
+        :param array_data: position and bounds of the inner Array and the data for it
+        """
+        array = self._find_tile_for_writing(array_data.vposition)
+        if not array:
+            with TileCreationLock(self.__adapter, self.__array, self.__collection):
+                # another writer may have created the tile while this one waited for the lock
+                array = self._find_tile_for_writing(array_data.vposition) or self.__create_tile(array_data.vposition)
         subset = array[array_data.bounds]
         subset.update(array_data.data)
 

@@ -122,8 +122,7 @@ class ArrayLockMeta(TypedDict):
     Lockfile: str
     Collection: str
     Array: str
-    ID: str
     PID: str
-    TID: str
+    Token: str
     Type: str
     Creation: str

@@ -7,18 +7,23 @@ correctly.
 """
 
 import os
+import time
 import traceback
 
 from collections.abc import Callable
-from multiprocessing import Event, cpu_count
+from multiprocessing import Event, Queue, cpu_count
 from multiprocessing.context import BaseContext
+from multiprocessing.queues import Queue as QueueType
+from multiprocessing.synchronize import Event as EventType
 from pathlib import Path
+from time import sleep
 from typing import Literal
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
+from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
 from deker_tools.slices import create_shape_from_slice, slice_converter
 
 from tests.parameters.uri import embedded_uri
@@ -188,6 +193,254 @@ def read_array(array_id: str, path, collection_name: str):
     except BaseException:
         traceback.print_exc()
         return Exception
+
+
+class StorageHooks:
+    """Settings of the storage adapter hooks of a child process; every process has its own copy of the class."""
+
+    started: EventType | None = None
+    seconds: float = 0.0
+    queue: QueueType | None = None
+
+
+_ORIGINAL_READ_DATA = HDF5StorageAdapter.read_data
+_ORIGINAL_UPDATE_DATA = HDF5StorageAdapter.update_data
+
+
+def slow_read_data(adapter: HDF5StorageAdapter, *args, **kwargs):
+    """Read the data as the storage adapter does, holding the read lock for a while first.
+
+    :param adapter: storage adapter
+    :param args: arguments of read_data
+    :param kwargs: keyword arguments of read_data
+    :returns: the data
+    """
+    StorageHooks.started.set()
+    sleep(StorageHooks.seconds)
+    return _ORIGINAL_READ_DATA(adapter, *args, **kwargs)
+
+
+def reporting_update_data(adapter: HDF5StorageAdapter, *args, **kwargs) -> None:
+    """Write the data as the storage adapter does, reporting the moment the write started.
+
+    :param adapter: storage adapter
+    :param args: arguments of update_data
+    :param kwargs: keyword arguments of update_data
+    """
+    StorageHooks.queue.put(time.monotonic())
+    _ORIGINAL_UPDATE_DATA(adapter, *args, **kwargs)
+
+
+_ORIGINAL_CREATE = HDF5StorageAdapter.create
+
+
+def slow_create(adapter: HDF5StorageAdapter, *args, **kwargs) -> None:
+    """Create the file as the storage adapter does, after a pause that widens the window between the check
+    for the tile and its creation, so that concurrent writers collide for sure.
+
+    :param adapter: storage adapter
+    :param args: arguments of create
+    :param kwargs: keyword arguments of create
+    """
+    sleep(StorageHooks.seconds)
+    _ORIGINAL_CREATE(adapter, *args, **kwargs)
+
+
+def read_array_slowly(uri: str, collection_name: str, array_id: str, started: Event, done: Event, seconds: float):
+    """Read an Array holding the read lock for a while, as a long read does.
+
+    :param uri: client uri
+    :param collection_name: collection of the array
+    :param array_id: id of the array
+    :param started: event set once the read lock is held
+    :param done: event set once the read lock is released
+    :param seconds: how long the storage read takes
+    """
+    StorageHooks.started, StorageHooks.seconds = started, seconds
+    with Client(uri, loglevel="ERROR") as client, patch.object(HDF5StorageAdapter, "read_data", slow_read_data):
+        collection = client.get_collection(collection_name)
+        collection.filter({"id": array_id}).last()[:].read()
+    done.set()
+
+
+def update_array_and_report(uri: str, collection_name: str, array_id: str, queue: Queue, timeout: int) -> None:
+    """Update an Array and report when the storage write started, or the error.
+
+    :param uri: client uri
+    :param collection_name: collection of the array
+    :param array_id: id of the array
+    :param queue: queue for the moment the write started, or the exception
+    :param timeout: write lock timeout of the client
+    """
+    StorageHooks.queue = queue
+    try:
+        with (
+            Client(uri, write_lock_timeout=timeout, write_lock_check_interval=1, loglevel="ERROR") as client,
+            patch.object(HDF5StorageAdapter, "update_data", reporting_update_data),
+        ):
+            collection = client.get_collection(collection_name)
+            array = collection.filter({"id": array_id}).last()
+            array[:].update(np.ones(array.shape, dtype=array.dtype))
+    except Exception as e:
+        queue.put(e)
+
+
+def update_tile_region(
+    uri: str, collection_name: str, varray_id: str, index_exp: str, value: float, go: Event, queue: Queue
+):
+    """Write one region of a VArray from another process, all processes starting together.
+
+    :param uri: client uri
+    :param collection_name: collection of the varray
+    :param varray_id: id of the varray
+    :param index_exp: region to write, as a string
+    :param value: value to fill the region with
+    :param go: start signal shared by the writers
+    :param queue: queue for the result: ``None`` or the exception
+    """
+    StorageHooks.seconds = 0.5
+    try:
+        with (
+            Client(uri, write_lock_timeout=30, write_lock_check_interval=1, loglevel="ERROR") as client,
+            patch.object(HDF5StorageAdapter, "create", slow_create),
+        ):
+            collection = client.get_collection(collection_name)
+            varray = collection.filter({"id": varray_id}).last()
+            go.wait(30)
+            varray[slice_converter[index_exp]].update(value)
+        queue.put(None)
+    except Exception as e:
+        queue.put(e)
+
+
+class TestReadersAndWriters:
+    """The read lock lives in the kernel: a writer waits for a live reader and never for a dead one."""
+
+    def test_writer_waits_for_a_reader_of_another_process(
+        self, inserted_array: Array, array_collection: Collection, root_path: Path, mp_context: BaseContext
+    ):
+        """Tests a write starts only after the read of another process has ended."""
+        manager = mp_context.Manager()
+        started, done = manager.Event(), manager.Event()
+        queue = manager.Queue()
+        uri = str(embedded_uri(root_path))
+        reader = mp_context.Process(
+            target=read_array_slowly, args=(uri, array_collection.name, inserted_array.id, started, done, 1.5)
+        )
+        reader.start()
+        try:
+            assert started.wait(30)
+            writer = mp_context.Process(
+                target=update_array_and_report, args=(uri, array_collection.name, inserted_array.id, queue, 10)
+            )
+            writer.start()
+            try:
+                result = queue.get(timeout=30)
+                assert not isinstance(result, Exception), result
+                assert done.is_set(), "the write started while the reader was still reading"
+            finally:
+                writer.join(30)
+        finally:
+            reader.join(30)
+
+    def test_writer_times_out_on_a_long_reader(
+        self, inserted_array: Array, array_collection: Collection, root_path: Path, mp_context: BaseContext
+    ):
+        """Tests a write gives up with DekerLockError when the reader holds the file longer than the timeout."""
+        manager = mp_context.Manager()
+        started, done = manager.Event(), manager.Event()
+        queue = manager.Queue()
+        uri = str(embedded_uri(root_path))
+        reader = mp_context.Process(
+            target=read_array_slowly, args=(uri, array_collection.name, inserted_array.id, started, done, 4)
+        )
+        reader.start()
+        try:
+            assert started.wait(30)
+            writer = mp_context.Process(
+                target=update_array_and_report, args=(uri, array_collection.name, inserted_array.id, queue, 1)
+            )
+            writer.start()
+            try:
+                result = queue.get(timeout=30)
+                assert isinstance(result, DekerLockError), result
+            finally:
+                writer.join(30)
+        finally:
+            reader.join(30)
+
+    def test_writer_does_not_wait_for_a_dead_reader(
+        self, inserted_array: Array, array_collection: Collection, root_path: Path, mp_context: BaseContext
+    ):
+        """Tests a reader killed in the middle of a read leaves no lock behind: the next write goes at once."""
+        manager = mp_context.Manager()
+        started, done = manager.Event(), manager.Event()
+        queue = manager.Queue()
+        uri = str(embedded_uri(root_path))
+        reader = mp_context.Process(
+            target=read_array_slowly, args=(uri, array_collection.name, inserted_array.id, started, done, 3600)
+        )
+        reader.start()
+        assert started.wait(30)
+        reader.kill()
+        reader.join(30)
+
+        before = time.monotonic()
+        writer = mp_context.Process(
+            target=update_array_and_report, args=(uri, array_collection.name, inserted_array.id, queue, 5)
+        )
+        writer.start()
+        try:
+            result = queue.get(timeout=30)
+            assert not isinstance(result, Exception), result
+            assert result - before < 4, "the writer waited for a reader that is dead"
+        finally:
+            writer.join(30)
+        assert not list(inserted_array._Array__adapter._get_main_path_to_file(inserted_array).parent.glob("*lock"))
+
+
+class TestTileCreation:
+    """Two writers of a fresh VArray create its tile once; the data of both land in the one tile."""
+
+    @pytest.mark.parametrize("writers", [2, 4])
+    def test_concurrent_writers_create_one_tile(
+        self, client: Client, root_path: Path, mp_context: BaseContext, writers: int
+    ):
+        schema = VArraySchema(
+            dtype=float,
+            dimensions=[DimensionSchema(name="x", size=writers * 4), DimensionSchema(name="y", size=4)],
+            vgrid=(1, 1),  # one tile: every writer creates the same inner Array
+        )
+        collection = client.create_collection(f"tile_creation_{writers}", schema)
+        try:
+            varray = collection.create()
+            manager = mp_context.Manager()
+            go = manager.Event()
+            queue = manager.Queue()
+            uri = str(embedded_uri(root_path))
+            processes = [
+                mp_context.Process(
+                    target=update_tile_region,
+                    args=(uri, collection.name, varray.id, f"[{n * 4}:{n * 4 + 4}]", float(n + 1), go, queue),
+                )
+                for n in range(writers)
+            ]
+            for process in processes:
+                process.start()
+            go.set()
+            try:
+                results = [queue.get(timeout=60) for _ in processes]
+            finally:
+                for process in processes:
+                    process.join(60)
+            assert all(result is None for result in results), results
+
+            tiles = [tile for tile in collection.arrays if tile._vid == varray.id]
+            assert len(tiles) == 1
+            expected = np.repeat(np.arange(1, writers + 1, dtype=float), 4)[:, np.newaxis] * np.ones((1, 4))
+            assert np.array_equal(varray[:].read(), expected)
+        finally:
+            collection.delete()
 
 
 class TestLocks:

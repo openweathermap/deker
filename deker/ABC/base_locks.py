@@ -66,8 +66,9 @@ class BaseLock(SelfLoggerMixin, ABC):
         :param path: Path to file that should be flocked
         """
         if not self.lock and path:
-            self.lock = Flock(path)
-            self.lock.acquire()
+            lock = Flock(path)
+            lock.acquire()  # a refused lock is not kept: the next attempt starts afresh
+            self.lock = lock
             self.logger.debug(f"Set flock for {path}")
 
     def release(self, e: Exception | None = None) -> None:  # noqa: ARG002

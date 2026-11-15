@@ -28,10 +28,12 @@ class Flock(SelfLoggerMixin):
     """File locker.
 
     :param file: path to the file to be locked
+    :param shared: take a shared lock (several holders at once, no exclusive holder) instead of an exclusive one
     """
 
-    def __init__(self, file: Path) -> None:
+    def __init__(self, file: Path, shared: bool = False) -> None:
         self.file = file
+        self.shared = shared
         self.fd: IO[str] | None = None  # file descriptor, closed on Flock release
         self.logger.debug("Instantiated")
 
@@ -50,11 +52,12 @@ class Flock(SelfLoggerMixin):
             fd = open(self.file, mode=mode)  # noqa: PTH123, SIM115
             self.fd = fd
             self.logger.debug(f"Opened descriptor for {self.file}")
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            self.logger.debug(f"{self.file} acquired lock")
+            fcntl.flock(fd, (fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
+            self.logger.debug(f"{self.file} acquired {'shared' if self.shared else 'exclusive'} lock")
         except BlockingIOError:
             if self.fd:
                 self.fd.close()
+                self.fd = None
                 self.logger.debug(f"Closed descriptor for {self.file} due to BlockingIOError")
             raise DekerLockError(f"{self.file} is locked")
 

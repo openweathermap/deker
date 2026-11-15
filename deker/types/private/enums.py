@@ -92,7 +92,6 @@ class LocksExtensions(str, Enum):
     """Extensions for lock files."""
 
     array_lock = ".arrlock"
-    array_read_lock = ".arrayreadlock"
     collection_lock = ".lock"
     varray_lock = ".varraylock"
 
@@ -101,7 +100,6 @@ class LocksTypes(str, Enum):
     """Locks enum."""
 
     array_lock = "array creation lock"
-    array_read_lock = "array read lock"
     collection_lock = "collection creation lock"
     varray_lock = "varray write lock"
 
