@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Union
 
 from deker_tools.time import get_utc
 
-from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerValidationError
 from deker.types import DTypeEnum
 
@@ -126,7 +125,7 @@ def __process_attributes_types(
                     primary_attributes[attr.name] = utc
                 else:
                     custom_attributes[attr.name] = utc
-            except (ValueError, TypeError) as e:
+            except (ValueError, TypeError) as e:  # pragma: no cover  # guard: the value is a datetime, checked above
                 raise DekerValidationError(e)
 
 
@@ -188,37 +187,26 @@ def process_attributes(
 
 def validate_custom_attributes_update(
     schema: Union["ArraySchema", "VArraySchema"],
-    dimensions: tuple[Dimension | TimeDimension, ...],
     primary_attributes: dict,
     custom_attributes: dict,
     attributes: dict | None,
 ) -> dict:
     """Validate custom attributes update over schema.
 
+    The custom attributes left out of the update keep their current values, the start of a $-time
+    dimension among them.
+
     :param schema: ArraySchema or VArraySchema instance
-    :param dimensions: tuple of (V)Array dimensions
     :param primary_attributes: (V)Array primary attributes
     :param custom_attributes: old custom attributes
     :param attributes: new custom attributes to validate
     :returns: validated attributes
     """
-    from deker.schemas import TimeDimensionSchema
-
     if not attributes:
         raise DekerValidationError("No attributes passed for update")
-    for s in schema.dimensions:
-        if isinstance(s, TimeDimensionSchema) and isinstance(s.start_value, str) and s.start_value.startswith("$"):
-            if s.start_value[1:] in primary_attributes:
-                continue
-            if s.start_value[1:] not in attributes:
-                for d in dimensions:
-                    if isinstance(d, TimeDimension) and d.name == s.name:
-                        attributes[s.start_value[1:]] = d.start_value
-        else:
-            # fill attributes to update dict with already existing custom attributes values
-            for attr in schema.attributes or ():
-                if not attr.primary and attr.name not in attributes:
-                    attributes[attr.name] = custom_attributes[attr.name]
+    for attr in schema.attributes or ():
+        if not attr.primary and attr.name not in attributes:
+            attributes[attr.name] = custom_attributes[attr.name]
 
     process_attributes(schema, primary_attributes, attributes)
     return attributes

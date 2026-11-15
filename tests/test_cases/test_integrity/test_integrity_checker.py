@@ -29,7 +29,7 @@ from deker.integrity import (
     PathsChecker,
 )
 from deker.schemas import ArraySchema, VArraySchema
-from deker.tools import get_array_lock_path, get_main_path, get_symlink_path
+from deker.tools import get_main_path, get_symlink_path
 from deker.types import LocksExtensions
 from deker.uri import Uri
 
@@ -433,24 +433,6 @@ class TestArraysChecker:
         open(filename, "w").close()
         try:
             arrays_checker.check(collection)
-        finally:
-            collection.delete()
-
-    @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
-    def test_check_arrays_locks(self, params: dict, client: Client, arrays_checker: ArraysChecker):
-        """Tests if function returns error if there are extra lock files for arrays.
-
-        :param params: collection params
-        :param client: client instance
-        :param arrays_checker: checker fixture
-        """
-        collection = client.create_collection(**params)
-        array = collection.create()
-        lockfile = get_array_lock_path(array, collection.path / array._adapter.data_dir)
-        open(lockfile, mode="w")
-        try:
-            with pytest.raises(DekerIntegrityError):
-                arrays_checker.check_arrays_locks(collection)
         finally:
             collection.delete()
 

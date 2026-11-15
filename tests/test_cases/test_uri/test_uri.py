@@ -81,6 +81,22 @@ def test_create_uri(uri, scheme, username, password, hostname, port, netloc, pat
     assert result.fragment == fragment
 
 
+@pytest.mark.parametrize(
+    ("uri", "path", "params"),
+    [
+        pytest.param("http://host:8080/data/coll;x=1", "/data/coll", "x=1", id="params-of-the-last-segment"),
+        pytest.param("http://host:8080/a;p/b;x=1", "/a;p/b", "x=1", id="semicolon-inside-the-path"),
+        pytest.param("http://host:8080/a;p/b;c/d", "/a;p/b;c/d", "", id="semicolons-inside-the-path-only"),
+        pytest.param("http://host:8080/data/coll", "/data/coll", "", id="no-params"),
+    ],
+)
+def test_uri_path_params(uri: str, path: str, params: str):
+    """urlparse splits the parameters of the last path segment; a semicolon inside the path is part of it."""
+    result = Uri.create(uri)
+    assert result.path == path
+    assert result.params == params
+
+
 @pytest.mark.xfail
 @pytest.mark.parametrize(
     "uri_str",

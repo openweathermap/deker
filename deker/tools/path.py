@@ -14,7 +14,6 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import hashlib
 import os
 
 from datetime import datetime
@@ -22,7 +21,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
 
 from deker.types import Paths
-from deker.types.private.enums import LocksExtensions
 
 if TYPE_CHECKING:
     from deker.ABC.base_array import BaseArray
@@ -147,14 +145,3 @@ def get_paths(array: "BaseArray", collection_path: Path | str) -> Paths:
     if isinstance(array, Array):
         return _get_array_paths(array, coll_path)
     raise TypeError(f"Invalid object type: {type(array)}")
-
-
-def get_array_lock_path(array: Union["Array", "VArray"], data_directory_path: Path) -> Path:
-    """Get array lockfile path.
-
-    :param array: array to lock
-    :param data_directory_path: path to data directory
-    :returns: path of the array lock file
-    """
-    file = hashlib.md5(str(array.primary_attributes).encode()).hexdigest() + LocksExtensions.array_lock.value
-    return data_directory_path / file

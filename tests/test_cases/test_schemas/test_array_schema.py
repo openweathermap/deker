@@ -195,3 +195,21 @@ def test_schema_with_TD_and_start_value_link_fail_on_custom_attr_is_set_to_None(
 
 if __name__ == "__main__":
     pytest.main()
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        pytest.param([], id="no-attributes"),
+        pytest.param([AttributeSchema(name="other", dtype=datetime, primary=True)], id="another-name"),
+        pytest.param([AttributeSchema(name="time", dtype=str, primary=True)], id="not-a-datetime"),
+    ],
+)
+def test_time_dimension_referring_to_a_missing_attribute_raises(attributes: list):
+    """A $-start of a time dimension needs a datetime attribute of that name in the same schema."""
+    with pytest.raises(DekerValidationError, match="No time attribute with dtype `datetime.datetime` is provided"):
+        ArraySchema(
+            dtype=float,
+            dimensions=[TimeDimensionSchema(name="t", size=2, start_value="$time", step=timedelta(hours=1))],
+            attributes=attributes,
+        )

@@ -46,6 +46,7 @@ from deker.tools.decorators import check_ctx_state
 from deker.types import DTypeEnum
 from deker.types.private.classes import ArrayMeta
 from deker.types.private.typings import ArrayT, Data, Numeric, Slice
+from deker.validators import is_valid_uuid
 
 if TYPE_CHECKING:
     from deker.ABC.base_collection import BaseCollectionOptions
@@ -491,6 +492,8 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         # If we got "id" in filters, just return the array with the given ID
         # (Till AND/OR logic not implemented)
         if "id" in filters:
+            if not is_valid_uuid(filters["id"]):
+                raise DekerValidationError(f"Invalid array id {filters['id']!r}: a UUID string is expected")
             array = self.get_by_id(filters["id"], collection, array_adapter, varray_adapter)
             return [array] if array else []
 

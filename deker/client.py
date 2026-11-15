@@ -61,10 +61,10 @@ if TYPE_CHECKING:
 
 
 P = ParamSpec("P")
-R = TypeVar("R")
+T = TypeVar("T")
 
 
-def _open_client_only(method: Callable[Concatenate["Client", P], R]) -> Callable[Concatenate["Client", P], R]:
+def _open_client_only(method: Callable[Concatenate["Client", P], T]) -> Callable[Concatenate["Client", P], T]:
     """Reject calls of a closed client with ``DekerClientError``.
 
     A closed client keeps its adapters, and they answer with ``DekerAdapterClosedError``; the client
@@ -75,7 +75,7 @@ def _open_client_only(method: Callable[Concatenate["Client", P], R]) -> Callable
     """
 
     @wraps(method)
-    def open_client_method(self: "Client", *args: P.args, **kwargs: P.kwargs) -> R:
+    def open_client_method(self: "Client", *args: P.args, **kwargs: P.kwargs) -> T:
         """Call the method of an open client.
 
         :param self: Client instance
@@ -190,14 +190,7 @@ class Client(SelfLoggerMixin):
         if self.is_closed:
             self.__is_closed = False
 
-            try:
-                factory = self.__plugins[self.__uri.scheme]
-            except AttributeError:
-                raise DekerClientError(
-                    f"Invalid source: installed package does not provide AdaptersFactory "
-                    f"for managing uri scheme {self.__uri.scheme}"
-                )
-
+            factory = self.__plugins[self.__uri.scheme]  # the scheme is checked above
             self.__ctx = CTX(
                 uri=self.__uri,
                 config=self.__config,
@@ -304,7 +297,7 @@ class Client(SelfLoggerMixin):
     @property
     def _adapter(self) -> "BaseCollectionAdapter":
         """Get the collections adapter of the open client."""
-        if self.__adapter is None:
+        if self.__adapter is None:  # pragma: no cover  # guard: set by _open, which every constructor call runs
             raise DekerClientError("Client is closed")
         return self.__adapter
 
@@ -323,7 +316,7 @@ class Client(SelfLoggerMixin):
     @property
     def _factory(self) -> "BaseAdaptersFactory":
         """Get the adapters factory of the open client."""
-        if self.__factory is None:
+        if self.__factory is None:  # pragma: no cover  # guard: set by _open, which every constructor call runs
             raise DekerClientError("Client is closed")
         return self.__factory
 

@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 from uuid import uuid4
 
 import numpy as np
@@ -30,6 +31,7 @@ from deker.errors import (
     DekerCollectionNotExistsError,
     DekerIntegrityError,
     DekerMemoryError,
+    DekerMetaDataError,
     DekerValidationError,
 )
 from deker.locks import _varray_lock_marker, process_token
@@ -81,6 +83,60 @@ class TestClientMethods:
         assert type(info.value) is DekerClientError
         assert info.value.__cause__ is None
         assert info.value.__suppress_context__ or info.value.__context__ is None
+
+    def test_iteration_over_a_client_with_a_closed_adapter_raises_its_own_error(self, root_path):
+        """The adapter closed by its context answers with its error; the client translates it without a chain."""
+        client = Client(str(embedded_uri(root_path)))
+        client._ctx.is_closed = True
+        with pytest.raises(DekerClientError, match="Client is closed") as info:
+            list(client)
+        assert info.value.__suppress_context__
+
+    def test_client_without_installed_adapters_raises(self, root_path):
+        """No deker_*_adapters package around: the client says what to install instead of failing on a scheme."""
+        with patch.object(Client, "_Client__plugins", {}), patch("deker.client.pkgutil.iter_modules", return_value=[]):
+            with pytest.raises(DekerClientError, match="No installed adapters are found"):
+                Client(str(embedded_uri(root_path)))
+
+    @pytest.mark.parametrize(
+        "metadata",
+        [
+            pytest.param({"name": "newer", "metadata_version": "99.0"}, id="newer-version"),
+            pytest.param({"name": "no-version"}, id="no-version"),
+        ],
+    )
+    def test_collection_metadata_of_an_unsupported_version_raises(self, client: Client, metadata: dict):
+        with pytest.raises(DekerMetaDataError, match="metadata version is not supported"):
+            client.collection_from_dict(metadata)
+        assert client.get_collection(metadata["name"]) is None
+
+    def test_collection_from_old_metadata_gets_the_defaults(self, client: Client):
+        """Metadata of older versions has no options, no attributes, no fill_value and bare dimensions."""
+        name = random_string()
+        old_meta = {
+            "name": name,
+            "metadata_version": "0.1",
+            "storage_adapter": "HDF5StorageAdapter",
+            "type": "array",
+            "schema": {
+                "dtype": "numpy.int8",
+                "dimensions": [
+                    {"type": "generic", "name": "x", "size": 3},
+                    {"type": "generic", "name": "y", "size": 2},
+                ],
+            },
+        }
+        collection = client.collection_from_dict(old_meta)
+        try:
+            assert collection.options is None
+            schema = collection.array_schema
+            assert schema.attributes == ()
+            assert schema.fill_value == np.iinfo(np.int8).min
+            assert [dim.labels for dim in schema.dimensions] == [None, None]
+            assert [dim.scale for dim in schema.dimensions] == [None, None]
+            assert schema.shape == (3, 2)
+        finally:
+            collection.delete()
 
     def test_adapter_error_of_closed_client_is_translated(self, root_path):
         """Tests if an adapter closed by its context is answered by the client with its own error."""
@@ -354,10 +410,11 @@ class TestClientMethods:
             for col in collections:
                 col.delete()
 
+    @pytest.mark.parametrize("as_type", [Path, str], ids=["path", "string"])
     def test_client_check_integrity_logfile(
-        self, client: Client, array_collection_with_attributes: Collection, tmp_path: Path
+        self, client: Client, array_collection_with_attributes: Collection, tmp_path: Path, as_type: type
     ) -> None:
-        """Tests if method logs errors to file."""
+        """Tests if method logs errors to a file given as a Path or as a string."""
         array = array_collection_with_attributes.create(
             primary_attributes={"primary_attribute": 11},
             custom_attributes={"time_attr_name": datetime.now(timezone.utc)},
@@ -374,13 +431,48 @@ class TestClientMethods:
             filename = f"deker_integrity_report_{datetime.now().isoformat(timespec='seconds')}.txt"
             path = tmp_path / filename
 
-            client.check_integrity(4, False, path)
+            client.check_integrity(4, False, as_type(path))
 
             with open(path) as f:
                 assert f.read() == (
                     f"Collection {array_collection_with_attributes.name} arrays integrity errors:"
                     f"\n\t- Symlink {symlink_path} not found\n"
                 )
+        finally:
+            array.delete()
+            array_collection_with_attributes.delete()
+
+    def test_client_check_integrity_without_a_file_only_logs(
+        self,
+        client: Client,
+        array_collection_with_attributes: Collection,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        deker_log: pytest.LogCaptureFixture,
+    ) -> None:
+        """Tests if ``to_file=False`` logs the errors and writes no report anywhere."""
+        monkeypatch.chdir(tmp_path)
+        array = array_collection_with_attributes.create(
+            primary_attributes={"primary_attribute": 11},
+            custom_attributes={"time_attr_name": datetime.now(timezone.utc)},
+        )
+        try:
+            symlink_path = get_symlink_path(
+                path_to_symlink_dir=array._Array__collection.path / array._adapter.symlinks_dir,
+                primary_attributes_schema=array._Array__collection.array_schema.primary_attributes,
+                primary_attributes=array.primary_attributes,
+            )
+            Path.unlink(symlink_path / os.listdir(symlink_path)[0])
+
+            client.check_integrity(4, False, False)
+
+            assert not list(tmp_path.glob("deker_integrity_report_*.txt"))
+            errors = [record for record in deker_log.records if record.levelno == logging.ERROR]
+            assert len(errors) == 1
+            assert errors[0].getMessage() == (
+                f"Collection {array_collection_with_attributes.name} arrays integrity errors:"
+                f"\n\t- Symlink {symlink_path} not found\n"
+            )
         finally:
             array.delete()
             array_collection_with_attributes.delete()
@@ -667,6 +759,21 @@ class TestClientMethods:
 
 @pytest.mark.asyncio
 class TestStorageSizeCalculation:
+    def test_client_get_size_counts_only_the_storage_files(self, client: Client):
+        """A stray file in the collection directory (a report, a note) is not part of the storage size."""
+        schema = ArraySchema(dtype=np.int8, dimensions=[DimensionSchema(name="x", size=8)])
+        collection = client.create_collection("size_with_a_stray_file", schema)
+        try:
+            array = collection.create()
+            array[:].update(np.ones(8, dtype=np.int8))
+            size_before = client.calculate_storage_size(collection.name).bytes
+            assert size_before > 0
+            stray = client.root_path / collection.name / "notes.txt"
+            stray.write_text("x" * 4096)
+            assert client.calculate_storage_size(collection.name).bytes == size_before
+        finally:
+            collection.delete()
+
     def test_client_get_size_raises_non_existent_collection(self, client: Client):
         """Test if method raises on non existent collection."""
         with pytest.raises(DekerCollectionNotExistsError):
@@ -865,6 +972,31 @@ class TestGetLocks:
             assert expected not in client._get_locks(lock_type=LocksTypes.collection_lock)
         finally:
             file.unlink()
+
+    @pytest.mark.parametrize(
+        "stray_name",
+        [
+            pytest.param("old-format.varraylock", id="no-pid-and-token"),
+            pytest.param("file.hdf5:123.varraylock", id="no-token"),
+            pytest.param("file.hdf5:1:2:3.varraylock", id="too-many-parts"),
+        ],
+    )
+    def test_client_get_locks_skips_markers_of_another_format(
+        self, client: Client, write_array_lock, inserted_array, stray_name: str
+    ):
+        """A marker that is not <file>:<pid>:<token> cannot be described and is left out of the listing."""
+        write_array_lock.args = []
+        write_array_lock.kwargs = {"array": inserted_array}
+        marker = _varray_lock_marker(write_array_lock.get_path())
+        stray = marker.parent / stray_name
+        marker.touch()
+        stray.touch()
+        try:
+            listed = client._get_locks(collection_name=inserted_array.collection)
+            assert [lock["Lockfile"] for lock in listed] == [marker.name]
+        finally:
+            marker.unlink()
+            stray.unlink()
 
     def test_client_get_locks_lists_nothing_during_a_read(self, client: Client, inserted_array):
         """Tests a read leaves no lock files to list: the read lock lives in the kernel."""

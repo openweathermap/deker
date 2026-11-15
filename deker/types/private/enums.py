@@ -91,7 +91,6 @@ class DimensionType(str, Enum):
 class LocksExtensions(str, Enum):
     """Extensions for lock files."""
 
-    array_lock = ".arrlock"
     collection_lock = ".lock"
     varray_lock = ".varraylock"
 
@@ -99,7 +98,6 @@ class LocksExtensions(str, Enum):
 class LocksTypes(str, Enum):
     """Locks enum."""
 
-    array_lock = "array creation lock"
     collection_lock = "collection creation lock"
     varray_lock = "varray write lock"
 

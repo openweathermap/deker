@@ -258,6 +258,10 @@ def test_convert_isoformat_attrs_raises(attrs):
         ("1G", 1024**3, None),
         ("0", 0, None),
         ("Foo", None, DekerValidationError),
+        (1.5, None, DekerValidationError),
+        (None, None, DekerValidationError),
+        (["1G"], None, DekerValidationError),
+        (b"1G", None, DekerValidationError),
     ],
 )
 def test_convert_human_to_bytes(params, result, error):

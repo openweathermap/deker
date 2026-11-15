@@ -11,7 +11,7 @@ from deker import Client, DimensionSchema
 from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerCollectionAlreadyExistsError, DekerValidationError
+from deker.errors import DekerCollectionAlreadyExistsError, DekerInvalidSchemaError, DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema
 from deker.types.private.typings import NumericDtypes
 
@@ -246,3 +246,11 @@ def test_schema_conversion(primary: bool, client: Client, local_array_adapter: L
 
 if __name__ == "__main__":
     pytest.main()
+
+
+def test_attributes_schema_as_dict_with_a_corrupted_dtype_raises():
+    """A dtype outside the known ones (corrupted after validation) is reported, not serialized as garbage."""
+    schema = AttributeSchema(name="a", dtype=int, primary=False)
+    schema.dtype = bytes
+    with pytest.raises(DekerInvalidSchemaError, match="invalid/corrupted"):
+        schema.as_dict

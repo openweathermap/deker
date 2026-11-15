@@ -1,11 +1,10 @@
+import os
 import time
-import traceback
 
 from collections import OrderedDict
 from collections.abc import Iterator
-from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
-from random import randint
+from pathlib import Path
 from typing import Any
 
 import h5py
@@ -23,9 +22,11 @@ from tests.parameters.index_exp_params import STEPPED_INDEX_EXPS, valid_index_ex
 from deker.arrays import VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerArrayError, DekerSubsetError, DekerVSubsetError
+from deker.errors import DekerArrayError, DekerLockError, DekerSubsetError, DekerVSubsetError
+from deker.locks import META_DIVIDER
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.subset import VSubset, _split_axis, _tile_positions, _TileBounds
+from deker.tools import get_main_path
 from deker.types.private.classes import ArrayPosition, ArrayPositionedData
 from deker.types.private.typings import Slice
 from deker.types.public.classes import Scale
@@ -511,35 +512,76 @@ class TestVArraySubset:
 
         coll.delete()
 
-    def test_DekerVSubsetError_exception_group(self, inserted_varray: VArray, root_path, varray_collection: Collection):
-        """Test raise of DekerVSubsetError."""
-        excs = [ValueError, TypeError, FileExistsError, FileNotFoundError, EOFError]
-        sleep_time = randint(1, 5)
+    def test_update_reports_the_exceptions_of_its_tile_workers(self, inserted_varray: VArray, mocker: MockerFixture):
+        """Every tile is written by a worker; the failures of the workers are collected into one error."""
+        mocker.patch.object(VSubset, "_VSubset__update_array_data", side_effect=OSError("disk full"))
+        subset = inserted_varray[:]
+        with pytest.raises(DekerVSubsetError) as info:
+            subset.update(np.zeros(subset.shape))
+        error = info.value
+        assert error.message == (
+            f"ATTENTION: Data in {subset!s} MAY BE NOW CORRUPTED due to the exceptions occurred in threads"
+        )
+        assert len(error.exceptions) == len(subset._VSubset__arrays)
+        assert all(text.startswith("OSError('disk full')") for text in error.exceptions)
+        assert all("Traceback" in text for text in error.exceptions)
+        assert "1) OSError('disk full')" in str(error)
 
-        def raise_exc(exc):
-            time.sleep(sleep_time)
-            raise exc(f"This is {exc.__name__}")
 
-        def catch_errors(threads_results):
-            exceptions = []
-            for result in threads_results:
-                try:
-                    result.result()
-                except Exception as e:
-                    exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
-            if exceptions:
-                raise DekerVSubsetError("ExceptionGroup works", exceptions)
+class TestFindTileForWriting:
+    """A writer looks for a tile waiting for a writer of another process to leave it."""
 
-        timer = time.monotonic()
-        with ThreadPoolExecutor(len(excs)) as pool:
-            futures = [pool.submit(raise_exc, exc) for exc in excs]
+    @pytest.fixture
+    def foreign_marker(self, inserted_varray: VArray) -> Iterator[tuple[tuple[int, ...], Path]]:
+        """Marks the first tile as written by another process; the marker is removed afterwards."""
+        subset = inserted_varray[:]
+        vpos = subset._VSubset__arrays[0].vposition
+        tile = subset._create_array_from_vposition(vpos)
+        adapter = tile._adapter
+        main_dir = get_main_path(tile.id, adapter.collection_path / adapter.data_dir)
+        marker = (
+            main_dir / f"{tile.id}{adapter.file_ext}{META_DIVIDER}{os.getpid() + 1}{META_DIVIDER}{'0' * 32}.varraylock"
+        )
+        marker.touch()
+        try:
+            yield vpos, marker
+        finally:
+            marker.unlink(missing_ok=True)
 
-        with pytest.raises(DekerVSubsetError):
-            assert catch_errors(threads_results=futures)
-        # catch_errors(threads_results=futures)
+    def test_try_find_tile_reports_a_tile_held_by_another_process(self, inserted_varray: VArray, foreign_marker):
+        vpos, marker = foreign_marker
+        subset = inserted_varray[:]
+        found: list = []
+        assert subset._try_find_tile(vpos, found) is False
+        assert found == []
+        marker.unlink()
+        assert subset._try_find_tile(vpos, found) is True
+        assert len(found) == 1 and found[0] is not None and found[0]._v_position == vpos
 
-        test_time = int(time.monotonic() - timer)
-        assert test_time <= sleep_time
+    def test_find_tile_for_writing_times_out_on_a_tile_held_by_another_process(
+        self, inserted_varray: VArray, foreign_marker
+    ):
+        vpos, _ = foreign_marker
+        subset = inserted_varray[:]
+        config = subset._VSubset__adapter.ctx.config
+        timeout, interval = config.write_lock_timeout, config.write_lock_check_interval
+        config.write_lock_timeout, config.write_lock_check_interval = 1, 1
+        try:
+            started = time.monotonic()
+            with pytest.raises(DekerLockError) as info:
+                subset._find_tile_for_writing(vpos)
+            assert str(info.value) == f"Tile {vpos} of {inserted_varray} is locked for update operation"
+            assert time.monotonic() - started >= 1
+        finally:
+            config.write_lock_timeout, config.write_lock_check_interval = timeout, interval
+
+    def test_find_tile_for_writing_returns_a_free_tile(self, inserted_varray: VArray):
+        subset = inserted_varray[:]
+        vpos = subset._VSubset__arrays[0].vposition
+        tile = subset._find_tile_for_writing(vpos)
+        assert tile is not None
+        assert tile._v_position == vpos
+        assert tile._vid == inserted_varray.id
 
 
 class TestSplitAxis:

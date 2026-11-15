@@ -1,5 +1,7 @@
 import pytest
 
+from attr import fields
+
 from deker.config import DekerConfig
 
 uri: str
@@ -64,3 +66,21 @@ def test_config_without_env(params: dict, exception: Exception):
 
 if __name__ == "__main__":
     pytest.main(["--random-order"], ["pytest_random_order"])
+
+
+def test_config_as_dict_lists_every_field():
+    params = {
+        "uri": "file:///tmp/deker",
+        "workers": 2,
+        "write_lock_timeout": 3,
+        "write_lock_check_interval": 1,
+        "memory_limit": 1024,
+    }
+    config = DekerConfig(**params)
+    as_dict = config.as_dict
+    assert isinstance(as_dict, dict)
+    for key, value in params.items():
+        assert as_dict[key] == value
+    assert set(as_dict) == {field.name for field in fields(DekerConfig)}
+    assert as_dict["collections_directory"] == "collections"
+    assert as_dict["loglevel"] == "DEBUG"

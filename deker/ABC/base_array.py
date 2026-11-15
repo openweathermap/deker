@@ -212,16 +212,9 @@ class _FancySlicer:
             else:  # Dimension
                 dim_pos = self._convert_value_for_dimension(value, dimension)
 
-            if dim_pos < 0 or dim_pos > dimension.size:
-                raise IndexError(f"{name} wrong indexing: {slice_}, check '{attr}' value")
-
             positions.append(dim_pos)
 
         return slice(positions[0], positions[1], step)
-
-    @staticmethod
-    def _is_time_dimension(dim: TimeDimension | Dimension) -> bool:
-        return isinstance(dim, TimeDimension)
 
     def _fancy_slice_dimensions(
         self,
@@ -405,7 +398,6 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         """
         attributes = validate_custom_attributes_update(
             self.schema,
-            self.dimensions,
             self.primary_attributes,
             self.custom_attributes,
             attributes,

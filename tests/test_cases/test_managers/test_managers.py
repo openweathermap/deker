@@ -11,7 +11,7 @@ from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerFilterError, DekerInvalidManagerCallError, DekerValidationError
-from deker.managers import DataManager, VArrayManager
+from deker.managers import DataManager, FilteredManager, VArrayManager
 from deker.schemas import (
     ArraySchema,
     AttributeSchema,
@@ -81,7 +81,7 @@ class TestDataManagerMethods:
         :param inserted_array: fixture
         :param collection_manager: fixture
         """
-        no_such_id = inserted_array.id + "1"
+        no_such_id = str(uuid.uuid4())
         filter = collection_manager.filter({"id": no_such_id})
         array = filter.first()
         assert array is None
@@ -338,7 +338,7 @@ class TestDataManagerMethodsVArray:
         :param inserted_varray: fixture
         :param va_collection_manager: fixture
         """
-        no_such_id = inserted_varray.id + "1"
+        no_such_id = str(uuid.uuid4())
         filter = va_collection_manager.filter({"id": no_such_id})
         array = filter.first()
         assert array is None
@@ -488,3 +488,31 @@ class TestVarrayManger:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestFilteredManagerAdapters:
+    def test_varray_schema_without_a_varray_adapter_raises(self, varray_collection: Collection, local_array_adapter):
+        """Filtering VArrays needs their adapter: a manager built without it is refused at once."""
+        with pytest.raises(DekerInvalidManagerCallError, match="missing varray adapter"):
+            FilteredManager(
+                varray_collection,
+                local_array_adapter,
+                None,
+                schema=varray_collection.varray_schema,
+                filters={"id": "x"},
+            )
+
+    def test_array_schema_needs_no_varray_adapter(self, array_collection: Collection, local_array_adapter):
+        manager = FilteredManager(
+            array_collection,
+            local_array_adapter,
+            None,
+            schema=array_collection.array_schema,
+            filters={"id": str(uuid.uuid4())},
+        )
+        assert manager.first() is None
+
+    @pytest.mark.parametrize("id_", ["x", "", "12345678-1234-5678-1234-56781234567g", 1, None])
+    def test_filter_by_an_invalid_id_raises(self, array_collection: Collection, id_):
+        with pytest.raises(DekerValidationError, match="Invalid array id"):
+            array_collection.filter({"id": id_}).first()

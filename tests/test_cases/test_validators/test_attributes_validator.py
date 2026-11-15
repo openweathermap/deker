@@ -1,14 +1,18 @@
 import random
+import uuid
+
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
 
 from tests.parameters.collection_params import ClientParams
 
-from deker import ArraySchema, AttributeSchema, DimensionSchema
+from deker import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema
 from deker.client import Client
 from deker.collection import Collection
 from deker.errors import DekerCollectionAlreadyExistsError, DekerValidationError
+from deker.validators import is_valid_uuid
 
 
 @pytest.mark.asyncio
@@ -679,3 +683,125 @@ class TestAttributesValues:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestCustomAttributesUpdateWithTimeDimension:
+    """validate_custom_attributes_update keeps the start of a $-time dimension consistent on update."""
+
+    @pytest.fixture
+    def collection_with_primary_time(self, client: Client) -> Collection:
+        schema = ArraySchema(
+            dtype=float,
+            dimensions=[TimeDimensionSchema(name="t", size=4, start_value="$start", step=timedelta(hours=1))],
+            attributes=[
+                AttributeSchema(name="start", dtype=datetime, primary=True),
+                AttributeSchema(name="note", dtype=str, primary=False),
+            ],
+        )
+        collection = client.create_collection("update_primary_time", schema)
+        try:
+            yield collection
+        finally:
+            collection.delete()
+
+    @pytest.fixture
+    def collection_with_custom_time(self, client: Client) -> Collection:
+        schema = ArraySchema(
+            dtype=float,
+            dimensions=[TimeDimensionSchema(name="t", size=4, start_value="$start", step=timedelta(hours=1))],
+            attributes=[
+                AttributeSchema(name="start", dtype=datetime, primary=False),
+                AttributeSchema(name="note", dtype=str, primary=False),
+            ],
+        )
+        collection = client.create_collection("update_custom_time", schema)
+        try:
+            yield collection
+        finally:
+            collection.delete()
+
+    def test_primary_time_attribute_is_untouched_by_a_custom_update(self, collection_with_primary_time: Collection):
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        array = collection_with_primary_time.create({"start": start}, {"note": "old"})
+        array.update_custom_attributes({"note": "new"})
+        assert array.custom_attributes == {"note": "new"}
+        assert array.primary_attributes == {"start": start}
+        assert array.dimensions[0].start_value == start
+
+    def test_custom_time_attribute_not_in_the_update_is_kept_from_the_dimension(
+        self, collection_with_custom_time: Collection
+    ):
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        array = collection_with_custom_time.create(custom_attributes={"start": start, "note": "old"})
+        array.update_custom_attributes({"note": "new"})
+        assert array.custom_attributes == {"note": "new", "start": start}
+        assert array.dimensions[0].start_value == start
+
+    def test_custom_time_attribute_in_the_update_moves_the_dimension(self, collection_with_custom_time: Collection):
+        start = datetime(2024, 1, 1, tzinfo=timezone.utc)
+        later = datetime(2024, 2, 1, tzinfo=timezone.utc)
+        array = collection_with_custom_time.create(custom_attributes={"start": start, "note": "old"})
+        array.update_custom_attributes({"start": later})
+        assert array.custom_attributes == {"note": "old", "start": later}
+        assert array.dimensions[0].start_value == later
+
+
+class TestTupleAttributesWithNone:
+    """A tuple attribute may hold None among its elements: there is nothing to type-check in None."""
+
+    def test_tuple_with_none_is_accepted_and_stored(self, client: Client):
+        schema = ArraySchema(
+            dtype=float,
+            dimensions=[DimensionSchema(name="x", size=2)],
+            attributes=[
+                AttributeSchema(name="key", dtype=tuple, primary=True),
+                AttributeSchema(name="extra", dtype=tuple, primary=False),
+            ],
+        )
+        collection = client.create_collection("tuple_with_none", schema)
+        try:
+            array = collection.create({"key": (1, None, "a")}, {"extra": ((2.5, None), None)})
+            assert array.primary_attributes == {"key": (1, None, "a")}
+            assert array.custom_attributes == {"extra": ((2.5, None), None)}
+            stored = collection.filter({"key": (1, None, "a")}).last()
+            assert stored is not None
+            assert stored.id == array.id
+            assert stored.custom_attributes == {"extra": ((2.5, None), None)}
+        finally:
+            collection.delete()
+
+    @pytest.mark.parametrize("value", [(1, object()), (1, (2, b"x")), ([1, 2],)])
+    def test_tuple_with_a_value_of_an_unknown_type_is_rejected(self, client: Client, value: tuple):
+        schema = ArraySchema(
+            dtype=float,
+            dimensions=[DimensionSchema(name="x", size=2)],
+            attributes=[AttributeSchema(name="key", dtype=tuple, primary=True)],
+        )
+        collection = client.create_collection("tuple_with_unknown", schema)
+        try:
+            with pytest.raises(DekerValidationError, match="Invalid dtype value"):
+                collection.create({"key": value})
+        finally:
+            collection.delete()
+
+
+class TestIsValidUuid:
+    @pytest.mark.parametrize("value", [str(uuid.uuid4()), "12345678-1234-5678-1234-567812345678"])
+    def test_valid(self, value: str):
+        assert is_valid_uuid(value) is True
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param("12345678-1234-5678-1234-56781234567g", id="not-hex"),
+            pytest.param("zzzzzzzz-zzzz-zzzz-zzzz-zzzzzzzzzzzz", id="letters"),
+            pytest.param("12345678123456781234567812345678", id="no-dashes"),
+            pytest.param("1234-5678", id="short"),
+            pytest.param("", id="empty"),
+            pytest.param(None, id="none"),
+            pytest.param(uuid.uuid4(), id="uuid-object"),
+            pytest.param(12345678123456781234567812345678, id="int"),
+        ],
+    )
+    def test_invalid(self, value):
+        assert is_valid_uuid(value) is False

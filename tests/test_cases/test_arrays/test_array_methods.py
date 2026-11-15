@@ -854,8 +854,28 @@ fancy_step_params = [
     ),
 ]
 
+# Integer positions with a fancy step: the integers are positions, as in numpy, the step converts
+fancy_step_with_int_position_params = [
+    pytest.param(np.index_exp[2 :: timedelta(hours=2)], (slice(2, None, 2),), id="time-int-start"),
+    pytest.param(np.index_exp[: 10 : timedelta(hours=3)], (slice(None, 10, 3),), id="time-int-stop"),
+    pytest.param(np.index_exp[:, :, 2::1.0], (slice(None), slice(None), slice(2, None, 2)), id="scale-int-start"),
+    pytest.param(np.index_exp[:, :, :8:1.0], (slice(None), slice(None), slice(None, 8, 2)), id="scale-int-stop"),
+    pytest.param(np.index_exp[:, 2::1.0], (slice(None), slice(2, None, -2)), id="scale-down-int-start"),
+    pytest.param(np.index_exp[-5 :: timedelta(hours=1)], (slice(-5, None, 1),), id="time-negative-int-start"),
+    pytest.param(np.index_exp[: -2 : timedelta(hours=2)], (slice(None, -2, 2),), id="time-negative-int-stop"),
+    pytest.param(np.index_exp[:, :, -4::1.0], (slice(None), slice(None), slice(-4, None, 2)), id="scale-negative"),
+]
+
 # Steps that do not fit the kind of the axis
 invalid_fancy_step_params = [
+    pytest.param(np.index_exp[:, :, :, "a":"d":0], id="labels-zero-step"),
+    pytest.param(np.index_exp[:, :, :, "a":"d":True], id="labels-boolean-step"),
+    pytest.param(np.index_exp[STEP_START : STEP_START + timedelta(hours=5) : 0], id="time-zero-step-with-datetimes"),
+    pytest.param(np.index_exp[STEP_START : STEP_START + timedelta(hours=5) : True], id="time-boolean-step"),
+    pytest.param(np.index_exp[b"2024-01-01":], id="time-bytes-start"),
+    pytest.param(np.index_exp[:, b"90.0":], id="scale-bytes-start"),
+    pytest.param(np.index_exp[:, :, :, b"a":], id="labels-bytes-start"),
+    pytest.param(np.index_exp[:, :, :, (1, 2) :], id="labels-tuple-start"),
     pytest.param(np.index_exp[:: timedelta(minutes=30)], id="time-step-not-a-multiple"),
     pytest.param(np.index_exp[:: timedelta(0)], id="time-zero-step"),
     pytest.param(np.index_exp[::1.0], id="time-float-step"),
@@ -893,6 +913,15 @@ class TestArrayStepIndexing:
     @pytest.mark.parametrize(("index_exp", "bounds"), fancy_step_params)
     def test_fancy_steps_convert_to_integer_slices(self, described_array: Array, index_exp: FancySlice, bounds: tuple):
         """Tests if a timedelta step on a time axis, a float step on a scale and a string slice on labels convert."""
+        subset = described_array[index_exp]
+        assert subset.bounds == bounds
+        expected = described_array[:].read()[bounds]
+        assert subset.shape == expected.shape
+        assert np.array_equal(subset.read(), expected)
+
+    @pytest.mark.parametrize(("index_exp", "bounds"), fancy_step_with_int_position_params)
+    def test_int_positions_with_a_fancy_step(self, described_array: Array, index_exp: FancySlice, bounds: tuple):
+        """Tests if integer start/stop next to a timedelta or float step stay positions and the step converts."""
         subset = described_array[index_exp]
         assert subset.bounds == bounds
         expected = described_array[:].read()[bounds]

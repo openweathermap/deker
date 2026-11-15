@@ -530,3 +530,10 @@ class TestCollectionIterator:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestCollectionRepr:
+    def test_repr_of_an_array_collection_names_only_the_array_schema(self, array_collection: Collection):
+        assert repr(array_collection) == (
+            f"Collection(name={array_collection.name}, array_schema={array_collection.array_schema})"
+        )

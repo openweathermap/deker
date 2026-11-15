@@ -7,6 +7,7 @@ from multiprocessing.synchronize import Event
 from pathlib import Path
 from threading import Thread, Timer
 from time import sleep
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -20,8 +21,10 @@ from deker.collection import Collection
 from deker.errors import DekerLockError, DekerMemoryError
 from deker.locks import (
     META_DIVIDER,
+    CollectionLock,
     Flock,
     ReadArrayLock,
+    TileCreationLock,
     WriteArrayLock,
     WriteVarrayLock,
     _check_write_locks,
@@ -634,6 +637,78 @@ class TestCollectionLock:
         assert not (
             collection_adapter.collections_resource / f"{col_name}{LocksExtensions.collection_lock.value}"
         ).exists()
+
+    def test_release_without_a_lock_does_nothing(self):
+        """A lock that was never taken (acquire refused) has nothing to release."""
+        lock = CollectionLock()
+        assert lock.lock is None
+        assert lock.release() is None
+        assert lock.release(DekerMemoryError("too big")) is None
+        assert lock.lock is None
+
+
+class TestTileCreationLock:
+    """The exclusive flock on the main file of a VArray while one of its tiles is created."""
+
+    @pytest.fixture
+    def main_file(self, inserted_varray: VArray) -> Path:
+        adapter = inserted_varray._adapter
+        return get_main_path(inserted_varray.id, adapter.collection_path / adapter.data_dir) / (
+            inserted_varray.id + adapter.file_ext
+        )
+
+    def test_lock_holds_the_main_file_while_entered(self, inserted_varray: VArray, main_file: Path):
+        collection = inserted_varray._VArray__collection
+        lock = TileCreationLock(inserted_varray._adapter, inserted_varray, collection)
+        assert lock.path == main_file
+        with lock:
+            assert lock.flock is not None
+            assert lock.thread_lock is not None and lock.thread_lock.locked()
+            with pytest.raises(DekerLockError):
+                Flock(main_file).acquire()
+        assert lock.flock is None
+        assert lock.thread_lock is None
+        assert not TileCreationLock._thread_locks[main_file].locked()
+        other = Flock(main_file)
+        other.acquire()
+        other.release()
+
+    def test_lock_times_out_when_the_file_is_held(self, inserted_varray: VArray, main_file: Path):
+        """A holder that never lets go: the lock gives up after write_lock_timeout and frees the thread lock."""
+        collection = inserted_varray._VArray__collection
+        config = inserted_varray._adapter.ctx.config
+        holder = Flock(main_file)
+        holder.acquire()
+        timeout = config.write_lock_timeout
+        config.write_lock_timeout = 1
+        try:
+            lock = TileCreationLock(inserted_varray._adapter, inserted_varray, collection)
+            assert lock._try_acquire(main_file) is False
+            assert lock.flock is None
+            with pytest.raises(DekerLockError, match="locked for the creation of its tiles"):
+                with lock:
+                    pass
+            assert lock.thread_lock is None
+            assert not TileCreationLock._thread_locks[main_file].locked()
+        finally:
+            config.write_lock_timeout = timeout
+            holder.release()
+
+    def test_lock_is_a_no_op_for_an_adapter_of_another_storage(self, inserted_varray: VArray, main_file: Path):
+        """The server adapters keep their own order of creation: no path, no flock, no thread lock."""
+        collection = inserted_varray._VArray__collection
+        adapter = SimpleNamespace(ctx=inserted_varray._adapter.ctx)
+        lock = TileCreationLock(adapter, inserted_varray, collection)
+        assert lock.path is None
+        with lock as entered:
+            assert entered is lock
+            assert lock.flock is None
+            assert lock.thread_lock is None
+            other = Flock(main_file)
+            other.acquire()
+            other.release()
+        assert lock.flock is None
+        assert lock.thread_lock is None
 
 
 if __name__ == "__main__":

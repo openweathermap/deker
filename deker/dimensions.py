@@ -102,7 +102,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         if scale is not None:
             if not isinstance(scale, (dict, Scale)):
                 raise DekerValidationError(
-                    f"Scale parameter value shall be an instance of deker.types.classes.Scale, not {type(self.scale)}"
+                    f"Scale parameter value shall be an instance of deker.types.classes.Scale, not {type(scale)}"
                 )
 
             if isinstance(scale, dict):
@@ -125,7 +125,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
             scale_end_non_inclusive = scale_.start_value
             scale_end_non_inclusive += scale_.step * size
             scale_size = int(round(abs((scale_end_non_inclusive - scale_.start_value) / scale_.step)))
-            if scale_size != size:
+            if scale_size != size:  # pragma: no cover  # guard: the scale end is computed from the size itself
                 raise DekerValidationError(f"Dimension {name} wrong scale: does not match dimension size {size}")
 
         if labels is not None:
@@ -136,7 +136,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         name: str,
         size: int,
         labels: Labels | None = None,
-        scale: dict | None = None,
+        scale: dict | Scale | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(name, size, **kwargs)
@@ -145,7 +145,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         self.__size: int = size
         self.__step: int = 1  # step attribute kept for further usage unification
         self.__labels: IndexLabels | None = IndexLabels(labels) if labels else None
-        self.__scale: Scale | None = Scale(**scale) if scale else None
+        self.__scale: Scale | None = Scale(**scale) if isinstance(scale, dict) else scale
         self.logger.debug(f"Dimension {name} instantiated")
 
     @property

@@ -722,10 +722,7 @@ class TestLocks:
                 if filename.endswith(local_varray_adapter.file_ext) or filename.endswith(local_array_adapter.file_ext):
                     lock = Flock(Path(filename))
                     lock.release()
-                if filename.endswith(LocksExtensions.array_lock.value) or filename.endswith(
-                    # type: ignore
-                    LocksExtensions.varray_lock.value
-                ):  # type: ignore
+                if filename.endswith(LocksExtensions.varray_lock.value):
                     locks.append(filename)
         assert not locks
 

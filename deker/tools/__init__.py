@@ -22,7 +22,7 @@ from .array import (
     get_id,
 )
 from .decorators import not_deleted
-from .path import get_array_lock_path, get_main_path, get_paths, get_symlink_path
+from .path import get_main_path, get_paths, get_symlink_path
 from .schema import (
     create_attributes_schema,
     create_dimensions,

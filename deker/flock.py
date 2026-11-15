@@ -39,10 +39,9 @@ class Flock(SelfLoggerMixin):
 
     def acquire(self) -> None:
         """Create and lock lockfile."""
-        # If the file doesn't end with .lock or .arrlock,
-        # then it's array or collection lock (e.g .json/.hdf)
+        # a collection lock file is created on the way; any other file (a data file) is locked as it is
         self.logger.debug(f"Trying to acquire lock for {self.file}")
-        if str(self.file).endswith((LocksExtensions.array_lock.value, LocksExtensions.collection_lock.value)):
+        if str(self.file).endswith(LocksExtensions.collection_lock.value):
             if not self.file.exists():
                 self.file.parent.mkdir(parents=True, exist_ok=True)
             mode = "w"
@@ -55,7 +54,7 @@ class Flock(SelfLoggerMixin):
             fcntl.flock(fd, (fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
             self.logger.debug(f"{self.file} acquired {'shared' if self.shared else 'exclusive'} lock")
         except BlockingIOError:
-            if self.fd:
+            if self.fd:  # pragma: no branch  # guard: flock() is called on an open descriptor only
                 self.fd.close()
                 self.fd = None
                 self.logger.debug(f"Closed descriptor for {self.file} due to BlockingIOError")
@@ -68,9 +67,6 @@ class Flock(SelfLoggerMixin):
             fcntl.flock(self.fd, fcntl.LOCK_UN)
             self.fd.close()
             self.logger.debug(f"{self.file} released lock")
-        if self.file.name.endswith(LocksExtensions.array_lock.value):
-            self.file.unlink(missing_ok=True)
-            self.logger.debug(f"{self.file} unlinked symlink")
 
     def __enter__(self) -> "Flock":
         self.acquire()

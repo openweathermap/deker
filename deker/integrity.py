@@ -157,9 +157,7 @@ class ArraysChecker(BaseChecker):
         :param collection: Collection to be checked
         """
         for file in (self.root_path / collection.name).rglob("*lock"):
-            if file.name.endswith(LocksExtensions.array_lock.value):
-                self.errors[f"Collection {collection.name} array create locks:"].append(file.name)
-            elif file.name.endswith(LocksExtensions.varray_lock.value):
+            if file.name.endswith(LocksExtensions.varray_lock.value):
                 self.errors[
                     f"Collection {collection.name} varray write locks are detected. Use client.clear_locks:"
                 ].append(file.name)

@@ -55,7 +55,7 @@ class FilteredManager(SelfLoggerMixin, BaseAbstractManager[ArrayT]):
         self.__array_adapter = array_adapter
         self.__varray_adapter = varray_adapter
         if isinstance(self.__schema, VArraySchema) and not self.__varray_adapter:
-            raise AttributeError("FilterManager is missing varray adapter for varray schema")
+            raise DekerInvalidManagerCallError("FilterManager is missing varray adapter for varray schema")
         self.__filters = filters
 
     def __get_item_in_list_arrays(self, elem_index: int) -> ArrayT | None:

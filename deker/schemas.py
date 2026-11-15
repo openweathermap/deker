@@ -152,7 +152,7 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
             if isinstance(self.scale, dict):
                 try:
                     self.scale = Scale(**self.scale)
-                except AttributeError as e:
+                except TypeError as e:
                     raise DekerValidationError(e)
             for attr in self.scale._fields:
                 value = getattr(self.scale, attr)
@@ -340,42 +340,41 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
         # extract grid splitter and its value
         splitter, value = tuple(splitters.items())[0]
 
-        # validate splitter value
-        if value is not None:
-            if (
-                not isinstance(value, (list, tuple))
-                or not value
-                or len(value) != len(self.dimensions)
-                or not all(isinstance(item, int) for item in value)
-                or any(item < 1 for item in value)
-            ):
-                raise DekerValidationError(
-                    f"{splitter.capitalize()} shall be a list or tuple of positive integers, with total elements "
-                    f"quantity equal to dimensions quantity ({len(self.dimensions)})"
-                )
-            for n, dim in enumerate(self.dimensions):
-                remainder = dim.size % value[n]
-                if remainder != 0:
-                    raise DekerValidationError(
-                        f"Dimensions shall be split by {splitter} into equal parts without remainder: "
-                        f"{dim.name} size % {splitter} element = "
-                        f"{dim.size} % {value[n]} = {remainder}"
-                    )
-
-            # convert splitter value to tuple
-            if isinstance(value, list):
-                setattr(self, splitter, tuple(value))
-
-            # calculate second splitter name and value; set its value as tuple
-            if splitter == "vgrid":
-                other_splitter = "arrays_shape"
-            else:
-                other_splitter = "vgrid"
-            setattr(
-                self,
-                other_splitter,
-                tuple(int(i) for i in np.asarray(self.shape) // np.asarray(value)),
+        # validate splitter value: splitters holds the truthy one only
+        if (
+            not isinstance(value, (list, tuple))
+            or not value
+            or len(value) != len(self.dimensions)
+            or not all(isinstance(item, int) for item in value)
+            or any(item < 1 for item in value)
+        ):
+            raise DekerValidationError(
+                f"{splitter.capitalize()} shall be a list or tuple of positive integers, with total elements "
+                f"quantity equal to dimensions quantity ({len(self.dimensions)})"
             )
+        for n, dim in enumerate(self.dimensions):
+            remainder = dim.size % value[n]
+            if remainder != 0:
+                raise DekerValidationError(
+                    f"Dimensions shall be split by {splitter} into equal parts without remainder: "
+                    f"{dim.name} size % {splitter} element = "
+                    f"{dim.size} % {value[n]} = {remainder}"
+                )
+
+        # convert splitter value to tuple
+        if isinstance(value, list):
+            setattr(self, splitter, tuple(value))
+
+        # calculate second splitter name and value; set its value as tuple
+        if splitter == "vgrid":
+            other_splitter = "arrays_shape"
+        else:
+            other_splitter = "vgrid"
+        setattr(
+            self,
+            other_splitter,
+            tuple(int(i) for i in np.asarray(self.shape) // np.asarray(value)),
+        )
         self.logger.debug("instantiated")
 
     @property

@@ -8,6 +8,7 @@ from tests.parameters.schemas_params import (
 from deker.client import Client
 from deker.errors import DekerValidationError
 from deker.schemas import ArraySchema, DimensionSchema, TimeDimensionSchema
+from deker.types import Scale
 
 
 @pytest.mark.parametrize("params", DimensionSchemaCreationParams.WRONG_params_dataclass_raises())
@@ -94,3 +95,50 @@ class TestDimensionSchemaLabels:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+INVALID_SCALES = [
+    pytest.param(Scale(start_value=0.0, step=0.5, name=5), "non-empty string", id="name-not-a-string"),
+    pytest.param(Scale(start_value=0.0, step=0.5, name=""), "non-empty string", id="name-empty"),
+    pytest.param(Scale(start_value=0.0, step=0.5, name="  "), "non-empty string", id="name-blank"),
+    pytest.param(Scale(start_value=0, step=0.5), "shall be float", id="start-value-int"),
+    pytest.param(Scale(start_value=0.0, step=1), "shall be float", id="step-int"),
+    pytest.param(Scale(start_value="0.0", step=0.5), "shall be float", id="start-value-string"),
+    pytest.param(Scale(start_value=0.0, step=None), "shall be float", id="step-none"),
+    pytest.param({"start_value": 0, "step": 0.5}, "shall be float", id="dict-start-value-int"),
+    pytest.param({"start_value": 0.0, "step": 0.5, "name": 5}, "non-empty string", id="dict-name-not-a-string"),
+]
+
+
+class TestDimensionSchemaScale:
+    """A scale is a Scale (or its dict) of floats with an optional non-empty name."""
+
+    @pytest.mark.parametrize(("scale", "message"), INVALID_SCALES)
+    def test_invalid_scale_values_raise(self, scale, message: str):
+        with pytest.raises(DekerValidationError, match=message):
+            DimensionSchema(name="x", size=4, scale=scale)
+
+    @pytest.mark.parametrize(
+        "scale",
+        [
+            pytest.param({"start": 0.0, "step": 0.5}, id="wrong-key"),
+            pytest.param({"start_value": 0.0}, id="missing-step"),
+            pytest.param({"start_value": 0.0, "step": 0.5, "unit": "deg"}, id="extra-key"),
+        ],
+    )
+    def test_scale_dict_with_wrong_keys_raises(self, scale: dict):
+        with pytest.raises(DekerValidationError, match="argument"):
+            DimensionSchema(name="x", size=4, scale=scale)
+
+    @pytest.mark.parametrize(
+        "scale",
+        [
+            pytest.param(Scale(start_value=0.0, step=0.5), id="unnamed"),
+            pytest.param(Scale(start_value=-1.0, step=-0.5, name="lat"), id="named"),
+            pytest.param({"start_value": 0.0, "step": 0.5, "name": "lon"}, id="dict"),
+        ],
+    )
+    def test_valid_scale_is_kept_as_scale(self, scale):
+        schema = DimensionSchema(name="x", size=4, scale=scale)
+        assert isinstance(schema.scale, Scale)
+        assert schema.scale == Scale(**scale) if isinstance(scale, dict) else schema.scale == scale

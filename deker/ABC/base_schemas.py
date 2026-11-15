@@ -124,7 +124,7 @@ class BaseArraysSchema:
             elif self.dtype == complex:
                 self.dtype = np.complex128
             DTypeEnum(self.dtype).value  # noqa: B018
-        except ValueError:
+        except ValueError:  # pragma: no cover  # guard: every dtype of NumericDtypes is a DTypeEnum value
             raise DekerValidationError(f"Invalid dtype value {self.dtype}")
 
         self.fill_value = get_default_fill_value(self.dtype) if self.fill_value is None else self.fill_value
@@ -169,5 +169,5 @@ class BaseArraysSchema:
                 "attributes": tuple(attr.as_dict for attr in self.attributes or ()),
                 "fill_value": fill_value,
             }
-        except (KeyError, ValueError) as e:
+        except (KeyError, ValueError) as e:  # pragma: no cover  # guard: the dtype is checked above, fill_value is set
             raise DekerInvalidSchemaError(error + str(e))

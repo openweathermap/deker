@@ -117,15 +117,9 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
         :returns: parsed ``Uri``
         """
         result = urlparse(uri)
-
-        if ";" in result.path:
-            path, params = result.path.split(cls.PARAMS_SEPARATOR)
-        else:
-            path, params = result.path, result.params
-
         query = parse_qs(result.query)
         netloc, servers = cls.__get_servers_and_netloc(result.netloc, result.scheme)
-        return Uri(result.scheme, netloc, path, params, query, result.fragment, servers)
+        return Uri(result.scheme, netloc, result.path, result.params, query, result.fragment, servers)
 
     @classmethod
     def validate(cls, uri: str) -> None:

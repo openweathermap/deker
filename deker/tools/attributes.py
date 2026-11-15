@@ -115,7 +115,9 @@ def deserialize_attribute_nested_tuples(value: tuple[Any, ...] | list[Any]) -> t
     """
     deserialized = []
     for el in value:
-        if isinstance(el, (tuple, list)):
+        if el is None:
+            value = None
+        elif isinstance(el, (tuple, list)):
             value = deserialize_attribute_nested_tuples(el)
         else:
             value = deserialize_attribute_value(el, type(el), True)

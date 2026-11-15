@@ -51,15 +51,13 @@ def _create_time_dimension(tdim_schema: "TimeDimensionSchema", attributes: dict[
     :param attributes: primary and custom attributes' joint dictionary, resolving ``$`` references
     :returns: ``TimeDimension`` built from the dictionary
     """
+    # as_dict serializes the start as a string (an iso datetime or a $-reference) and the step as a dict
     d = tdim_schema.as_dict
-    if isinstance(d["start_value"], str):
-        if d["start_value"].startswith("$"):
-            d["start_value"] = process_time_dimension_attrs(attributes, d["start_value"][1:])
-        else:
-            d["start_value"] = datetime.datetime.fromisoformat(d["start_value"])
-
-    if isinstance(d["step"], dict):
-        d["step"] = datetime.timedelta(**d["step"])
+    if d["start_value"].startswith("$"):
+        d["start_value"] = process_time_dimension_attrs(attributes, d["start_value"][1:])
+    else:
+        d["start_value"] = datetime.datetime.fromisoformat(d["start_value"])
+    d["step"] = datetime.timedelta(**d["step"])
     d.pop("type")
     return TimeDimension(**d)
 
@@ -106,7 +104,7 @@ def create_attributes_schema(attributes_schemas: list[dict]) -> tuple["Attribute
             attr_schema = AttributeSchema(**{**params, "dtype": dtype})
             attributes.append(attr_schema)
         return tuple(attributes)
-    except (KeyError, ValueError, AttributeError) as e:
+    except (KeyError, ValueError, AttributeError, TypeError) as e:
         raise DekerInvalidSchemaError(f'Schema "AttributeSchema" is invalid/corrupted : {e}')
 
 
