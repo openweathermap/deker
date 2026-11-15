@@ -17,8 +17,8 @@ from deker_local_adapters import HDF5CompressionOpts, HDF5Options
 from deker_tools.slices import positive_bounds
 from pytest_mock import MockerFixture
 
+from tests.fixtures.collection import SteppedCollections
 from tests.parameters.index_exp_params import STEPPED_INDEX_EXPS, valid_index_exp_params, varray_step_cases
-from tests.plugins.collection import SteppedCollections
 
 from deker.arrays import VArray
 from deker.client import Client

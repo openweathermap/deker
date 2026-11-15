@@ -18,7 +18,7 @@ import datetime
 
 from collections.abc import Generator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic, Union, cast
 
 from deker.ABC.base_adapters import BaseCollectionAdapter, BaseStorageAdapter, BaseVArrayAdapter
 from deker.ABC.base_collection import BaseCollectionOptions
@@ -42,16 +42,22 @@ from deker.schemas import (
 )
 from deker.tools import not_deleted
 from deker.types import Serializer
+from deker.types.private.typings import ArrayT
 
 if TYPE_CHECKING:
     from deker.ABC.base_factory import BaseAdaptersFactory
+    from deker.uri import Uri
 
 
-class Collection(SelfLoggerMixin, Serializer):
+class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
     """Collection of ``Arrays`` or ``VArrays``.
 
     ``Collection`` is a high-level object for managing contents of a set of ``Arrays`` or ``VArrays``
     united into one group under collection name and certain schema.
+
+    The schema decides the kind of arrays in the collection, and ``ArrayT`` tells it to type checkers:
+    a collection created with an ``ArraySchema`` is a ``Collection[Array]``, one created with
+    a ``VArraySchema`` is a ``Collection[VArray]``; ``create``, ``filter`` and iteration follow that type.
 
     Properties
     -----------
@@ -193,7 +199,7 @@ class Collection(SelfLoggerMixin, Serializer):
             array_adapter,
         )
 
-        self.__manager: DataManager = DataManager(self, array_adapter, varray_adapter)
+        self.__manager: DataManager[ArrayT] = DataManager(self, array_adapter, varray_adapter)
         self.logger.debug(f"Collection {self.__name} initialized")
 
     def __del__(self) -> None:
@@ -224,8 +230,8 @@ class Collection(SelfLoggerMixin, Serializer):
         return self.__varray_schema
 
     @property
-    def path(self) -> Path:
-        """Get ``Collection`` fs-path."""
+    def path(self) -> Union[Path, "Uri"]:
+        """Get the ``Collection`` location in the storage: a ``Path`` for local storages, a ``Uri`` for remote ones."""
         return self.__path
 
     @property
@@ -267,7 +273,7 @@ class Collection(SelfLoggerMixin, Serializer):
         primary_attributes: dict | None = None,
         custom_attributes: dict | None = None,
         id_: str | None = None,
-    ) -> Array | VArray:
+    ) -> ArrayT:
         """Create ``Array`` or ``VArray`` according to collection main schema.
 
         If ``VArraySchema`` is passed to ``Collection``, all data management will go through ``VArrays``
@@ -298,7 +304,7 @@ class Collection(SelfLoggerMixin, Serializer):
         self.__adapter.clear(self)
         self.logger.debug(f"Collection {self.__name} cleared OK")
 
-    def filter(self, filters: dict) -> FilteredManager:
+    def filter(self, filters: dict) -> FilteredManager[ArrayT]:
         """Filter ``Arrays`` or ``VArrays`` by provided conditions.
 
         :param filters: query conditions for filtering
@@ -322,7 +328,7 @@ class Collection(SelfLoggerMixin, Serializer):
     def __next__(self) -> None:
         pass
 
-    def __iter__(self) -> Generator[Array | VArray, None, None]:
+    def __iter__(self) -> Generator[ArrayT, None, None]:
         """Yield ``VArrays`` or ``VArrays`` from the ``Collection``."""
         if self._is_deleted():
             raise DekerInstanceNotExistsError(
@@ -338,11 +344,12 @@ class Collection(SelfLoggerMixin, Serializer):
         adapter = varray_adapter if varray_adapter else array_adapter
 
         self.logger.debug(f"Iterating over collection {self.name}")
+        # the schema decides the kind of arrays, the same way it decides the collection's type parameter
         for meta in adapter:
             if varray_adapter:
-                yield VArray._create_from_meta(self, meta, array_adapter, varray_adapter=varray_adapter)
+                yield cast("ArrayT", VArray._create_from_meta(self, meta, array_adapter, varray_adapter=varray_adapter))
             else:
-                yield Array._create_from_meta(self, meta, array_adapter)
+                yield cast("ArrayT", Array._create_from_meta(self, meta, array_adapter))
 
     def __repr__(self) -> str:
         s = f"{self.__class__.__name__}(name={self.name}, array_schema={self.array_schema})"

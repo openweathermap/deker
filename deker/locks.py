@@ -465,7 +465,9 @@ class TileCreationLock:
 
         self.path: Path | None = None
         if isinstance(adapter, LocalVArrayAdapter):
-            self.path = get_main_path(varray.id, collection.path / adapter.data_dir) / (varray.id + adapter.file_ext)
+            self.path = get_main_path(varray.id, adapter.collection_path / adapter.data_dir) / (
+                varray.id + adapter.file_ext
+            )
         self.timeout = adapter.ctx.config.write_lock_timeout
         self.flock: Flock | None = None
         self.thread_lock: Lock | None = None

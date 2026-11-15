@@ -25,6 +25,21 @@ If you have several collections on the same storage, you can iterate them with t
       for collection in client:
          print(collection)
 
+For type checkers ``Collection`` is generic over the kind of arrays it holds:
+``create_collection`` with an ``ArraySchema`` gives a ``Collection[Array]``, with a
+``VArraySchema`` a ``Collection[VArray]``, and ``create``, ``filter`` and iteration follow that
+type. A collection read from the storage can be either, so ``get_collection`` returns
+``Collection[Array] | Collection[VArray] | None``; check ``varray_schema`` to tell::
+
+   with Client("file:///tmp/deker") as client:
+      collection = client.create_collection("winds", VArraySchema(...))  # Collection[VArray]
+      varray = collection.create({"model": "gfs"})                         # VArray
+      vsubset = varray[0:10]                                               # VSubset
+
+      stored = client.get_collection("weather")
+      if stored is not None and stored.varray_schema is None:
+         arrays: Collection[Array] = stored
+
 ``Collection`` object has several useful properties and methods for self-managing::
 
    with Client("file:///tmp/deker") as client:
@@ -460,17 +475,26 @@ whatever its shape, so ``subset.update(0.0)`` zeroes the whole selection of an `
        array: Array = collection.filter({"dt": datetime(2023, 1, 1, 0)}).first()
        array[:, :, 0].update(273.15)  # one value in every cell of the selection
 
-The provided data ``dtype`` shall match the dtype of ``Array`` or ``VArray`` set by the schema or
-shall have the correspondent Python type to be converted into such ``dtype``::
+Numpy data is written as it is: the ``dtype`` of a ``numpy.ndarray`` or a numpy scalar shall be
+exactly the dtype of the ``Array`` or ``VArray`` set by the schema, otherwise
+``DekerArrayTypeError`` is raised; numpy types are never converted to one another. Python
+numbers (a scalar, a list or a tuple, nested as deep as the selection has dimensions) are
+converted to the array dtype, provided every value fits it: an integer dtype takes the values it
+holds exactly (no wrapping, no fractions, no ``nan``), a float dtype takes the values it holds up
+to rounding (a finite value stays finite), a complex dtype applies the same to both parts. A value
+that does not fit raises
+``DekerArrayTypeError`` before anything is written::
 
    with Client("file:///tmp/deker") as client:
        collection: Collection = client.get_collection("weather")
        array: Array = collection.filter({"dt": datetime(2023, 1, 1, 0)}).first()
        subset = array[:]  # captures full array shape
 
-       data = np.random.random(subset.shape).tolist  # converts data into Python list of Python floats
+       data = np.random.random(subset.shape).tolist()  # Python list of Python floats
 
        subset.update(data)  # data will be converted to array.dtype
+
+       array[0, 0, 0].update(300)  # DekerArrayTypeError for a uint8 array: 300 does not fit
 
 If your ``Array`` or ``VArray`` is utterly empty, ``Subset`` or ``VSubset`` will create a
 ``numpy.ndarray`` of the ``Array`` shape filled with the ``fill_value`` from the ``Collection``

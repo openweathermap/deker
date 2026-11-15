@@ -18,6 +18,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import numpy as np
 import tqdm
 
 from deker.ABC.base_integrity import BaseChecker
@@ -55,7 +56,7 @@ class DataChecker(BaseChecker):
             data = subset.read()
         except Exception as e:
             raise DekerIntegrityError(f"Array {array.id} data is corrupted: {e!s}")
-        if data.dtype != array.dtype:
+        if np.asarray(data).dtype != array.dtype:
             raise DekerIntegrityError(f"Array {array.id} data is corrupted: incorrect dtype")
 
 
@@ -115,11 +116,13 @@ class PathsChecker(BaseChecker):
         """
         if self.level < self.CHECKER_LEVEL:
             return
+        # the checker works on the local disk: the collection directory is under the storage root
+        collection_path = self.root_path / collection.name
         if isinstance(array, Array):
-            main_path_args = (array.id, collection.path / self.ctx.config.array_data_directory)
+            main_path_args = (array.id, collection_path / self.ctx.config.array_data_directory)
             symlink_dir = self.ctx.config.array_symlinks_directory
             symlink_path_args = (
-                collection.path / symlink_dir,
+                collection_path / symlink_dir,
                 array.schema.primary_attributes,
                 {
                     **array.primary_attributes,
@@ -128,10 +131,10 @@ class PathsChecker(BaseChecker):
                 },
             )
         else:
-            main_path_args = (array.id, collection.path / self.ctx.config.varray_data_directory)
+            main_path_args = (array.id, collection_path / self.ctx.config.varray_data_directory)
             symlink_dir = self.ctx.config.varray_symlinks_directory
             symlink_path_args = (
-                collection.path / symlink_dir,
+                collection_path / symlink_dir,
                 array.schema.primary_attributes,
                 {**array.primary_attributes},
             )
@@ -153,7 +156,7 @@ class ArraysChecker(BaseChecker):
 
         :param collection: Collection to be checked
         """
-        for file in Path.rglob(collection.path, "*lock"):
+        for file in (self.root_path / collection.name).rglob("*lock"):
             if file.name.endswith(LocksExtensions.array_lock.value):
                 self.errors[f"Collection {collection.name} array create locks:"].append(file.name)
             elif file.name.endswith(LocksExtensions.varray_lock.value):

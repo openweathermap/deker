@@ -79,9 +79,9 @@ def deserialize_attribute_value(val: Any, dtype: type, from_tuple: bool) -> Any:
     :returns: value converted back to its Python type
     """
     if dtype == datetime:
-        val = get_utc(val)
-    else:
-        val = dtype(val)
+        return get_utc(val)
+
+    val = dtype(val)
 
     if isinstance(val, (list, tuple)) and dtype == tuple:  # noqa: E721  # dtype may be a numpy type, keep `==`
         return deserialize_attribute_nested_tuples(val)

@@ -17,21 +17,24 @@
 """Abstract interfaces for managers."""
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Any, Generic, Optional, cast
 
 from deker.ABC.base_schemas import BaseArraysSchema
 from deker.errors import DekerInvalidManagerCallError
 from deker.schemas import VArraySchema
+from deker.types.private.typings import ArrayT
 
 if TYPE_CHECKING:
-    from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
-    from deker.ABC.base_array import BaseArray
+    from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter, IArrayAdapter
     from deker.collection import Collection
     from deker.managers import FilteredManager
 
 
-class BaseAbstractManager(ABC):  # noqa: B024
-    """Data manager interface."""
+class BaseAbstractManager(ABC, Generic[ArrayT]):  # noqa: B024
+    """Data manager interface.
+
+    ``ArrayT`` is the kind of arrays the manager works with: ``Array`` or ``VArray``, decided by the schema.
+    """
 
     __slots__ = ("__collection", "__array_adapter", "__varray_adapter", "_schema")
 
@@ -49,20 +52,24 @@ class BaseAbstractManager(ABC):  # noqa: B024
         self._schema = schema
 
     @property
-    def _adapter(self) -> Union["BaseArrayAdapter", "BaseVArrayAdapter"]:
-        """Get array adapter from factory."""
+    def _adapter(self) -> "IArrayAdapter[Any, ArrayT]":
+        """Get the adapter matching the schema: VArrays' adapter for a VArray schema, Arrays' adapter otherwise."""
+        adapter: BaseArrayAdapter | BaseVArrayAdapter
         if isinstance(self._schema, VArraySchema):
             if self.__varray_adapter is None:
                 raise DekerInvalidManagerCallError("VArray adapter is not set for a VArray schema")
-            return self.__varray_adapter
-        return self.__array_adapter
+            adapter = self.__varray_adapter
+        else:
+            adapter = self.__array_adapter
+        # the schema decides both the kind of arrays and the adapter, so they match by construction
+        return cast("IArrayAdapter[Any, ArrayT]", adapter)
 
     def _get_schema(self) -> BaseArraysSchema:
         """Decide which schema to use (Array or VArray)."""
         schema = self.__collection.varray_schema if self.__collection.varray_schema else self.__collection.array_schema
         return schema
 
-    def filter(self, filters: dict) -> "FilteredManager":
+    def filter(self, filters: dict) -> "FilteredManager[ArrayT]":
         """Filter Arrays or VArrays by provided condition.
 
         :param filters: filtering parameters
@@ -79,11 +86,11 @@ class BaseAbstractManager(ABC):  # noqa: B024
         )
 
 
-class BaseManager(BaseAbstractManager):
+class BaseManager(BaseAbstractManager[ArrayT]):
     """Parent class for ArrayManager and VArrayManager."""
 
     @abstractmethod
-    def create(self, primary_attributes: dict | None = None, custom_attributes: dict | None = None) -> "BaseArray":
+    def create(self, primary_attributes: dict | None = None, custom_attributes: dict | None = None) -> ArrayT:
         """Create an array.
 
         :param primary_attributes: (V)array primary attributes

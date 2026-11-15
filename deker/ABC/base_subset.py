@@ -18,7 +18,7 @@
 
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Generic
 
 import numpy as np
 
@@ -29,7 +29,7 @@ from deker.errors import DekerSubsetError
 from deker.log import SelfLoggerMixin
 from deker.tools import check_memory
 from deker.tools.time import get_start_datetime
-from deker.types.private.typings import Data, Numeric
+from deker.types.private.typings import ArrayT, Data, Numeric
 
 xarray_import_error: ImportError | None
 try:
@@ -43,15 +43,14 @@ else:
     xarray_import_error = None
 
 if TYPE_CHECKING:
-    from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
-    from deker.ABC.base_array import BaseArray
-    from deker.collection import Collection
+    from deker.ABC.base_adapters import IArrayAdapter
 
 
-class BaseSubset(SelfLoggerMixin, ABC):
+class BaseSubset(SelfLoggerMixin, ABC, Generic[ArrayT]):
     """A subset of Array or VArray data with bounds.
 
     It is the final object that can read, update and clear the data.
+    ``ArrayT`` is the kind of array the subset is bound to: ``Array`` or ``VArray``.
     """
 
     __slots__ = (
@@ -59,36 +58,26 @@ class BaseSubset(SelfLoggerMixin, ABC):
         "__shape",
         "__array",
         "__adapter",
-        "__array_adapter",
-        "__collection",
     )
 
     def __init__(
         self,
         slice_expression: tuple[slice | int, ...],
-        shape: tuple,
-        array: "BaseArray",
-        array_adapter: "BaseArrayAdapter",
-        varray_adapter: Optional["BaseVArrayAdapter"] = None,
-        collection: Optional["Collection"] = None,
+        shape: tuple[int, ...],
+        array: ArrayT,
+        adapter: "IArrayAdapter[Any, ArrayT]",
     ):
         """BaseSubset constructor.
 
-        Sets adapters according to subset type: __array_adapter is used in VSubset only.
-
-        :param slice_expression: a slice, tuple of slices or numpy IndexExpression, created by VArray.__getitem__()
-        :param shape: subset shape, calculated by VArray.__getitem__()
-        :param array: an instance of VArray
-        :param array_adapter: ArrayAdapter instance
-        :param varray_adapter: VArrayAdapter instances
-        :param collection: Collection instance
+        :param slice_expression: a slice, tuple of slices or numpy index expression, created by ``__getitem__``
+        :param shape: subset shape, calculated by ``__getitem__``
+        :param array: the array the subset is bound to
+        :param adapter: the adapter of that array
         """
         self.__bounds = slice_expression
         self.__shape = shape
-        self.__array = array
-        self.__adapter = varray_adapter if varray_adapter else array_adapter
-        self.__array_adapter = array_adapter if varray_adapter else None
-        self.__collection = collection
+        self.__array: ArrayT = array
+        self.__adapter: IArrayAdapter[Any, ArrayT] = adapter
 
     @property
     def shape(self) -> tuple[int, ...]:

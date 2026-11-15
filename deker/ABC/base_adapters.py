@@ -18,12 +18,13 @@
 
 import datetime
 import logging
+import warnings
 
 from abc import ABC, abstractmethod
 from collections.abc import Generator
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union, get_args
+from typing import TYPE_CHECKING, Generic, Optional, TypeVar, get_args
 
 import numpy as np
 
@@ -44,30 +45,33 @@ from deker.tools import create_attributes_schema, create_dimensions_schema
 from deker.tools.decorators import check_ctx_state
 from deker.types import DTypeEnum
 from deker.types.private.classes import ArrayMeta
-from deker.types.private.typings import Data, Numeric, Slice
+from deker.types.private.typings import ArrayT, Data, Numeric, Slice
 
 if TYPE_CHECKING:
-    from deker.ABC.base_array import BaseArray
     from deker.ABC.base_collection import BaseCollectionOptions
     from deker.ABC.base_factory import BaseAdaptersFactory
     from deker.ABC.base_schemas import BaseArraysSchema
-    from deker.arrays import Array, VArray
+    from deker.arrays import Array, VArray  # noqa: F401  # forward references in the adapter base classes
     from deker.collection import Collection
     from deker.uri import Uri
 
 
-class BaseStorageAdapter(ABC):
+OptionsT = TypeVar("OptionsT", bound="BaseCollectionOptions")
+PathT = TypeVar("PathT", Path, "Uri")
+
+
+class BaseStorageAdapter(ABC, Generic[OptionsT]):
     """Interface for adapters working with files with data (e.g hdf5, tiff, etc).
 
-    Doesn't accept any params for instantiation.
+    Doesn't accept any params for instantiation. ``OptionsT`` is the type of the collection options the adapter
+    understands (``HDF5Options`` for HDF5): the core validates and passes the options through ``storage_options``.
     """
 
     file_ext: str
-    storage_options: type["BaseCollectionOptions"]
+    storage_options: type[OptionsT]
 
-    @classmethod
     @abstractmethod
-    def create(cls, path: Path, array_shape: tuple[int, ...], metadata: str | bytes | dict) -> None:
+    def create(self, path: Path, array_shape: tuple[int, ...], metadata: str | bytes | dict) -> None:
         """Create a new hdf5 file with metadata.
 
         :param path: path to hdf5 file
@@ -76,16 +80,15 @@ class BaseStorageAdapter(ABC):
         """
         pass
 
-    @classmethod
     @abstractmethod
     def read_data(
-        cls,
+        self,
         path: Path,
         array_shape: tuple[int, ...],
         bounds: Slice,
         fill_value: Numeric,
         dtype: type[Numeric],
-    ) -> ndarray:
+    ) -> ndarray | Numeric:
         """Read array data from hdf5 file.
 
         :param path: path to hdf5 file
@@ -93,13 +96,12 @@ class BaseStorageAdapter(ABC):
         :param bounds: array slice
         :param fill_value: value to fill the empty array
         :param dtype: array dtype
-        :returns: data within the bounds
+        :returns: data within the bounds; a scalar for a single cell
         """
         pass
 
-    @classmethod
     @abstractmethod
-    def read_meta(cls, path: Path) -> ArrayMeta:
+    def read_meta(self, path: Path) -> ArrayMeta:
         """Read array metadata from hdf5 file.
 
         :param path: path to hdf5 file
@@ -107,23 +109,22 @@ class BaseStorageAdapter(ABC):
         """
         pass
 
-    @classmethod
     @abstractmethod
     def update_data(
-        cls,
+        self,
         path: Path,
         bounds: Slice,
-        data: Any,
+        data: ndarray | Numeric,
         dtype: type[Numeric],
-        shape: tuple,
+        shape: tuple[int, ...],
         fill_value: Numeric,
-        collection_options: Optional["BaseCollectionOptions"],
+        collection_options: OptionsT | None,
     ) -> None:
-        """Update array data in hdf5 file.
+        """Update array data in the storage file.
 
-        :param path: path to hdf5 file
+        :param path: path to the file
         :param bounds: array slice
-        :param data: new data for array slice
+        :param data: new data for the slice, already validated and cast to the array dtype
         :param dtype: array dtype
         :param shape: array shape
         :param fill_value: array fill_value
@@ -131,9 +132,8 @@ class BaseStorageAdapter(ABC):
         """
         pass
 
-    @classmethod
     @abstractmethod
-    def update_meta_custom_attributes(cls, path: Path, attributes: dict) -> dict:
+    def update_meta_custom_attributes(self, path: Path, attributes: dict) -> dict:
         """Update metadata in the hdf5 file.
 
         :param path: path to hdf5 file
@@ -142,22 +142,24 @@ class BaseStorageAdapter(ABC):
         """
         pass
 
-    @classmethod
     @abstractmethod
-    def clear_data(cls, path: Path, array_shape: tuple[int, ...], bounds: Slice, fill_value: Numeric) -> bool:
+    def clear_data(self, path: Path, array_shape: tuple[int, ...], bounds: Slice, fill_value: Numeric) -> None:
         """Clear array data in hdf5 file.
 
         :param path: path to hdf5 file
         :param array_shape: array shape
         :param bounds: array bounds to update
         :param fill_value: array fill_value
-        :returns: whether the data was cleared
         """
         pass
 
 
-class BaseCollectionAdapter(SelfLoggerMixin, ABC):
-    """Base interface for collection adapters."""
+class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
+    """Base interface for collection adapters.
+
+    ``PathT`` is the type of the collections location in the storage: a ``Path`` for local storages,
+    a ``Uri`` for remote ones.
+    """
 
     file_ext: str
     metadata_version: str
@@ -181,8 +183,8 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
 
     @property
     @abstractmethod
-    def collections_resource(self) -> Path:
-        """Return a path to collections' resource."""
+    def collections_resource(self) -> PathT:
+        """Return the location of the collections in the storage."""
         pass
 
     def close(self) -> None:
@@ -283,17 +285,23 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC):
         return storage_adapter_factory(storage_adapter)
 
     @abstractmethod
-    def __iter__(self) -> "Collection":
-        """Iterate over all Collections in the storage."""
+    def __iter__(self) -> Generator[dict, None, None]:
+        """Iterate over the metadata of all the Collections in the storage."""
         pass
 
 
-class IArrayAdapter(ABC):
-    """Interface for Array  or VArray adapters."""
+class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
+    """Interface for Array or VArray adapters.
+
+    ``PathT`` is the type of the collection location in the storage: a ``Path`` for local storages,
+    a ``Uri`` for remote ones. ``ArrayT`` is the kind of arrays the adapter manages: ``Array`` or ``VArray``.
+    """
+
+    collection_path: PathT
 
     def __init__(
         self,
-        collection_path: Union["Uri", Path],
+        collection_path: PathT,
         ctx: CTX,
         executor: ThreadPoolExecutor,
         storage_adapter: type[BaseStorageAdapter],
@@ -305,60 +313,102 @@ class IArrayAdapter(ABC):
         self.storage_adapter = storage_adapter()
 
     @staticmethod
+    def _convert_python_numbers(array_dtype: type[Numeric], data: list | tuple | int | float | complex) -> ndarray:
+        """Convert Python numbers to an array of the array dtype, if every value fits the dtype.
+
+        An integer dtype takes values it can hold exactly: no wrapping, no fractions, no nan or inf.
+        A float dtype takes values it can hold up to rounding: a finite value stays finite, nan and inf
+        stay as they are. A complex dtype applies the float rule to both parts; complex values do not fit
+        a real dtype. Booleans, strings, None and nested sequences of uneven length are not numbers.
+
+        :param array_dtype: array dtype
+        :param data: Python number or a (nested) list/tuple of them
+        :returns: array of the array dtype with the same values and shape
+        :raises DekerArrayTypeError: if the data is not Python numbers or a value does not fit the dtype
+        """
+        # an object array keeps every Python number as it is: no silent rounding of big integers by numpy
+        source = np.asarray(data, dtype=object)
+        if not all(isinstance(value, (int, float, complex)) and not isinstance(value, bool) for value in source.flat):
+            raise DekerArrayTypeError(f"Invalid data: Python numbers of {array_dtype.__name__} expected")
+
+        target_kind = np.dtype(array_dtype).kind
+        if target_kind != "c" and any(isinstance(value, complex) for value in source.flat):
+            raise DekerArrayTypeError(f"Invalid data: complex values do not fit {array_dtype.__name__}")
+
+        with warnings.catch_warnings(), np.errstate(all="ignore"):
+            warnings.simplefilter("ignore")
+            try:
+                # an integer out of the dtype range, nan or inf into an integer dtype, or an integer beyond
+                # the float range raise here
+                converted = source.astype(array_dtype)
+                probe = source.astype(np.complex128)
+            except (OverflowError, TypeError, ValueError):
+                raise DekerArrayTypeError(f"Invalid data: the values do not fit {array_dtype.__name__}")
+            if target_kind in "iu":
+                # a fraction is truncated by the conversion: it is caught by the way back
+                fits = np.array_equal(converted.astype(object), source)
+            else:
+                # rounding is fine for floats; a finite value turning into inf is not
+                fits = np.array_equal(np.isfinite(probe), np.isfinite(converted)) and np.array_equal(
+                    np.isnan(probe), np.isnan(converted)
+                )
+        if not fits:
+            raise DekerArrayTypeError(f"Invalid data: the values do not fit {array_dtype.__name__}")
+        return converted
+
+    @staticmethod
     def _process_data(
         array_dtype: type[Numeric],
-        array_shape: tuple,
+        array_shape: tuple[int, ...],
         data: Data,
         bounds: Slice | None = None,
     ) -> ndarray | Numeric:
         """Validate data over array dtype and bounds.
 
+        Python numbers (a scalar, a list or a tuple) are converted to the array dtype if every value fits it,
+        see ``_convert_python_numbers``. Numpy data (an array or a scalar) is never converted: its dtype must
+        be exactly the array dtype.
+
         :param array_dtype: array dtype
         :param array_shape: array shape
         :param data: data to be validated
         :param bounds: array bounds
-        :returns: data converted to the array dtype and the shape of the bounds
+        :returns: data of the array dtype: an ndarray of the shape of the bounds, or a scalar
+        :raises DekerArrayTypeError: if the data is not numeric, does not fit the dtype or has another dtype
+        :raises IndexError: if the data shape does not match the bounds
         """
-        if not isinstance(data, (list, tuple, np.ndarray, get_args(Numeric))):
+        if isinstance(data, (bool, np.bool_)) or not isinstance(data, (list, tuple, np.ndarray, get_args(Numeric))):
             raise DekerArrayTypeError(f"Invalid data type: {type(data)}; {array_dtype} expected")
 
-        if isinstance(data, get_args(Numeric)):
-            data_type = type(data)
-            if data_type != array_dtype:
-                cdata = array_dtype(data)
-                if data_type(cdata) != data:
-                    raise DekerArrayTypeError(f"Invalid data type: {type(data)}; {array_dtype} expected")
-                data = cdata
-        else:
-            sliced_bounds = (
-                np.index_exp[:] if bounds is None or bounds == slice(None, None, None) else np.index_exp[bounds]
-            )
-            shape = create_shape_from_slice(array_shape, sliced_bounds)
+        if isinstance(data, np.generic):
+            if type(data) is not array_dtype:
+                raise DekerArrayTypeError(f"Invalid data dtype: {type(data)}; {array_dtype} expected")
+            return data
 
-            if isinstance(data, (list, tuple)):
-                try:
-                    data = np.asarray(data).astype(dtype=array_dtype, casting="no")
-                except TypeError as e:
-                    raise DekerArrayTypeError(f"Invalid data type: {e}; {array_dtype} expected")
+        if isinstance(data, (int, float, complex)):
+            return IArrayAdapter._convert_python_numbers(array_dtype, data)[()]
 
-            if isinstance(data, ndarray):
-                if data.dtype != array_dtype:
-                    raise DekerArrayTypeError(f"Invalid data dtype: {data.dtype}; {array_dtype} expected")
-                if shape != data.shape:
-                    raise IndexError(f"Invalid data shape: {data.shape}; {shape} expected")
+        shape = create_shape_from_slice(array_shape, ... if bounds is None else bounds)
+        if isinstance(data, (list, tuple)):
+            data = IArrayAdapter._convert_python_numbers(array_dtype, data)
+        elif data.dtype != array_dtype:
+            raise DekerArrayTypeError(f"Invalid data dtype: {data.dtype}; {array_dtype} expected")
+        if shape != data.shape:
+            raise IndexError(f"Invalid data shape: {data.shape}; {shape} expected")
         return data
 
     @abstractmethod
-    def create(self, array: Union[dict, "BaseArray"]) -> Union["Array", "VArray"]:
-        """Create Array or VArray in the database.
+    def create(self, array: ArrayT) -> ArrayT:
+        """Create Array or VArray in the storage.
 
         :param array: instance of Array or VArray
-        :returns: the created ``Array`` or ``VArray``
+        :returns: the same instance, once it is created in the storage
+        :raises DekerArrayError: if the array cannot be created
         """
         pass
 
     @abstractmethod
-    def read_meta(self, array: Union["BaseArray", Path]) -> ArrayMeta:
+    def read_meta(self, array: ArrayT) -> ArrayMeta:
         """Read array metadata.
 
         :param array: Array or VArray instance or Path to meta file
@@ -367,7 +417,7 @@ class IArrayAdapter(ABC):
         pass
 
     @abstractmethod
-    def update_meta_custom_attributes(self, array: "BaseArray", attributes: dict) -> None:
+    def update_meta_custom_attributes(self, array: ArrayT, attributes: dict) -> None:
         """Update custom attributes in meta.
 
         :param array: Array or VArray
@@ -376,10 +426,7 @@ class IArrayAdapter(ABC):
         pass
 
     @abstractmethod
-    def delete(
-        self,
-        array: "BaseArray",
-    ) -> None:
+    def delete(self, array: ArrayT) -> None:
         """Delete a whole array.
 
         :param array: Array or VArray
@@ -387,17 +434,17 @@ class IArrayAdapter(ABC):
         pass
 
     @abstractmethod
-    def read_data(self, array: "BaseArray", bounds: Slice) -> Numeric | ndarray:
+    def read_data(self, array: ArrayT, bounds: Slice) -> Numeric | ndarray:
         """Read data from a section of array.
 
         :param array: Array or VArray
         :param bounds: bounds of a section to be read
-        :returns: data within the bounds
+        :returns: data within the bounds; a scalar for a single cell
         """
         pass
 
     @abstractmethod
-    def update(self, array: "BaseArray", bounds: Slice, data: Any) -> None:
+    def update(self, array: ArrayT, bounds: Slice, data: Data) -> None:
         """Update a section of array.
 
         :param array: Array or VArray
@@ -407,7 +454,7 @@ class IArrayAdapter(ABC):
         pass
 
     @abstractmethod
-    def clear(self, array: "BaseArray", bounds: Slice) -> None:
+    def clear(self, array: ArrayT, bounds: Slice) -> None:
         """Clear a section of array.
 
         :param array: Array or VArray
@@ -416,7 +463,7 @@ class IArrayAdapter(ABC):
         pass
 
     @abstractmethod
-    def is_deleted(self, array: "BaseArray") -> bool:
+    def is_deleted(self, array: ArrayT) -> bool:
         """Check if array was deleted.
 
         :param array: Array to check
@@ -431,7 +478,7 @@ class IArrayAdapter(ABC):
         collection: "Collection",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
-    ) -> list[Union["Array", "VArray"]]:
+    ) -> list[ArrayT]:
         """Filter arrays.
 
         :param filters:  dict with filtering criteria
@@ -487,7 +534,7 @@ class IArrayAdapter(ABC):
         collection: "Collection",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
-    ) -> Union["Array", "VArray"] | None:
+    ) -> ArrayT | None:
         """Find Array or VArray  by id.
 
         :param id_: Array id
@@ -506,7 +553,7 @@ class IArrayAdapter(ABC):
         collection: "Collection",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
-    ) -> Union["Array", "VArray"] | None:
+    ) -> ArrayT | None:
         """Find Array or VArray by given primary attributes.
 
         :param primary_attributes: key attributes
@@ -524,7 +571,7 @@ class IArrayAdapter(ABC):
         pass
 
 
-class BaseArrayAdapter(IArrayAdapter, ABC):
+class BaseArrayAdapter(IArrayAdapter[PathT, "Array"], ABC):
     """Interface for Arrays' adapters."""
 
     @abstractmethod
@@ -537,5 +584,5 @@ class BaseArrayAdapter(IArrayAdapter, ABC):
         pass
 
 
-class BaseVArrayAdapter(IArrayAdapter, ABC):
+class BaseVArrayAdapter(IArrayAdapter[PathT, "VArray"], ABC):
     """Interface for VArrays' adapters."""

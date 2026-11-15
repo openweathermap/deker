@@ -26,7 +26,7 @@ from datetime import datetime
 from functools import wraps
 from multiprocessing import cpu_count
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, overload
 
 from deker_tools.data import convert_size_to_human
 from deker_tools.log import set_logger
@@ -34,6 +34,7 @@ from deker_tools.path import is_path_valid
 from psutil import swap_memory, virtual_memory
 from tqdm import tqdm
 
+from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.config import DekerConfig
 from deker.ctx import CTX
@@ -59,7 +60,11 @@ if TYPE_CHECKING:
     from deker.ABC.base_factory import BaseAdaptersFactory
 
 
-def _open_client_only(method: Callable) -> Callable:
+P = ParamSpec("P")
+R = TypeVar("R")
+
+
+def _open_client_only(method: Callable[Concatenate["Client", P], R]) -> Callable[Concatenate["Client", P], R]:
     """Reject calls of a closed client with ``DekerClientError``.
 
     A closed client keeps its adapters, and they answer with ``DekerAdapterClosedError``; the client
@@ -70,7 +75,7 @@ def _open_client_only(method: Callable) -> Callable:
     """
 
     @wraps(method)
-    def open_client_method(self: "Client", *args: Any, **kwargs: Any) -> Any:
+    def open_client_method(self: "Client", *args: P.args, **kwargs: P.kwargs) -> R:
         """Call the method of an open client.
 
         :param self: Client instance
@@ -355,7 +360,7 @@ class Client(SelfLoggerMixin):
                 raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
             paths.append(
                 (
-                    collection.path / self.__config.array_symlinks_directory,
+                    self.root_path / collection.name / self.__config.array_symlinks_directory,
                     collection._storage_adapter.file_ext,
                 )
             )
@@ -363,7 +368,7 @@ class Client(SelfLoggerMixin):
             paths.extend(
                 [
                     (
-                        collection.path / self.__config.array_symlinks_directory,
+                        self.root_path / collection.name / self.__config.array_symlinks_directory,
                         collection._storage_adapter.file_ext,
                     )
                     for collection in self
@@ -403,6 +408,27 @@ class Client(SelfLoggerMixin):
         finally:
             self.logger.info("Client is closed")
 
+    # the overloads carry the decorator too: mypy matches them against the decorated implementation
+    @overload
+    @_open_client_only
+    def create_collection(
+        self,
+        name: str,
+        schema: ArraySchema,
+        collection_options: "BaseCollectionOptions | None" = None,
+        storage_adapter_type: str | None = None,
+    ) -> Collection[Array]: ...
+
+    @overload
+    @_open_client_only
+    def create_collection(
+        self,
+        name: str,
+        schema: VArraySchema,
+        collection_options: "BaseCollectionOptions | None" = None,
+        storage_adapter_type: str | None = None,
+    ) -> Collection[VArray]: ...
+
     @_open_client_only
     def create_collection(
         self,
@@ -410,8 +436,11 @@ class Client(SelfLoggerMixin):
         schema: ArraySchema | VArraySchema,
         collection_options: "BaseCollectionOptions | None" = None,
         storage_adapter_type: str | None = None,
-    ) -> Collection:
+    ) -> Collection[Array] | Collection[VArray]:
         """Create a new ``Collection`` in the database.
+
+        The schema decides the kind of arrays: an ``ArraySchema`` gives a ``Collection[Array]``,
+        a ``VArraySchema`` gives a ``Collection[VArray]``.
 
         :param name: Name of new ``Collection``
         :param schema: ``Array`` or ``VArray`` schema
@@ -442,8 +471,11 @@ class Client(SelfLoggerMixin):
     def get_collection(
         self,
         name: str,
-    ) -> Collection | None:
+    ) -> Collection[Array] | Collection[VArray] | None:
         """Get ``Collection`` from database by its name.
+
+        The kind of arrays is read from the stored schema, so the result is a ``Collection[Array]``
+        or a ``Collection[VArray]``; check ``varray_schema`` to tell which.
 
         :param name: Name of a ``Collection``
         :returns: the ``Collection``, or ``None`` if it does not exist

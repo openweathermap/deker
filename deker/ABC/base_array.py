@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from deker.collection import Collection
 
 
-ArrayT = TypeVar("ArrayT", bound="BaseArray")
+BaseArrayT = TypeVar("BaseArrayT", bound="BaseArray")
 SubsetT = TypeVar("SubsetT", bound=BaseSubset)
 
 
@@ -76,7 +76,9 @@ class _FancySlicer:
                 f"TimeDimension {dimension.name} wrong indexing: a timedelta is a step, not a position; got {value}"
             )
 
-        # check start and stop type
+        if not isinstance(value, (float, str, datetime)):
+            raise IndexError(f"TimeDimension {dimension} wrong value: {value} of type {type(value)}")
+
         try:
             dt = get_utc(value)
             position = int((dt - start) // step)
@@ -464,12 +466,12 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
 
     @classmethod
     def _create_from_meta(
-        cls: type[ArrayT],
+        cls: type[BaseArrayT],
         collection: "Collection",
         meta: "ArrayMeta",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"] = None,
-    ) -> ArrayT:
+    ) -> BaseArrayT:
         """Create Array or VArray from metadata.
 
         :param collection: Collection instance

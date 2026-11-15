@@ -15,13 +15,14 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 from collections.abc import Generator
-from typing import TYPE_CHECKING, Optional, Union
+from typing import TYPE_CHECKING, Optional, cast
 
 from deker.ABC.base_managers import BaseAbstractManager, BaseManager
 from deker.arrays import Array, VArray
 from deker.errors import DekerInvalidManagerCallError
 from deker.log import SelfLoggerMixin
 from deker.schemas import VArraySchema
+from deker.types.private.typings import ArrayT
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
@@ -30,7 +31,7 @@ if TYPE_CHECKING:
     from deker.schemas import ArraySchema
 
 
-class FilteredManager(SelfLoggerMixin, BaseAbstractManager):
+class FilteredManager(SelfLoggerMixin, BaseAbstractManager[ArrayT]):
     """Manager for ``Collection`` contents filtering."""
 
     __slots__ = (
@@ -57,7 +58,7 @@ class FilteredManager(SelfLoggerMixin, BaseAbstractManager):
             raise AttributeError("FilterManager is missing varray adapter for varray schema")
         self.__filters = filters
 
-    def __get_item_in_list_arrays(self, elem_index: int) -> Array | VArray | None:
+    def __get_item_in_list_arrays(self, elem_index: int) -> ArrayT | None:
         """Filter arrays and get element by index.
 
         :param elem_index: Which element we return
@@ -73,16 +74,16 @@ class FilteredManager(SelfLoggerMixin, BaseAbstractManager):
         if any(arrays):
             return arrays[elem_index]
 
-    def first(self) -> Union["Array", "VArray", None]:
+    def first(self) -> ArrayT | None:
         """Return first array in the filter."""
         return self.__get_item_in_list_arrays(0)
 
-    def last(self) -> Union["Array", "VArray", None]:
+    def last(self) -> ArrayT | None:
         """Return last array in the filter."""
         return self.__get_item_in_list_arrays(-1)
 
 
-class DataManager(BaseManager):
+class DataManager(BaseManager[ArrayT]):
     """Common data manager.
 
     Its behavior depends on the type of Collection (Array/Varrary)
@@ -126,8 +127,7 @@ class DataManager(BaseManager):
             primary_attributes=primary_attributes,
             custom_attributes=custom_attributes,
         )
-        self._adapter.create(array)
-        return array
+        return self.__array_adapter.create(array)
 
     def _create_varray(
         self,
@@ -152,8 +152,7 @@ class DataManager(BaseManager):
             primary_attributes=primary_attributes,
             custom_attributes=custom_attributes,
         )
-        self._adapter.create(varray)
-        return varray
+        return self.__varray_adapter.create(varray)
 
     def _create(
         self,
@@ -179,7 +178,7 @@ class DataManager(BaseManager):
         primary_attributes: dict | None = None,
         custom_attributes: dict | None = None,
         id_: str | None = None,
-    ) -> Array | VArray:
+    ) -> ArrayT:
         """Create array or varray.
 
         :param primary_attributes: primary attributes
@@ -188,10 +187,11 @@ class DataManager(BaseManager):
         :returns: the created ``Array`` or ``VArray``
         """
         schema = self.__collection.varray_schema or self.__collection.array_schema
-        return self._create(schema, primary_attributes, custom_attributes, id_)
+        # the schema decides the kind of arrays, the same way it decides the manager's type parameter
+        return cast("ArrayT", self._create(schema, primary_attributes, custom_attributes, id_))
 
 
-class VArrayManager(SelfLoggerMixin, DataManager):
+class VArrayManager(SelfLoggerMixin, DataManager[VArray]):
     """Manager for VArrays."""
 
     __slots__ = (
@@ -244,7 +244,7 @@ class VArrayManager(SelfLoggerMixin, DataManager):
             yield VArray._create_from_meta(self.__collection, meta, self.__array_adapter, self.__varray_adapter)
 
 
-class ArrayManager(SelfLoggerMixin, DataManager):
+class ArrayManager(SelfLoggerMixin, DataManager[Array]):
     """Manager for Arrays."""
 
     __slots__ = (

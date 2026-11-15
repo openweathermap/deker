@@ -10,8 +10,8 @@ import pytest
 from deker_local_adapters import HDF5CompressionOpts, HDF5Options
 from numpy import ndarray
 
+from tests.fixtures.collection import SteppedCollections
 from tests.parameters.index_exp_params import array_step_cases, valid_index_exp_params
-from tests.plugins.collection import SteppedCollections
 
 from deker import ArraySchema, AttributeSchema, DimensionSchema, Scale, TimeDimensionSchema
 from deker.arrays import Array

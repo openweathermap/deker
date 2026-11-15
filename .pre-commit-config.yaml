@@ -91,24 +91,17 @@ repos:
         stages:
           - pre-commit
 
-  - repo: https://github.com/pre-commit/mirrors-mypy
-    rev: v2.4.1  # Possible releases: https://github.com/python/mypy/tags
+  # mypy runs from the project environment (uv sync), not from an isolated one: the typing of the
+  # deker packages is checked against the real sources of the others, as the Makefile typecheck target does
+  - repo: local
     hooks:
       - id: mypy
         name: mypy
+        entry: uv run --no-sync mypy deker --install-types --non-interactive --config-file pyproject.toml
+        language: system
         files: ^deker/
-        always_run: false
-        args: [
-          --install-types,
-          --non-interactive,
-          --config-file=pyproject.toml
-        ]
-        # The hook runs in its own environment: the typed runtime dependencies must be there,
-        # otherwise attrs classes have no constructors for mypy and numpy is untyped
-        additional_dependencies:
-          - "attrs>=23.1.0,<27"
-          - "numpy>=1.26,<3"
-          - "deker-tools>=1.2.0,<2"
+        types: [python]
+        pass_filenames: false
         stages:
           - pre-commit
 

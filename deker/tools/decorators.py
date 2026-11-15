@@ -16,20 +16,25 @@
 
 from collections.abc import Callable
 from functools import wraps
-from typing import Any
+from typing import Any, Concatenate, ParamSpec, TypeVar
 
 from deker.errors import DekerAdapterClosedError, DekerInstanceNotExistsError
 
+P = ParamSpec("P")
+R = TypeVar("R")
 
-def check_ctx_state(method: Callable) -> Callable:
+
+def check_ctx_state(method: Callable[Concatenate[Any, P], R]) -> Callable[Concatenate[Any, P], R]:
     """Context checker deco.
+
+    The decorated method keeps its signature for type checkers.
 
     :param method: callable class method
     :returns: the decorated method
     """
 
     @wraps(method)
-    def ctx_checker(self: Any, *args: Any, **kwargs: Any) -> Any:
+    def ctx_checker(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
         """Inner executor methods wrapper.
 
         :param self: Adapter instance
@@ -44,16 +49,17 @@ def check_ctx_state(method: Callable) -> Callable:
     return ctx_checker
 
 
-def not_deleted(method: Callable) -> Callable:
+def not_deleted(method: Callable[Concatenate[Any, P], R]) -> Callable[Concatenate[Any, P], R]:
     """Set rules of invocation for objects that could be deleted.
 
-    If the object was deleted, do not call func.
+    If the object was deleted, do not call func. The decorated method keeps its signature for type checkers.
+
     :param method: method to decorate
     :returns: the decorated method
     """
 
     @wraps(method)
-    def _inner(self: Any, *args: Any, **kwargs: Any) -> Any:
+    def _inner(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
         """Check instance for flag.
 
         :param self: class instance

@@ -26,15 +26,15 @@ from deker.uri import Uri
 logging.basicConfig(level="ERROR")
 
 pytest_plugins = [
-    "tests.plugins.collection",
-    "tests.plugins.locks",
-    "tests.plugins.subset",
-    "tests.plugins.adapter",
-    "tests.plugins.schema",
-    "tests.plugins.arrays",
-    "tests.plugins.factory",
-    "tests.plugins.manager",
-    "tests.plugins.integrity",
+    "tests.fixtures.collection",
+    "tests.fixtures.locks",
+    "tests.fixtures.subset",
+    "tests.fixtures.adapter",
+    "tests.fixtures.schema",
+    "tests.fixtures.arrays",
+    "tests.fixtures.factory",
+    "tests.fixtures.manager",
+    "tests.fixtures.integrity",
 ]
 
 

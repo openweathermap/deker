@@ -46,7 +46,7 @@ class TestArrayAdapter:
         file_path = paths.main / filename
         symlink = paths.symlink / filename
         array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
-        array_adapter.create(array)
+        assert array_adapter.create(array) is array
         assert file_path.exists()
         array[:].update(data)
         assert symlink.exists()

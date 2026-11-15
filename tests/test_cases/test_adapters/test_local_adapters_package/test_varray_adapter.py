@@ -25,7 +25,7 @@ class TestVArrayAdapterMethods:
         array = find.first()
         assert array is None
         adapter = varray._adapter
-        adapter.create(varray)
+        assert adapter.create(varray) is varray
         array = find.first()
         assert array is not None
 

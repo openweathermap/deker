@@ -20,10 +20,13 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from functools import wraps
 from pathlib import Path
-from typing import Any
+from typing import Any, ParamSpec, TypeVar
 
 from deker.flock import Flock
 from deker.log import SelfLoggerMixin
+
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 class BaseLock(SelfLoggerMixin, ABC):
@@ -115,16 +118,18 @@ class BaseLock(SelfLoggerMixin, ABC):
 
         return result
 
-    def __call__(self, func: Callable) -> Any:
+    def __call__(self, func: Callable[P, R]) -> Callable[P, R]:
         """Create/get file to lock with Flock and lock it.
 
-        If there is an existing lock, raise DekerLockError
+        If there is an existing lock, raise DekerLockError. The decorated method keeps its signature
+        for type checkers.
+
         :param func: Func that would be decorated
         :returns: the decorated method
         """
 
         @wraps(func)
-        def inner(*args: Sequence, **kwargs: dict[str, Any]) -> Any:
+        def inner(*args: P.args, **kwargs: P.kwargs) -> R:
             """Inner function of lock decorator.
 
             :param *args: Arguments of decorated function

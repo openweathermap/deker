@@ -18,19 +18,17 @@
 
 from datetime import datetime
 from types import EllipsisType, NoneType
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, TypeVar, Union
 
 import numpy as np
 
 from .classes import ArrayPosition, ArraysCoordinatesWithOffset
 
 if TYPE_CHECKING:
-    from numpy.lib._index_tricks_impl import IndexExpression
-else:
-    # numpy 2 made numpy.lib.index_tricks private; this works on numpy 1.26 and 2.x
-    IndexExpression = type(np.index_exp)
+    from deker.arrays import Array, VArray
 
 __all__ = (
+    "ArrayT",
     "EllipsisType",
     "NoneType",
     "Arrays",
@@ -129,9 +127,12 @@ Numeric = Union[
 ]
 
 Data = Union[list, tuple, np.ndarray, Numeric]
+
+# the kind of arrays a collection, a manager or an adapter works with: decided by the collection schema
+ArrayT = TypeVar("ArrayT", "Array", "VArray")
 MetaDataType = Union[int, float, str, datetime, Data]
+# what ``np.index_exp[...]`` produces: a single index or a tuple of them
 Slice = Union[
-    IndexExpression,
     slice,
     EllipsisType,
     int,
@@ -139,7 +140,6 @@ Slice = Union[
 ]
 
 FancySlice = Union[
-    IndexExpression,
     slice,
     EllipsisType,
     int,
@@ -147,7 +147,7 @@ FancySlice = Union[
     str,
     datetime,
     None,
-    tuple[Union[IndexExpression, slice, int, float, str, datetime, EllipsisType, None], ...],
+    tuple[Union[slice, int, float, str, datetime, EllipsisType, None], ...],
 ]
 
 ArraysInDimension = list[ArraysCoordinatesWithOffset]

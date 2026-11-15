@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from deker.collection import Collection
 
 
-class Subset(BaseSubset):
+class Subset(BaseSubset["Array"]):
     """``Array`` subset.
 
     A subset of the ``Array`` data with set ``bounds``, ``shape``, ``dtype`` and ``fill_value``.
@@ -215,7 +215,7 @@ def _tile_positions(bounds: Sequence[slice | int], shape: Sequence[int], arrays_
     ]
 
 
-class VSubset(BaseSubset):
+class VSubset(BaseSubset["VArray"]):
     """``VArray`` subset.
 
     A subset of ``VArray`` data with set ``bounds``, ``shape``, ``dtype`` and ``fill_value``.
@@ -293,7 +293,7 @@ class VSubset(BaseSubset):
         forward, self.__flipped_axes = positive_bounds(array.shape, slice_expression)
         self.__arrays: Arrays = _tile_positions(forward, array.shape, array.arrays_shape)
         self.__collection: "Collection" = collection
-        super().__init__(slice_expression, shape, array, array_adapter, varray_adapter, collection)
+        super().__init__(slice_expression, shape, array, varray_adapter)
         self.logger.debug(f"{self.__str__} instantiated")
 
     def _create_array_from_vposition(self, vpos: tuple[int, ...]) -> Optional["Array"]:

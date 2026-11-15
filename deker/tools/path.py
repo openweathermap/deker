@@ -25,6 +25,7 @@ from deker.types import Paths
 from deker.types.private.enums import LocksExtensions
 
 if TYPE_CHECKING:
+    from deker.ABC.base_array import BaseArray
     from deker.ABC.base_schemas import BaseAttributeSchema
     from deker.arrays import Array, VArray
 
@@ -131,10 +132,10 @@ def _get_varray_paths(arr: "VArray", base_path: Path) -> Paths:
     return Paths(main_path, symlink_path)
 
 
-def get_paths(array: Union["Array", "VArray"], collection_path: Path | str) -> Paths:
+def get_paths(array: "BaseArray", collection_path: Path | str) -> Paths:
     """Create main and symlink paths for arrays.
 
-    :param array: Array or VArray instance
+    :param array: Array or VArray instance; any other type raises ``TypeError``
     :param collection_path: path to a certain collection defined by user
     :returns: namedtuple with "main" and "symlink" pathlib.Paths
     """
