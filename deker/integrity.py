@@ -151,8 +151,9 @@ class ArraysChecker(BaseChecker):
 
     CHECKER_LEVEL = 2
 
+    # TODO: remove in 3.0.0 with Client.clear_locks: the markers are not made since 2.0.0
     def check_arrays_locks(self, collection: Collection) -> None:
-        """Check if Arrays or VArrays have no lockfiles left from create method.
+        """Check that no markers of VArray writes are left by Deker < 2.
 
         :param collection: Collection to be checked
         """

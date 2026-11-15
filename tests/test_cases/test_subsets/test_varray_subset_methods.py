@@ -1,10 +1,12 @@
-import os
 import time
 
 from collections import OrderedDict
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from threading import Event
 from typing import Any
 
 import h5py
@@ -23,7 +25,7 @@ from deker.arrays import VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerLockError, DekerSubsetError, DekerVSubsetError
-from deker.locks import META_DIVIDER
+from deker.flock import Flock
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.subset import VSubset, _split_axis, _tile_positions, _TileBounds
 from deker.tools import get_main_path
@@ -528,40 +530,79 @@ class TestVArraySubset:
         assert "1) OSError('disk full')" in str(error)
 
 
+def tile_main_file(tile) -> Path:
+    """Main file of a tile.
+
+    :param tile: inner Array of a VArray
+    :returns: path to the hdf5 file of the tile
+    """
+    adapter = tile._adapter
+    return get_main_path(tile.id, adapter.collection_path / adapter.data_dir) / (tile.id + adapter.file_ext)
+
+
+def is_free(path: Path) -> bool:
+    """Tell whether a file can be taken exclusively right now.
+
+    :param path: path to the file
+    :returns: ``True`` if nobody holds the file
+    """
+    flock = Flock(path)
+    try:
+        flock.acquire()
+    except DekerLockError:
+        return False
+    flock.release()
+    return True
+
+
+class HeldStorageCall:
+    """Replacement of a storage adapter method that records what is held while it runs and waits to be let go.
+
+    :param original: the replaced bound method
+    :param files: main files of the tiles, by their position in the grid
+    """
+
+    def __init__(self, original, files: dict[tuple[int, ...], Path]) -> None:
+        self.original = original
+        self.files = files
+        self.inside = Event()
+        self.go = Event()
+        self.free: dict[tuple[int, ...], bool] = {}
+        self.lock_files: list[str] = []
+
+    def __call__(self, path: Path, *args, **kwargs):
+        if not self.inside.is_set():
+            self.free = {vpos: is_free(file) for vpos, file in self.files.items()}
+            self.lock_files = sorted(str(file.name) for file in path.parent.rglob("*lock"))
+            self.inside.set()
+            assert self.go.wait(10)
+        return self.original(path, *args, **kwargs)
+
+
 class TestFindTileForWriting:
     """A writer looks for a tile waiting for a writer of another process to leave it."""
 
     @pytest.fixture
-    def foreign_marker(self, inserted_varray: VArray) -> Iterator[tuple[tuple[int, ...], Path]]:
-        """Marks the first tile as written by another process; the marker is removed afterwards."""
+    def held_tile(self, inserted_varray: VArray) -> Iterator[tuple[tuple[int, ...], Flock]]:
+        """Holds the first tile as a writer of another process does; the tile is released afterwards."""
         subset = inserted_varray[:]
         vpos = subset._VSubset__arrays[0].vposition
         tile = subset._create_array_from_vposition(vpos)
-        adapter = tile._adapter
-        main_dir = get_main_path(tile.id, adapter.collection_path / adapter.data_dir)
-        marker = (
-            main_dir / f"{tile.id}{adapter.file_ext}{META_DIVIDER}{os.getpid() + 1}{META_DIVIDER}{'0' * 32}.varraylock"
-        )
-        marker.touch()
-        try:
-            yield vpos, marker
-        finally:
-            marker.unlink(missing_ok=True)
+        with Flock(tile_main_file(tile)) as flock:
+            yield vpos, flock
 
-    def test_try_find_tile_reports_a_tile_held_by_another_process(self, inserted_varray: VArray, foreign_marker):
-        vpos, marker = foreign_marker
+    def test_try_find_tile_reports_a_tile_held_by_another_writer(self, inserted_varray: VArray, held_tile):
+        vpos, flock = held_tile
         subset = inserted_varray[:]
         found: list = []
         assert subset._try_find_tile(vpos, found) is False
         assert found == []
-        marker.unlink()
+        flock.release()
         assert subset._try_find_tile(vpos, found) is True
         assert len(found) == 1 and found[0] is not None and found[0]._v_position == vpos
 
-    def test_find_tile_for_writing_times_out_on_a_tile_held_by_another_process(
-        self, inserted_varray: VArray, foreign_marker
-    ):
-        vpos, _ = foreign_marker
+    def test_find_tile_for_writing_times_out_on_a_tile_held_by_another_writer(self, inserted_varray: VArray, held_tile):
+        vpos, _ = held_tile
         subset = inserted_varray[:]
         config = subset._VSubset__adapter.ctx.config
         timeout, interval = config.write_lock_timeout, config.write_lock_check_interval
@@ -582,6 +623,72 @@ class TestFindTileForWriting:
         assert tile is not None
         assert tile._v_position == vpos
         assert tile._vid == inserted_varray.id
+
+
+@pytest.mark.timeout(60)
+class TestVSubsetWritesTileByTile:
+    """A VArray write holds each tile only while it is written and leaves no files behind."""
+
+    @pytest.fixture
+    def tiles(self, inserted_varray: VArray) -> dict[tuple[int, ...], Path]:
+        """Main files of the tiles by their position in the grid."""
+        subset = inserted_varray[:]
+        return {
+            position.vposition: tile_main_file(subset._create_array_from_vposition(position.vposition))
+            for position in subset._VSubset__arrays
+        }
+
+    @pytest.mark.parametrize("method", ["update_data", "clear_data"])
+    def test_only_the_written_tile_is_held(
+        self, inserted_varray: VArray, tiles: dict[tuple[int, ...], Path], mocker: MockerFixture, method: str
+    ):
+        """While a tile is written, that tile is held exclusively, the other tiles are free, no file is made."""
+        storage = inserted_varray._VArray__array_adapter.storage_adapter
+        held = HeldStorageCall(getattr(storage, method), tiles)
+        mocker.patch.object(storage, method, held)
+        subset = inserted_varray[0:2, 0:2, 0:2]  # one tile: (0, 0, 0)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(subset.update, 1.0) if method == "update_data" else pool.submit(subset.clear)
+            assert held.inside.wait(10)
+            assert held.free == {vpos: vpos != (0, 0, 0) for vpos in tiles}
+            assert held.lock_files == []
+            held.go.set()
+            assert future.result(timeout=10) is None
+        assert all(is_free(file) for file in tiles.values())
+
+    def test_update_leaves_no_files_behind(self, inserted_varray: VArray, tiles: dict[tuple[int, ...], Path]):
+        """A VArray write touches nothing but the files of its tiles."""
+        collection_path = inserted_varray._VArray__collection.path
+        before = sorted(collection_path.rglob("*"))
+        inserted_varray[:].update(2.0)
+        assert sorted(collection_path.rglob("*")) == before
+        assert all(is_free(file) for file in tiles.values())
+        assert np.all(inserted_varray[:].read() == 2.0)
+
+    def test_writers_of_one_tile_queue_on_it(
+        self,
+        inserted_varray: VArray,
+        array_data: np.ndarray,
+        tiles: dict[tuple[int, ...], Path],
+        mocker: MockerFixture,
+    ):
+        """Two threads writing different parts of one tile wait for each other; both parts land."""
+        storage = inserted_varray._VArray__array_adapter.storage_adapter
+        held = HeldStorageCall(storage.update_data, tiles)
+        mocker.patch.object(storage, "update_data", held)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(inserted_varray[0:2, 0:5, 0:5].update, 1.0)
+            assert held.inside.wait(10)
+            second = pool.submit(inserted_varray[2:5, 0:5, 0:5].update, 2.0)
+            with pytest.raises(FutureTimeoutError):
+                second.result(timeout=0.5)  # the tile is held by the first writer
+            held.go.set()
+            assert first.result(timeout=10) is None
+            assert second.result(timeout=10) is None
+        data = inserted_varray[:].read()
+        assert np.all(data[0:2, 0:5, 0:5] == 1.0)
+        assert np.all(data[2:5, 0:5, 0:5] == 2.0)
+        assert np.array_equal(data[5:, :, :], array_data[5:, :, :])  # the other tiles are untouched
 
 
 class TestSplitAxis:

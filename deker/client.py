@@ -46,7 +46,6 @@ from deker.errors import (
     DekerValidationError,
 )
 from deker.integrity import IntegrityChecker
-from deker.locks import META_DIVIDER
 from deker.log import SelfLoggerMixin, format_string, set_logging_level
 from deker.schemas import ArraySchema, VArraySchema
 from deker.tools import convert_human_memory_to_bytes
@@ -146,7 +145,7 @@ class Client(SelfLoggerMixin):
 
     - ``calculate_storage_size``: calculates size of the whole storage or of a defined ``Collection``;
     - ``close``: closes ``Client`` and its context
-    - ``clear_locks``: clears all current locks within the storage or a defined ``Collection``
+    - ``clear_locks``: removes the lock files left by Deker < 2 (deprecated, removed in 3.0.0)
     - ``__enter__``: opens ``Client`` context manager
     - ``__exit__``: automatically closes ``Client`` context manager on its exit
     - ``__iter__``: iterates over all the collections within the provided uri-path, yields ``Collection`` instances.
@@ -532,14 +531,15 @@ class Client(SelfLoggerMixin):
         self.logger.debug(f"Collection {collection.name} created from dict")
         return collection
 
+    # TODO: remove in 3.0.0 with clear_locks: the markers are not made since 2.0.0
     @staticmethod
     def _iter_collection_locks(
         path: Path, collection_name: str, lock_type: LocksTypes | None = None
     ) -> list[ArrayLockMeta]:
         """Return the lock files of the ``Arrays`` of a collection.
 
-        The only lock files of arrays are the markers of VArray writes, named
-        ``<array id><ext>:<pid>:<token>.varraylock``; the read locks live in the kernel and leave no files.
+        The only lock files of arrays are the markers of VArray writes left by Deker < 2, named
+        ``<array id><ext>:<pid>:<token>.varraylock``; since 2.0.0 the locks live in the kernel and leave no files.
 
         :param path: ``Collection`` path
         :param collection_name: name of a ``Collection``
@@ -550,7 +550,7 @@ class Client(SelfLoggerMixin):
             return []
         locks: list[ArrayLockMeta] = []
         for file in Path.rglob(path, f"*{LocksExtensions.varray_lock.value}"):
-            meta = file.name[: -len(LocksExtensions.varray_lock.value)].split(META_DIVIDER)
+            meta = file.name[: -len(LocksExtensions.varray_lock.value)].split(":")
             if len(meta) != 3:  # noqa: PLR2004
                 continue  # a marker of another format is not described
             lock: ArrayLockMeta = {
@@ -565,13 +565,15 @@ class Client(SelfLoggerMixin):
             locks.append(lock)
         return locks
 
-    # TODO: decide on private/public method
     def _get_locks(
         self,
         collection_name: str | None = None,
         lock_type: LocksTypes | None = None,
     ) -> list[CollectionLockMeta | ArrayLockMeta]:
         """Return lockfiles of ``Collections`` and ``Arrays``.
+
+        A collection has a lock file only while it is created or cleared; the arrays have none since 2.0.0,
+        only the markers left by Deker < 2 may be found.
 
         :param collection_name: Name of a ``Collection``
           If passed - gets locks only from passed ``Collection``, else checks every collection in the storage
@@ -585,32 +587,39 @@ class Client(SelfLoggerMixin):
                 raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
             locks.extend(self._iter_collection_locks(self.root_path / collection_name, collection_name, lock_type))
         else:
-            for directory in Path(self.root_path).iterdir():
-                if (
-                    not lock_type
-                    or lock_type == LocksTypes.collection_lock
-                    and directory.is_file()
-                    and directory.name.endswith(LocksExtensions.collection_lock.value)
-                ):
-                    lock: CollectionLockMeta = {
-                        "Lockfile": directory.name,
-                        "Collection": directory.name[: -len(LocksExtensions.collection_lock.value)],
-                        "Type": LocksTypes.collection_lock.value,
-                        "Creation": datetime.fromtimestamp(directory.stat().st_ctime).isoformat(),
-                    }
-                    locks.append(lock)
-                locks.extend(self._iter_collection_locks(directory, directory.name, lock_type))
+            for entry in Path(self.root_path).iterdir():
+                if entry.is_file():
+                    if lock_type in (None, LocksTypes.collection_lock) and entry.name.endswith(
+                        LocksExtensions.collection_lock.value
+                    ):
+                        lock: CollectionLockMeta = {
+                            "Lockfile": entry.name,
+                            "Collection": entry.name[: -len(LocksExtensions.collection_lock.value)],
+                            "Type": LocksTypes.collection_lock.value,
+                            "Creation": datetime.fromtimestamp(entry.stat().st_ctime).isoformat(),
+                        }
+                        locks.append(lock)
+                    continue
+                locks.extend(self._iter_collection_locks(entry, entry.name, lock_type))
         return locks
 
+    # TODO: remove in 3.0.0
     @_open_client_only
     def clear_locks(self, collection_name: str | None = None) -> None:
-        """Remove the markers of VArray writes left by crashed processes.
+        """Remove the markers of VArray writes left by Deker < 2.
 
-        The read locks live in the kernel and die with their processes: there is nothing to clear for them.
+        .. deprecated:: 2.0.0
+           The locks live in the kernel since 2.0.0 and leave no files: there is nothing to clear.
+           Call it once after the upgrade to remove the markers of the older versions; removed in 3.0.0.
 
         :param collection_name: Name of a ``Collection``.
           If passed - clears locks only in the provided collection, else clears locks in every collection in the storage
         """
+        warnings.warn(
+            "clear_locks is deprecated and will be removed in 3.0.0: Deker leaves no lock files since 2.0.0",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         root_path = self.root_path
         files_count = 0
 

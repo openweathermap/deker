@@ -1,6 +1,8 @@
 import json
 import os
 
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -12,11 +14,13 @@ import pytest
 
 from deker_local_adapters import AdaptersFactory, LocalArrayAdapter
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from pytest_mock import MockerFixture
 
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerArrayError, DekerArrayTypeError, DekerValidationError
+from deker.errors import DekerArrayError, DekerArrayTypeError, DekerLockError, DekerValidationError
+from deker.flock import Flock
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_paths
 
@@ -79,11 +83,13 @@ class TestArrayAdapter:
         paths.create()
         filename = str(array.id) + factory.ctx.storage_adapter.file_ext
         file_path = paths.main / filename
-        file_path.write_text("")
+        file_path.write_text("foreign")
         array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         with pytest.raises(DekerArrayError) as e:
             array_adapter.create(array)
-        print(e.value)
+        assert "already exists" in str(e.value)
+        assert file_path.read_text() == "foreign"  # refused in one step, never opened for writing
+        assert not (paths.symlink / filename).exists()
 
     @pytest.mark.parametrize(
         ("data", "raised"),
@@ -273,6 +279,40 @@ class TestArrayAdapter:
         assert not os.path.exists(paths.symlink / filename)
         assert not os.path.exists(mainfile)
         assert not paths.main.exists()
+
+    @pytest.mark.timeout(60)
+    def test_array_adapter_delete_waits_for_a_reader(self, root_path, inserted_array: Array, factory):
+        """A delete holds the file exclusively: it waits for the reader to leave and only then removes the files."""
+        coll_path = root_path / factory.ctx.config.collections_directory / inserted_array.collection
+        paths = get_paths(inserted_array, coll_path)
+        filename = inserted_array.id + factory.ctx.storage_adapter.file_ext
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
+        reader = Flock(paths.main / filename, shared=True)
+        reader.acquire()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            deletion = pool.submit(array_adapter.delete, inserted_array)
+            with pytest.raises(FutureTimeoutError):
+                deletion.result(timeout=0.5)  # the reader is still there
+            assert (paths.main / filename).exists()
+            reader.release()
+            assert deletion.result(timeout=10) is None
+        assert not (paths.main / filename).exists()
+        assert not (paths.symlink / filename).exists()
+
+    @pytest.mark.timeout(60)
+    def test_array_adapter_delete_times_out_on_a_long_reader(
+        self, root_path, inserted_array: Array, factory, mocker: MockerFixture
+    ):
+        """A delete gives up by the write lock timeout and leaves the files in place."""
+        coll_path = root_path / factory.ctx.config.collections_directory / inserted_array.collection
+        paths = get_paths(inserted_array, coll_path)
+        filename = inserted_array.id + factory.ctx.storage_adapter.file_ext
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
+        mocker.patch.object(array_adapter.ctx.config, "write_lock_timeout", 1)
+        with Flock(paths.main / filename, shared=True), pytest.raises(DekerLockError):
+            array_adapter.delete(inserted_array)
+        assert (paths.main / filename).exists()
+        assert (paths.symlink / filename).exists()
 
     def test_array_adapter_deletes_not_existing_array(
         self,

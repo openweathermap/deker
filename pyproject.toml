@@ -113,6 +113,7 @@ dev = [
     "pytest-sugar>=1.1.1",
     "pytest-random-order>=1.2.0",
     "pytest-mock>=3.17.0",
+    "pytest-timeout>=2.4.0",
     "xarray>=2024.6.0",
 ]
 docs = [
@@ -297,6 +298,7 @@ skips = ["B324"]
 # https://pytest-cov.readthedocs.io/en/latest/
 # https://pypi.org/project/pytest-pythonpath/
 # https://pypi.org/project/pytest-sugar/
+# https://pypi.org/project/pytest-timeout/
 minversion = 7.0
 asyncio_mode = "auto"
 addopts = ["--ignore=tmp.py"]
@@ -308,6 +310,9 @@ testpaths = "./tests"
 
 pythonpath = ["./deker", "./.venv", "./venv"]
 filterwarnings = ["ignore::UserWarning", 'ignore::DeprecationWarning', "ignore::ResourceWarning"]
+# a hung test (a lock never released, a child process never answering) fails instead of blocking the run
+timeout = 300
+timeout_method = "signal"
 
 [tool.coverage.run]  # coverage
 branch = true

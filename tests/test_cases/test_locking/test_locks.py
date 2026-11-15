@@ -1,14 +1,10 @@
 import fcntl
-import os
 
-from multiprocessing import Queue
 from multiprocessing.context import BaseContext
 from multiprocessing.synchronize import Event
 from pathlib import Path
-from threading import Thread, Timer
 from time import sleep
 from types import SimpleNamespace
-from uuid import uuid4
 
 import pytest
 
@@ -17,20 +13,13 @@ from pytest_mock import MockerFixture
 
 from deker.arrays import Array, VArray
 from deker.client import Client
-from deker.collection import Collection
 from deker.errors import DekerLockError, DekerMemoryError
 from deker.locks import (
-    META_DIVIDER,
     CollectionLock,
     Flock,
     ReadArrayLock,
     TileCreationLock,
     WriteArrayLock,
-    WriteVarrayLock,
-    _check_write_locks,
-    _is_own_varray_lock_marker,
-    _varray_lock_marker,
-    process_token,
 )
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_main_path
@@ -65,107 +54,7 @@ def hold_shared_flock_forever(filepath: str, lock_set: Event) -> None:
         sleep(3600)
 
 
-def is_own_marker_in_child(name: str, queue: Queue) -> None:
-    """Report from another process whether the marker of the parent process is taken for its own.
-
-    :param name: name of the marker made by the parent process
-    :param queue: queue for the answer
-    """
-    queue.put(_is_own_varray_lock_marker(name))
-
-
-def call_check_existing_lock(lock: WriteVarrayLock, errors: list[Exception]) -> None:
-    """Call the lock's check in a thread, collecting the exception instead of losing it.
-
-    :param lock: VArray write lock bound to a subset
-    :param errors: list to put the raised exception into
-    """
-    try:
-        lock.check_existing_lock(func_args=[], func_kwargs={})
-    except Exception as e:
-        errors.append(e)
-
-
-class TestVArrayLockMarker:
-    """The markers that tell an Array is locked by a VArray of the current process.
-
-    The marker carries the PID for the eye and the token of the process for the check: containers on one
-    storage have their own PID namespaces, so two processes may share a PID but never a token.
-    """
-
-    def test_marker_path(self, tmp_path: Path):
-        """Tests the marker lies next to the main file and carries the PID and the token with their dividers."""
-        filename = tmp_path / "array.hdf5"
-        marker = _varray_lock_marker(filename)
-        assert marker.parent == tmp_path
-        assert marker.name == (
-            f"array.hdf5{META_DIVIDER}{os.getpid()}{META_DIVIDER}{process_token()}{LocksExtensions.varray_lock.value}"
-        )
-
-    def test_process_token_is_stable_inside_the_process(self):
-        assert process_token() == process_token()
-        assert len(process_token()) == 32
-
-    def test_own_marker_is_recognized(self, tmp_path: Path):
-        assert _is_own_varray_lock_marker(_varray_lock_marker(tmp_path / "array.hdf5").name)
-
-    @pytest.mark.parametrize(
-        ("pid", "token"),
-        [
-            (lambda: os.getpid() + 1, lambda: process_token()),
-            (lambda: os.getpid(), lambda: uuid4().hex),  # the same PID in another container
-            (lambda: os.getpid(), lambda: f"1{process_token()}"),
-            (lambda: os.getpid(), lambda: f"{process_token()}0"),
-            (lambda: int(f"1{os.getpid()}"), lambda: process_token()),
-        ],
-        ids=["other_pid", "same_pid_other_token", "own_token_as_suffix", "own_token_as_prefix", "own_pid_as_suffix"],
-    )
-    def test_foreign_marker_is_not_recognized(self, pid, token):
-        """Tests the marker of another process is never taken for the own one, whatever its PID."""
-        name = f"array.hdf5{META_DIVIDER}{pid()}{META_DIVIDER}{token()}{LocksExtensions.varray_lock.value}"
-        assert not _is_own_varray_lock_marker(name)
-
-    def test_old_marker_without_a_token_is_foreign(self):
-        """Tests a marker of the previous format (PID only) is never taken for the own one."""
-        assert not _is_own_varray_lock_marker(
-            f"array.hdf5{META_DIVIDER}{os.getpid()}{LocksExtensions.varray_lock.value}"
-        )
-
-    def test_child_process_does_not_own_the_marker_of_the_parent(self, tmp_path: Path, mp_context: BaseContext):
-        """Tests a child process, forked or spawned, has its own token and takes the parent marker for a foreign one."""
-        name = _varray_lock_marker(tmp_path / "array.hdf5").name
-        queue = mp_context.Queue()
-        process = mp_context.Process(target=is_own_marker_in_child, args=(name, queue))
-        process.start()
-        try:
-            assert queue.get(timeout=30) is False
-        finally:
-            process.join(30)
-
-    def test_check_write_locks_no_markers(self, tmp_path: Path):
-        (tmp_path / "array.hdf5").touch()
-        assert _check_write_locks(tmp_path, "array") is False
-
-    def test_check_write_locks_own_marker(self, tmp_path: Path):
-        _varray_lock_marker(tmp_path / "array.hdf5").touch()
-        assert _check_write_locks(tmp_path, "array") is True
-
-    @pytest.mark.parametrize(
-        ("pid", "token"),
-        [
-            (lambda: os.getpid() + 1, lambda: process_token()),
-            (lambda: os.getpid(), lambda: uuid4().hex),
-            (lambda: int(f"1{os.getpid()}"), lambda: process_token()),
-        ],
-        ids=["other_pid", "same_pid_other_token", "own_pid_as_suffix"],
-    )
-    def test_check_write_locks_foreign_marker(self, tmp_path: Path, pid, token):
-        """Tests the marker of another process means the array is locked by someone else."""
-        (
-            tmp_path / f"array.hdf5{META_DIVIDER}{pid()}{META_DIVIDER}{token()}{LocksExtensions.varray_lock.value}"
-        ).touch()
-        with pytest.raises(DekerLockError):
-            _check_write_locks(tmp_path, "array")
+LEGACY_MARKER = f"{{name}}:1:{'0' * 32}{LocksExtensions.varray_lock.value}"  # a VArray write marker of Deker < 2
 
 
 class TestReadArrayLock:
@@ -245,19 +134,22 @@ class TestReadArrayLock:
         read_array_lock(check_files)(local_array_adapter, inserted_array)
         assert set(dir_path.iterdir()) == before
 
-    def test_reader_inside_the_own_varray_write_does_not_flock(
+    def test_leftover_marker_of_an_older_version_is_ignored(
         self, read_array_lock: ReadArrayLock, inserted_array: Array, local_array_adapter: LocalArrayAdapter
     ):
-        """Tests a read of a tile locked by a VArray of the current process skips the flock (the VArray holds it)."""
+        """Tests a VArray write marker left by an older Deker neither refuses the reader nor replaces its flock."""
         read_array_lock.kwargs = {"array": inserted_array}
         path = read_array_lock.get_path()
-        marker = _varray_lock_marker(path)
+        marker = path.parent / LEGACY_MARKER.format(name=path.name)
         marker.touch()
         try:
-            with Flock(path):  # the VArray writer of this process holds the file
-                read_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
-                read_array_lock.acquire(path)
-                read_array_lock.release()
+            read_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
+            read_array_lock.acquire(path)
+            assert read_array_lock.lock is not None
+            with pytest.raises(DekerLockError):
+                Flock(path).acquire()  # the reader holds the file itself
+            read_array_lock.release()
+            assert marker.exists()  # not ours to remove: client.clear_locks does it
         finally:
             marker.unlink()
 
@@ -393,233 +285,37 @@ class TestWriteArrayLock:
         write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
         write_array_lock.release()
 
-
-class TestWriteVarrayLock:
-    def test_write_varray_lock_check_type_ok(self, varray: VArray):
-        subset = varray[:]
-        lock = WriteVarrayLock()
-        lock.instance = subset
-        lock.check_type()
-
-    def test_write_varray_skip(self, mocker: MockerFixture, inserted_varray: VArray):
-        acquire = mocker.patch.object(WriteVarrayLock, "acquire")
-        subset = inserted_varray[:]
-
-        class Mock:
-            def mock(self, *args, **kwargs):
-                pass
-
-        mocker.patch.object(subset, "_VSubset__adapter", Mock())
-        lock = WriteVarrayLock()
-        lock.instance = subset
-        lock.check_type()
-        assert lock.skip_lock
-
-        get_result = mocker.patch.object(lock, "get_result")
-        lock._inner_method_logic(lock, (), {}, subset.clear)
-        acquire.assert_not_called()
-        get_result.assert_called()
-
-    def test_write_array_lock_check_type_fail(self):
-        """Test if check of type is working properly on wrong cases."""
-
-        class Mock:
-            def mock(self, *args, **kwargs):
-                pass
-
-        with pytest.raises(TypeError):
-            mock = Mock()
-            lock = WriteVarrayLock()
-            lock.instance = mock
-            lock.check_type()
-
-    def test_check_get_path(
-        self,
-        inserted_varray: VArray,
-        varray_collection: Collection,
-        local_varray_adapter,
-        write_varray_lock: WriteVarrayLock,
+    def test_leftover_marker_of_an_older_version_is_ignored(
+        self, write_array_lock: WriteArrayLock, inserted_array: Array, local_array_adapter: LocalArrayAdapter
     ):
-        """Test getting path of write varray lock."""
-        path = get_main_path(inserted_varray.id, varray_collection.path / local_varray_adapter.data_dir) / (
-            inserted_varray.id + local_varray_adapter.file_ext
-        )
-        write_varray_lock.kwargs = {"array": inserted_varray}
-        assert path == write_varray_lock.get_path()
-
-    def test_varray_lock_holds_nothing_while_a_tile_is_busy(
-        self,
-        mocker: MockerFixture,
-        write_varray_lock: WriteVarrayLock,
-        varray_collection: Collection,
-        inserted_varray: VArray,
-        mp_context: BaseContext,
-    ):
-        """A writer waiting for a busy tile shall hold no other tile: no flock and no own marker on them."""
-        file_created = mp_context.Event()
-        error_raised = mp_context.Event()
-        config = write_varray_lock.instance._VSubset__array_adapter.ctx.config
-        mocker.patch.object(config, "write_lock_timeout", 3)
-        mocker.patch.object(config, "write_lock_check_interval", 0.1)
-
-        arrays = list(varray_collection.arrays)
-        busy, *free = arrays
-        busy_path = busy._Array__adapter._get_main_path_to_file(busy)
-        process = mp_context.Process(target=hold_shared_flock, args=(str(busy_path), file_created, error_raised))
-        process.start()
-        file_created.wait()
-
-        errors: list[Exception] = []
-        writer = Thread(target=call_check_existing_lock, args=(write_varray_lock, errors))
-        writer.start()
+        """Tests a VArray write marker left by an older Deker neither refuses the writer nor replaces its flock."""
+        write_array_lock.kwargs = {"array": inserted_array}
+        path = write_array_lock.get_path()
+        marker = path.parent / LEGACY_MARKER.format(name=path.name)
+        marker.touch()
         try:
-            sleep(1)  # the writer is waiting for the busy tile now
-            assert writer.is_alive()
-            for array in free:
-                path = array._Array__adapter._get_main_path_to_file(array)
-                assert not list(path.parent.glob(f"{path.name}:*{LocksExtensions.varray_lock.value}"))
-                flock = Flock(path)
-                flock.acquire()
-                flock.release()
+            write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
+            assert write_array_lock.lock is not None
+            with pytest.raises(DekerLockError):
+                Flock(path).acquire()  # the writer holds the file itself
+            write_array_lock.release()
+            assert marker.exists()
         finally:
-            error_raised.set()
-            writer.join()
-            process.join()
-        assert errors == []
-        assert len(write_varray_lock.locks) == len(arrays)
-        write_varray_lock.release()
+            marker.unlink()
 
-    def test_varray_lock_acquires_tiles_once_they_are_free(
-        self,
-        mocker: MockerFixture,
-        write_varray_lock: WriteVarrayLock,
-        varray_collection: Collection,
-        inserted_varray: VArray,
-        mp_context: BaseContext,
+    def test_write_creates_no_files(
+        self, write_array_lock: WriteArrayLock, local_array_adapter: LocalArrayAdapter, inserted_array: Array
     ):
-        """A writer shall get all the tiles once the busy one is released, instead of failing by timeout."""
-        file_created = mp_context.Event()
-        error_raised = mp_context.Event()
-        config = write_varray_lock.instance._VSubset__array_adapter.ctx.config
-        mocker.patch.object(config, "write_lock_timeout", 5)
-        mocker.patch.object(config, "write_lock_check_interval", 0.1)
+        """Tests a write leaves no marker files: the lock lives in the kernel and dies with the process."""
+        write_array_lock.kwargs = {"array": inserted_array}
+        dir_path = write_array_lock.get_path().parent
+        before = set(dir_path.iterdir())
 
-        arrays = list(varray_collection.arrays)
-        busy = arrays[0]
-        busy_path = busy._Array__adapter._get_main_path_to_file(busy)
-        process = mp_context.Process(target=hold_shared_flock, args=(str(busy_path), file_created, error_raised))
-        process.start()
-        file_created.wait()
+        def check_files(self, *args, **kwargs):
+            assert set(dir_path.iterdir()) == before
 
-        releaser = Timer(0.5, error_raised.set)
-        releaser.start()
-        try:
-            write_varray_lock.check_existing_lock(func_args=[], func_kwargs={})
-        finally:
-            releaser.join()
-            process.join()
-        assert len(write_varray_lock.locks) == len(arrays)
-        write_varray_lock.release()
-        assert write_varray_lock.locks == []
-        for array in arrays:
-            path = array._Array__adapter._get_main_path_to_file(array)
-            assert not list(path.parent.glob(f"{path.name}:*{LocksExtensions.varray_lock.value}"))
-
-    def test_check_existing_locks_fail(
-        self,
-        mocker: MockerFixture,
-        write_varray_lock,
-        varray_collection: Collection,
-        inserted_varray: VArray,
-        mp_context: BaseContext,
-    ):
-        """
-        Deker checks for each affected Array if Array read and write lock count == 0
-        If Array read or write lock count > 0, Deker sleeps for WRITE_LOCK_CHECK_INTERVAL
-        and repeats this check until WRITE_LOCK_TIMEOUT has passed since the first check attempt.
-        In case WRITE_LOCK_TIMEOUT passed and Array read or write lock count still > 0,
-        Deker decrements write lock count for VArray and write locks that it has incremented
-        on affected Arrays and returns lock error
-        Array read and write lock count == 0, Deker increments its write lock count
-
-        :return:
-        """
-        file_created = mp_context.Event()
-        error_raised = mp_context.Event()
-
-        release = mocker.patch.object(write_varray_lock, "release", autospec=True)
-
-        # Set lock timeout to wait minimal amount of time
-        mocker.patch.object(write_varray_lock.instance._VSubset__array_adapter.ctx.config, "write_lock_timeout", 1)
-        processes = []
-        # Make read lock
-        for array in varray_collection.arrays:
-            adapter = array._Array__adapter
-            filepath = adapter._get_main_path_to_file(array)
-            # We don't use pool here, as we should keep state of locks
-            process = mp_context.Process(target=hold_shared_flock, args=(str(filepath), file_created, error_raised))
-            process.start()
-            processes.append(process)
-
-        file_created.wait()
-
-        # Call check existing
-        with pytest.raises(DekerLockError):
-            write_varray_lock.check_existing_lock(func_args=[], func_kwargs={})
-
-        # If error raised, close process.
-        error_raised.set()
-        release.assert_called()
-
-        for process in processes:
-            process.kill()
-
-    def test_check_existing_locks_success(
-        self,
-        mocker: MockerFixture,
-        write_varray_lock,
-        varray_collection: Collection,
-        inserted_varray: VArray,
-        mp_context: BaseContext,
-    ):
-        """
-        Deker checks for each affected Array if Array read and write lock count == 0
-        If Array read or write lock count > 0, Deker sleeps for WRITE_LOCK_CHECK_INTERVAL
-        and repeats this check until WRITE_LOCK_TIMEOUT has passed since the first check attempt.
-        In case WRITE_LOCK_TIMEOUT passed and Array read or write lock count still > 0,
-        Deker decrements write lock count for VArray and write locks that it has incremented
-        on affected Arrays and returns lock error
-        Array read and write lock count == 0, Deker increments its write lock count
-        """
-        file_created = mp_context.Event()
-        error_raised = mp_context.Event()
-
-        release = mocker.patch.object(write_varray_lock, "release", autospec=True)
-
-        # Set lock timeout to wait minimal amount of time
-        mocker.patch.object(write_varray_lock.instance._VSubset__array_adapter.ctx.config, "write_lock_timeout", 1)
-        processes = []
-        # Make read lock
-        for array in varray_collection.arrays:
-            adapter = array._Array__adapter
-            filepath = adapter._get_main_path_to_file(array)
-            # We don't use pool here, as we should keep state of locks
-            process = mp_context.Process(target=hold_shared_flock, args=(str(filepath), file_created, error_raised))
-            process.start()
-            processes.append(process)
-
-        file_created.wait()
-
-        # Call check existing
-        with pytest.raises(DekerLockError):
-            write_varray_lock.check_existing_lock(func_args=[], func_kwargs={})
-
-        # If error raised, close process.
-        error_raised.set()
-        release.assert_called()
-
-        for process in processes:
-            process.kill()
+        write_array_lock(check_files)(local_array_adapter, inserted_array)
+        assert set(dir_path.iterdir()) == before
 
 
 class TestCollectionLock:
@@ -637,6 +333,22 @@ class TestCollectionLock:
         assert not (
             collection_adapter.collections_resource / f"{col_name}{LocksExtensions.collection_lock.value}"
         ).exists()
+
+    def test_lock_file_stays_as_the_marker_of_the_collection(self, client: Client, collection_adapter):
+        """Tests the lock file stays after the creation: check_integrity knows the collection by it."""
+        schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=2)], dtype=float)
+        collection = client.create_collection("created_and_marked", schema)
+        try:
+            lock_file = (
+                collection_adapter.collections_resource / f"{collection.name}{LocksExtensions.collection_lock.value}"
+            )
+            assert lock_file.exists()
+            with Flock(lock_file):
+                pass  # not held once the creation is over
+            collection.clear()
+            assert lock_file.exists()
+        finally:
+            collection.delete()
 
     def test_release_without_a_lock_does_nothing(self):
         """A lock that was never taken (acquire refused) has nothing to release."""

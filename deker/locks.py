@@ -15,7 +15,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-import os
 import time
 
 from collections.abc import Callable, Sequence
@@ -29,87 +28,20 @@ from typing import (
     TypeVar,
     Union,
 )
-from uuid import uuid4
 
 from deker.ABC.base_locks import BaseLock
 from deker.errors import DekerLockError, DekerMemoryError
 from deker.flock import Flock
 from deker.tools.path import get_main_path
-from deker.types.private.enums import LocksExtensions
 
 if TYPE_CHECKING:
-    from deker_local_adapters import LocalArrayAdapter
-
     from deker.ABC.base_adapters import BaseVArrayAdapter
     from deker.ABC.base_array import BaseArray
     from deker.arrays import Array, VArray
     from deker.collection import Collection
 
-META_DIVIDER = ":"
 ArrayFromArgs = Union[Path, Union["Array", "VArray"]]
 T = TypeVar("T", bound=Union[Path, "BaseArray"])
-
-
-_process_token: tuple[int, str] | None = None  # (pid, token) of the current process
-
-
-def process_token() -> str:
-    """Get the token of the current process: a random id made once per process.
-
-    Containers on one storage have their own PID namespaces, so a PID does not identify a process there;
-    the token does. A forked child gets its own token, as its PID differs from the one the token was made for.
-
-    :returns: 32 hexadecimal characters
-    """
-    global _process_token  # noqa: PLW0603
-    pid = os.getpid()
-    if _process_token is None or _process_token[0] != pid:
-        _process_token = (pid, uuid4().hex)
-    return _process_token[1]
-
-
-def _varray_lock_marker(filename: Path) -> Path:
-    """Get the path of the marker that tells the array is locked by a VArray of the current process.
-
-    :param filename: main file of the array
-    :returns: path of the marker file
-    """
-    return Path(
-        f"{filename}{META_DIVIDER}{os.getpid()}{META_DIVIDER}{process_token()}{LocksExtensions.varray_lock.value}"
-    )
-
-
-def _is_own_varray_lock_marker(name: str) -> bool:
-    """Check that the name is a VArray lock marker of the current process.
-
-    The PID and the token are compared together with their dividers: the token tells the processes of
-    different containers apart, which may share a PID.
-
-    :param name: name of a file in the directory of the array
-    :returns: ``True`` if the marker belongs to the current process
-    """
-    return name.endswith(
-        f"{META_DIVIDER}{os.getpid()}{META_DIVIDER}{process_token()}{LocksExtensions.varray_lock.value}"
-    )
-
-
-def _check_write_locks(dir_path: Path, id_: str) -> bool:
-    """Checks write locks from VArrays that differs from current.
-
-    :param dir_path: Dir where locks are stored (the one with hdf file)
-    :param id_: Id of array
-    :returns: ``True`` if the array is locked by a VArray of the current process, ``False`` if it is
-        not locked
-    """
-    for file in dir_path.iterdir():
-        # Skip lock from current process.
-        # Used when you have to read meta inside .update operation of varray
-        if _is_own_varray_lock_marker(file.name):
-            return True
-        # If we've found another varray lock, that not from current process.
-        if file.name.endswith(LocksExtensions.varray_lock.value):
-            raise DekerLockError(f"Array {id_} is locked with {file.name}")
-    return False
 
 
 class LockWithArrayMixin(Generic[T]):
@@ -118,7 +50,6 @@ class LockWithArrayMixin(Generic[T]):
     args: Sequence[Any]
     kwargs: dict[str, Any]
     instance: Any
-    is_locked_with_varray: bool = False
 
     @property
     def array_id(self) -> str:
@@ -176,24 +107,12 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
         self.logger.debug(f"Got path for array.id {self.array_id} lock file: {path}")
         return path
 
-    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
-        """Find out whether the array is held by a VArray write of the current process.
-
-        Such a read (of the meta inside the update of a VArray) does not lock the file: the VArray holds it.
-
-        :param func_args: arguments for called function.
-        :param func_kwargs: keyword arguments for called function.
-        """
-        self.is_locked_with_varray = _check_write_locks(self.dir_path, self.array_id)
-
     def acquire(self, path: Path | None) -> None:
         """Take the shared flock on the main file.
 
         :param path: path to the main file
         :raises DekerLockError: if the file is held exclusively by a writer
         """
-        if self.is_locked_with_varray:
-            return
         if path is None:  # pragma: no cover
             raise DekerLockError(f"{self.__class__.__name__} has no path to lock")
         lock = Flock(path, shared=True)
@@ -204,18 +123,14 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
         self.lock = lock
         self.logger.debug(f"Acquired shared lock for {path}")
 
-    def release(self, e: Exception | None = None) -> None:
-        """Release the shared flock.
-
-        :param e: Exception that may have been raised.
-        """
-        if self.is_locked_with_varray:
-            return
-        super().release(e)
-
 
 class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
-    """Write lock for arrays."""
+    """Write lock for Array: an exclusive flock on the main file, held from acquire to release.
+
+    The writer waits for the readers of the file to leave and keeps everybody out while it writes.
+    A VArray writes its tiles through this lock, one tile at a time, so two VArray writers of different
+    tiles never wait for each other and a writer that dies holds nothing and leaves no file behind.
+    """
 
     ALLOWED_TYPES = ["LocalArrayAdapter"]
 
@@ -243,9 +158,6 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         :param func_args: arguments of method call
         :param func_kwargs: keyword arguments of method call
         """
-        # If array belongs to varray, we should check if varray is also locked
-        self.is_locked_with_varray = _check_write_locks(self.dir_path, self.array_id)
-
         path = self.get_path()
         if self._try_acquire(path):
             return
@@ -260,186 +172,6 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         # If we hit the timeout, release whatever is held and raise DekerLockError
         self.release()
         raise DekerLockError(f"Array {self.array} is locked with read locks")
-
-    def release(self, e: Exception | None = None) -> None:
-        """Release Flock.
-
-        If array is locked from Varary from current Process, do nothing
-        :param e: exception that might have been raised
-        """
-        if self.is_locked_with_varray:
-            return
-
-        super().release(e)
-
-    def acquire(self, path: Path | None) -> None:
-        """Make lock using flock.
-
-        If array is locked from Varary from current Process, do nothing
-        :param path: Path to file that should be flocked
-        """
-        if self.is_locked_with_varray:
-            return
-        super().acquire(path)
-
-
-class WriteVarrayLock(BaseLock):
-    """Write lock for VArrays.
-
-    VArray shall not be locked itself when writing data.
-    Only inner Arrays shall be locked.
-    If updating subsets do not intersect - it's OK, otherwise the first,
-    which managed to obtain all Array locks, will survive.
-    """
-
-    ALLOWED_TYPES = ["VSubset"]
-
-    # Locks that have been acquired by varray
-    locks: list[tuple[Flock, Path]] = []
-    skip_lock: bool = False  # shows that we must skip this lock (e.g server adapters for subset)
-
-    def check_type(self) -> None:
-        """Check if the instance type (class) is allowed for locking."""
-        # Circular import otherwise
-        from deker_local_adapters.varray_adapter import LocalVArrayAdapter
-
-        super().check_type()
-        adapter = self.instance._VSubset__adapter
-        is_running_on_local = isinstance(adapter, LocalVArrayAdapter)
-        if not is_running_on_local:
-            self.skip_lock = True
-
-    def get_path(self) -> Path | None:  # noqa: ARG002
-        """Path of json Varray file."""
-        array = self.instance._VSubset__array
-        adapter = self.instance._VSubset__adapter
-        path = get_main_path(array.id, self.instance._VSubset__collection.path / adapter.data_dir) / (
-            array.id + adapter.file_ext
-        )
-        self.logger.debug(f"Got path for array.id {array.id} lock file: {path}")
-        return path
-
-    def check_locks_for_array_and_set_flock(self, filename: Path) -> Flock:
-        """Take the exclusive flock on a tile and mark it as held by this process.
-
-        :param filename: Path to file that should be flocked
-        :returns: ``Flock`` set on the file
-        """
-        # The readers hold the file with shared flocks: the exclusive one is refused while they read
-        lock = Flock(filename)
-        lock.acquire()
-
-        # Add flag that this array is locked by varray
-        _varray_lock_marker(filename).touch()
-        return lock
-
-    def _tiles_paths(self, adapter: "LocalArrayAdapter", varray: "VArray") -> list[Path]:
-        """Get the main files of the tiles (inner Arrays) covered by the subset.
-
-        :param adapter: Array adapter instance
-        :param varray: VArray
-        :returns: paths of the existing tiles' main files, resolved from their symlinks
-        """
-        collection = self.instance._VSubset__collection
-        paths = []
-        for array_position in self.instance._VSubset__arrays:
-            filename = adapter._get_symlink_filename(
-                varray.id,
-                array_position.vposition,
-                collection.array_schema.primary_attributes,
-            )
-            if filename:
-                # Path to the main file (not symlink)
-                paths.append(filename.resolve())
-        return paths
-
-    def _release_tiles(self) -> None:
-        """Release the tiles acquired so far: flocks and own markers."""
-        for lock, filename in self.locks:
-            lock.release()
-            _varray_lock_marker(filename).unlink(missing_ok=True)
-        self.locks = []
-
-    def _acquire_tiles(self, paths: Sequence[Path]) -> bool:
-        """Acquire all the tiles or none of them.
-
-        The first busy tile releases everything acquired before it, so a waiting writer
-        holds nothing and does not block the writers of other tiles.
-
-        :param paths: main files of the tiles
-        :returns: ``True`` if every tile is acquired, ``False`` if some tile is busy and nothing is held
-        """
-        for filename in paths:
-            try:
-                lock = self.check_locks_for_array_and_set_flock(filename)
-            except DekerLockError:
-                self._release_tiles()
-                self.logger.debug(f"Tile {filename} is busy, released the tiles acquired so far")
-                return False
-            self.locks.append((lock, filename))
-        return True
-
-    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
-        """Acquire every tile of the subset, waiting for busy tiles without holding the others.
-
-        :param func_args: arguments of the function that has been called.
-        :param func_kwargs: keyword arguments of the function that has been called.
-        """
-        adapter = self.instance._VSubset__array_adapter
-        varray = self.instance._VSubset__array
-
-        # Clear links to locks
-        self.locks = []
-        paths = self._tiles_paths(adapter, varray)
-
-        if self._acquire_tiles(paths):
-            return
-
-        # Some tiles are busy: nothing is held now, retry the whole acquisition until the timeout
-        if wait_for_unlock(
-            check_func=self._acquire_tiles,
-            check_func_args=(paths,),
-            timeout=adapter.ctx.config.write_lock_timeout,
-            interval=adapter.ctx.config.write_lock_check_interval,
-        ):
-            return
-        # Nothing is held after a failed acquisition; release keeps the contract of the base lock
-        self.release()
-        raise DekerLockError(f"VArray {varray} is locked")
-
-    def release(self, e: Exception | None = None) -> None:  # noqa: ARG002
-        """Release all locks.
-
-        :param e: Exception that may have been raised.
-        """
-        self._release_tiles()
-        super().release()
-
-    def acquire(self, path: Path | None) -> None:
-        """VArray shall not lock itself.
-
-        :param path: path to the file to be locked
-        """
-        pass
-
-    @staticmethod
-    def _inner_method_logic(lock: "BaseLock", args: Sequence, kwargs: dict, func: Callable) -> Any:
-        """Logic of acquiring lock and getting result.
-
-        When writing in VArray
-
-        :param lock: The lock that will be acquired
-        :param func: decorated function
-        :param args: arguments of decorated function
-        :param kwargs: keyword arguments of decorated function
-        :returns: result of the decorated method
-        """
-        if not isinstance(lock, WriteVarrayLock):  # pragma: no cover
-            raise TypeError(f"{type(lock).__name__} cannot be processed as a VArray write lock")
-        # If we want to skip logic of lock (e.g. when we use server adapters)
-        if lock.skip_lock:
-            return lock.get_result(func, args, kwargs)
-        return BaseLock._inner_method_logic(lock, args, kwargs, func)
 
 
 class TileCreationLock:
@@ -522,7 +254,11 @@ class UpdateMetaAttributeLock(LockWithArrayMixin[Union["Array", "VArray"]], Base
 
 
 class CollectionLock(BaseLock):
-    """Lock for collection creation."""
+    """Lock for collection creation and clearing: an flock on the ``<collection>.lock`` file next to the collection.
+
+    The file stays after the creation as the marker of the collection, which ``check_integrity`` relies on;
+    it is removed only when the creation fails and leaves no collection behind.
+    """
 
     ALLOWED_TYPES = ["LocalCollectionAdapter"]
 

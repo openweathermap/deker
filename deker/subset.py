@@ -28,7 +28,7 @@ from numpy import ndarray
 from deker.ABC.base_subset import BaseSubset
 from deker.dimensions import TimeDimension
 from deker.errors import DekerArrayError, DekerLockError, DekerSubsetError, DekerVSubsetError
-from deker.locks import TileCreationLock, WriteVarrayLock, wait_for_unlock
+from deker.locks import TileCreationLock, wait_for_unlock
 from deker.schemas import TimeDimensionSchema
 from deker.tools import not_deleted
 from deker.tools.time import get_start_datetime
@@ -350,7 +350,6 @@ class VSubset(BaseSubset["VArray"]):
                 subset.clear()
 
     @not_deleted
-    @WriteVarrayLock()
     def clear(self) -> None:
         """Clear data in ``VArray`` by slice."""
         self.logger.debug(f"Trying to clear data for {self.__str__()}")
@@ -437,6 +436,9 @@ class VSubset(BaseSubset["VArray"]):
     def __update_array_data(self, array_data: ArrayPositionedData) -> None:
         """Update the part of one inner ``Array`` covered by the subset, creating the ``Array`` if it is missing.
 
+        The ``Array`` is held exclusively only while its part is written (its own write lock), so the tiles
+        of one ``VArray`` are written independently and a writer never holds a tile it is not writing.
+
         :param array_data: position and bounds of the inner Array and the data for it
         """
         array = self._find_tile_for_writing(array_data.vposition)
@@ -448,7 +450,6 @@ class VSubset(BaseSubset["VArray"]):
         subset.update(array_data.data)
 
     @not_deleted
-    @WriteVarrayLock()
     def update(self, data: Data) -> None:
         """Update data in ``VArray`` by slice.
 

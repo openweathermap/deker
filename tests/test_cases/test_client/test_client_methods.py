@@ -34,7 +34,6 @@ from deker.errors import (
     DekerMetaDataError,
     DekerValidationError,
 )
-from deker.locks import _varray_lock_marker, process_token
 from deker.log import set_logging_level
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_symlink_path
@@ -908,8 +907,21 @@ class TestStorageSizeCalculation:
                 collection.delete()
 
 
+def legacy_marker(filepath: Path, pid: int, token: str) -> Path:
+    """Path of a VArray write marker as Deker < 2 made it next to the main file of a tile.
+
+    :param filepath: main file of the tile
+    :param pid: PID of the writing process
+    :param token: token of the writing process
+    :returns: path of the marker
+    """
+    return filepath.parent / f"{filepath.name}:{pid}:{token}{LocksExtensions.varray_lock.value}"
+
+
 @pytest.mark.asyncio
 class TestGetLocks:
+    """The listing of the lock files on the disk: leftovers of older versions and collections being created."""
+
     def test_client_get_locks_collection_does_not_exist(self, client: Client):
         with pytest.raises(DekerCollectionNotExistsError):
             client._get_locks("collection_does_not_exist")
@@ -933,35 +945,35 @@ class TestGetLocks:
         ],
     )
     def test_client_get_locks_collection_lock(self, client: Client, params):
+        """Tests the lock file of a collection, which stays as its marker, is listed as a collection lock."""
         collection = client.create_collection(**params)
-        file = collection.path.parent / (collection.name + ".lock")
-        assert {
+        file = collection.path.parent / (collection.name + LocksExtensions.collection_lock.value)
+        expected = {
             "Lockfile": file.name,
-            "Collection": file.name[: -len(LocksExtensions.collection_lock.value)],
+            "Collection": collection.name,
             "Type": LocksTypes.collection_lock.value,
             "Creation": datetime.fromtimestamp(file.stat().st_ctime).isoformat(),
-        } in client._get_locks()
+        }
+        assert expected in client._get_locks()
+        assert expected in client._get_locks(lock_type=LocksTypes.collection_lock)
+        assert expected not in client._get_locks(lock_type=LocksTypes.varray_lock)
 
-    @pytest.mark.parametrize(
-        "params",
-        [
-            *ClientParams.ArraySchema.OK.multi_array_schemas(),
-            *ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas(),
-        ],
-    )
-    def test_client_get_locks_varray_lock(self, client: Client, params, write_array_lock, inserted_array):
-        """Tests the marker of a VArray write is listed with the array, the PID and the token of its process."""
-        client.create_collection(**params)
+    def test_client_get_locks_lists_no_directories(self, client: Client, inserted_array):
+        """Tests the directories of the collections are never taken for lock files."""
+        assert not [lock for lock in client._get_locks() if lock["Lockfile"] == inserted_array.collection]
+
+    def test_client_get_locks_varray_lock(self, client: Client, write_array_lock, inserted_array):
+        """Tests a marker of a VArray write left by Deker < 2 is listed with the array, the PID and the token."""
         write_array_lock.args = []
         write_array_lock.kwargs = {"array": inserted_array}
-        file = _varray_lock_marker(write_array_lock.get_path())
+        file = legacy_marker(write_array_lock.get_path(), 1, "0" * 32)
         file.touch()
         try:
             expected = {
                 "Lockfile": file.name,
                 "Array": inserted_array.id,
-                "PID": str(os.getpid()),
-                "Token": process_token(),
+                "PID": "1",
+                "Token": "0" * 32,
                 "Collection": inserted_array.collection,
                 "Type": LocksTypes.varray_lock.value,
                 "Creation": datetime.fromtimestamp(file.stat().st_ctime).isoformat(),
@@ -987,7 +999,7 @@ class TestGetLocks:
         """A marker that is not <file>:<pid>:<token> cannot be described and is left out of the listing."""
         write_array_lock.args = []
         write_array_lock.kwargs = {"array": inserted_array}
-        marker = _varray_lock_marker(write_array_lock.get_path())
+        marker = legacy_marker(write_array_lock.get_path(), 1, "0" * 32)
         stray = marker.parent / stray_name
         marker.touch()
         stray.touch()
@@ -1003,11 +1015,18 @@ class TestGetLocks:
         inserted_array[:].read()
         assert not [lock for lock in client._get_locks() if lock["Type"] != LocksTypes.collection_lock.value]
 
+    def test_client_get_locks_lists_nothing_after_a_varray_write(self, client: Client, inserted_varray):
+        """Tests a VArray write leaves no lock files to list: the tiles are held in the kernel."""
+        inserted_varray[:].update(1.0)
+        assert not client._get_locks(collection_name=inserted_varray.collection)
+
 
 @pytest.mark.asyncio
 class TestClearLocks:
+    """``clear_locks`` is kept for the markers left by Deker < 2 and is removed in 3.0.0."""
+
     def test_client_clear_locks_collection_does_not_exist(self, client: Client):
-        with pytest.raises(DekerCollectionNotExistsError):
+        with pytest.warns(DeprecationWarning, match="3.0.0"), pytest.raises(DekerCollectionNotExistsError):
             client.clear_locks("collection_does_not_exist")
 
     @pytest.mark.parametrize(
@@ -1019,29 +1038,30 @@ class TestClearLocks:
     )
     def test_client_clear_locks_collection_empty(self, client: Client, params, deker_log: pytest.LogCaptureFixture):
         collection = client.create_collection(**params)
-        client.clear_locks(collection.name)
+        with pytest.warns(DeprecationWarning, match="3.0.0"):
+            client.clear_locks(collection.name)
         assert not list(Path.rglob(collection.path, f"*{LocksExtensions.varray_lock.value}"))
         assert "0 lock files removed" in deker_log.messages
 
-    def test_client_clear_locks_removes_varray_markers(
+    def test_client_clear_locks_removes_legacy_varray_markers(
         self, client: Client, root_path, write_array_lock, inserted_array, deker_log: pytest.LogCaptureFixture
     ):
-        """Tests clear_locks removes the markers of VArray writes, the only lock files there are."""
+        """Tests clear_locks removes the markers of VArray writes left by Deker < 2, whatever process made them."""
         write_array_lock.kwargs = {"array": inserted_array}
         filepath = write_array_lock.get_path()
-        _varray_lock_marker(filepath).touch()
-        (
-            filepath.parent / f"{filepath.name}:{os.getpid() + 1}:{uuid4().hex}{LocksExtensions.varray_lock.value}"
-        ).touch()
+        legacy_marker(filepath, os.getpid(), uuid4().hex).touch()
+        legacy_marker(filepath, os.getpid() + 1, uuid4().hex).touch()
         assert len(list(Path.rglob(root_path, f"*{LocksExtensions.varray_lock.value}"))) == 2
-        client.clear_locks()
+        with pytest.warns(DeprecationWarning, match="3.0.0"):
+            client.clear_locks()
         assert not list(Path.rglob(root_path, f"*{LocksExtensions.varray_lock.value}"))
         assert "2 lock files removed" in deker_log.messages
 
     def test_client_clear_locks_keeps_the_data_files(self, client: Client, root_path, inserted_array):
         """Tests clear_locks touches nothing but the markers: the data files stay."""
         before = sorted(path for path in Path.rglob(root_path, "*") if path.is_file())
-        client.clear_locks()
+        with pytest.warns(DeprecationWarning, match="3.0.0"):
+            client.clear_locks()
         assert sorted(path for path in Path.rglob(root_path, "*") if path.is_file()) == before
 
     @pytest.mark.parametrize("limit_size", [100, "1K", "10k", "25m"])

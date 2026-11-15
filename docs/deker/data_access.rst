@@ -649,44 +649,53 @@ It provides even more opportunities. Refer to ``xarray.DataArray`` API_ for deta
 
 Locks
 ======
-DEKER™ is thread and process safe. It uses its own locks for the majority of operations.
-DEKER™ locks can be divided into two groups: **read** and **write** locks
+DEKER™ is thread and process safe: the files of the storage are protected by locks of the operating
+system (``flock``) taken on the data files themselves. The locks are **read** (shared) and
+**write** (exclusive) locks.
 
-**Read locks** can be shared between threads and processes with no risk of data corruption.
+A **read** of an ``Array`` holds a shared lock on its file from the start of the read to its end:
+any number of readers may read the file at once, and a writer waits for them to leave.
 
-**Write locks** are exclusive and are taken for the files with correspondent data content.
-Only the process/thread, which has already acquired a write lock, may produce any changes
-in the data.
-
-It means that if one process is already writing some data into a ``HDF5`` file (or into
-an ``Array``) and some other processes want to read from it or to write some other data
-into the same file, they will receive a ``DekerLockError``.
+A **write** into an ``Array`` (``update``, ``clear``, ``update_custom_attributes``, ``delete``)
+holds an exclusive lock on its file: the writer waits for the readers of the file to leave
+(``write_lock_timeout`` seconds at most, checked every ``write_lock_check_interval`` seconds, then
+``DekerLockError``) and keeps everybody out while it writes. A reader that meets a writer does not
+wait: it gets ``DekerLockError`` at once.
 
 .. note::
    Reading data from an ``Array``, which is locked for writing, is impossible.
 
-Speaking about ``VArray`` it means that several processes are able to update data
-in several non-intersecting ``VSubsets``. In case if any updating ``VSubset`` intersects
-with another one, the update operation will be rejected for the ``VSubset``, which met
-the write lock.
+A ``VArray`` has no lock of its own. Its write goes tile by tile: every inner ``Array`` is held
+exclusively only while its part of the data is written, as a plain ``Array`` write holds it. So
+several processes may write into one ``VArray`` at the same time: the writers of different tiles
+never wait for each other, and the writers of one tile queue on it, each waiting for the previous
+one as it waits for readers. The parts of the tile they write do not get mixed; when they write the
+same cells, the last writer wins. If a tile is still held when ``write_lock_timeout`` is over, the
+``VArray`` update reports it in ``DekerVSubsetError``, with the tiles written meanwhile left as
+they are.
 
-Please note that operation of custom attributes updating also locks Array or VArray files
-for writing.
+A tile of a ``VArray`` that does not exist yet is created by the first writer to reach it. The
+creation of an ``Array`` with primary attributes (a tile has them: the ``VArray`` id and the
+position) holds the directory of its symlink exclusively, so two creators of one tile, through a
+``VArray`` or through the ``arrays`` manager, never create two files for one position: the second
+one learns that the tile exists. The writers of one fresh ``VArray`` also take a short lock on the
+``VArray`` file while they create its tiles, so the later writers find the tile and update it
+instead of failing.
 
-The locks are file locks of the operating system (``flock``) taken on the data files themselves,
-so they work for the processes of one machine whatever way they run, in containers sharing
-a volume as well. A read holds a shared lock from its start to its end and leaves no file behind:
-a reader that dies in the middle of a read releases its lock at once, and a writer never waits for
-a dead reader. A writer waits for the readers of the file to leave (``write_lock_timeout``,
-checked every ``write_lock_check_interval`` seconds) and then holds the file exclusively.
+The locks live in the kernel: a process that dies in the middle of a read or a write releases its
+locks at once, nobody waits for a dead reader or writer, and no file is left behind. There is
+nothing to clean up after a crash. The only lock file on the disk is ``<collection name>.lock``
+next to the directory of a collection: it is held while the collection is created or cleared and
+stays afterwards as the marker of the collection, which ``check_integrity`` relies on.
 
-The only lock files on the disk are the markers a ``VArray`` write leaves next to its inner
-``Arrays`` while it writes them, named ``<array id>.hdf5:<pid>:<token>.varraylock``; the token
-tells the process apart from the processes of other containers, which may share its PID.
-A process that dies while writing a ``VArray`` leaves its markers behind: ``client.clear_locks()``
-removes them, and ``client.check_integrity()`` reports them.
+.. note::
+   ``flock`` works for the processes of one machine whatever way they run, in containers sharing a
+   volume as well. It does not work on network file systems such as NFS: the locks of different
+   machines do not see each other there. Put the storage of DEKER™ on a local disk of the machine
+   that writes into it; the ``deker-server`` is the way to give other machines access to it.
 
-A tile of a ``VArray`` that does not exist yet is created by the first writer to reach it, under
-a lock on the ``VArray`` itself, so the writers of one fresh ``VArray`` never create two files for
-one position: the later writers find the tile and update it. A writer of a ``VArray`` waits for a
-tile held by a writer of another process the same way it waits for readers.
+.. note::
+   DEKER™ before 2.0.0 marked the tiles a ``VArray`` was writing with ``.varraylock`` files, which
+   a crashed writer left behind. The new versions neither make nor respect them. Call
+   ``client.clear_locks()`` once after the upgrade to remove the leftovers of the old versions; the
+   method is deprecated and will be removed in 3.0.0.

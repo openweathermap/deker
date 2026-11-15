@@ -121,6 +121,51 @@ class TestFlock:
         finally:
             flock.release()
 
+    def test_flock_locks_a_directory(self, tmp_path: Path):
+        """Tests a directory is locked like a file: the second holder is refused while the first one holds it.
+
+        :param tmp_path: temporary directory
+        """
+        directory = tmp_path / "locked"
+        directory.mkdir()
+        with Flock(directory) as flock:
+            assert flock.fd is not None
+            with pytest.raises(DekerLockError):
+                Flock(directory).acquire()
+            fd = os.open(directory, os.O_RDONLY)
+            try:
+                with pytest.raises(BlockingIOError):
+                    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            finally:
+                os.close(fd)
+        assert flock.fd is None
+
+    def test_flock_releases_a_directory(self, tmp_path: Path):
+        """Tests a released directory can be taken again.
+
+        :param tmp_path: temporary directory
+        """
+        directory = tmp_path / "locked"
+        directory.mkdir()
+        flock = Flock(directory)
+        flock.acquire()
+        flock.release()
+        with Flock(directory):
+            pass
+
+    def test_flock_release_closes_the_descriptor(self, hdf_path):
+        """Tests the descriptor is closed on release, so nothing keeps the file open.
+
+        :param hdf_path: Path to temporary hdf5 file
+        """
+        flock = Flock(hdf_path)
+        flock.acquire()
+        fd = flock.fd
+        flock.release()
+        assert flock.fd is None
+        with pytest.raises(OSError):
+            os.fstat(fd)
+
     def test_multiple_sync_processes_flock(self, mp_context: BaseContext):
         """Tests multiple processes cannot acquire lock on the same file."""
         cores = multiprocessing.cpu_count() // 2

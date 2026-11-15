@@ -271,6 +271,23 @@ class TestDatasetCreation:
         assert empty_cells(array_file) == 90
 
 
+class TestFileCreation:
+    """``create`` makes the file in one step: an existing file is refused, never reopened or truncated."""
+
+    def test_existing_file_is_refused_and_left_untouched(self, adapter, tmp_path):
+        path = tmp_path / "taken.hdf5"
+        path.write_bytes(b"foreign")
+        with pytest.raises(FileExistsError):
+            adapter.create(path, SHAPE, {"id": "test"})
+        assert path.read_bytes() == b"foreign"
+
+    def test_created_file_is_refused_on_the_second_creation(self, adapter, array_file):
+        with pytest.raises(FileExistsError):
+            adapter.create(array_file, SHAPE, {"id": "other"})
+        with h5py.File(array_file, "r", locking=False) as f:
+            assert json.loads(f["meta"][()]) == {"id": "test"}
+
+
 class TestMetaDataset:
     """The ``meta`` dataset is sized exactly to its UTF-8 payload and survives non-ASCII content."""
 

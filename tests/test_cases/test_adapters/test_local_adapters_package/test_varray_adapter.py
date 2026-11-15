@@ -35,6 +35,18 @@ class TestVArrayAdapterMethods:
         with pytest.raises(DekerArrayError):
             assert adapter.create(varray)
 
+    def test_varray_adapter_leaves_a_foreign_main_file_untouched(self, varray: VArray):
+        adapter = varray._adapter
+        paths = get_paths(varray, adapter.collection_path)
+        paths.create()
+        filename = varray.id + adapter.file_ext
+        (paths.main / filename).write_text("foreign")
+        with pytest.raises(DekerArrayError) as e:
+            adapter.create(varray)
+        assert "already exists" in str(e.value)
+        assert (paths.main / filename).read_text() == "foreign"
+        assert not (paths.symlink / filename).exists()
+
     def test_varray_adapter_delete_varray(self, varray: VArray):
         """Test delete without inner arrays."""
         find = varray._VArray__collection.filter({"id": varray.id})

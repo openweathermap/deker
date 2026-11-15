@@ -92,14 +92,14 @@ class LocksExtensions(str, Enum):
     """Extensions for lock files."""
 
     collection_lock = ".lock"
-    varray_lock = ".varraylock"
+    varray_lock = ".varraylock"  # markers of Deker < 2; TODO: remove in 3.0.0 with Client.clear_locks
 
 
 class LocksTypes(str, Enum):
     """Locks enum."""
 
     collection_lock = "collection creation lock"
-    varray_lock = "varray write lock"
+    varray_lock = "varray write lock"  # markers of Deker < 2; TODO: remove in 3.0.0 with Client.clear_locks
 
 
 class ArrayType(str, Enum):

@@ -50,6 +50,8 @@ class TestCollectionAdapter:
             )
         )
         assert root_path.joinpath(factory.ctx.config.collections_directory).joinpath(name).exists()
+        # the lock file of the creation stays as the marker of the collection
+        assert root_path.joinpath(factory.ctx.config.collections_directory).joinpath(name + ".lock").exists()
 
     def test_collection_adapter_create_collection_memory_error(
         self,
@@ -212,6 +214,7 @@ class TestCollectionAdapter:
         assert collection_dir is not None
         collection_dir = os.listdir(collection_dir)
         assert f"{array_collection.name}.json" in collection_dir
+        assert os.path.exists(array_collection.path.parent / (array_collection.name + ".lock"))
 
     def test_collection_adapter_iter(self, client: Client, array_schema: ArraySchema, root_path: Path, ctx):
         for root, dirs, files in os.walk(root_path / ctx.config.collections_directory):

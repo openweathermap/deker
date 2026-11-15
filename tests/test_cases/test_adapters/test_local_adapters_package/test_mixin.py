@@ -1,14 +1,62 @@
 import os
 
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
+from pathlib import Path
+from threading import Event
+
 import pytest
 
 from deker_local_adapters import LocalArrayAdapter
 from deker_local_adapters.errors import DekerBrokenSymlinkError
 from deker_local_adapters.varray_adapter import LocalVArrayAdapter
+from pytest_mock import MockerFixture
 
-from deker.arrays import VArray
+from deker.arrays import Array, VArray
 from deker.collection import Collection
+from deker.errors import DekerLockError, DekerValidationError
+from deker.flock import Flock
+from deker.tools import get_paths
 from deker.tools.path import get_symlink_path
+
+
+class HeldCheck:
+    """Replacement of ``check_symlink_existence`` that reports being inside the creation and waits to be let go.
+
+    :param original: the replaced method
+    """
+
+    def __init__(self, original) -> None:
+        self.original = original
+        self.inside = Event()
+        self.go = Event()
+
+    def __call__(self, file: Path) -> None:
+        self.inside.set()
+        assert self.go.wait(10)
+        self.original(file)
+
+
+def twin(array: Array | VArray) -> Array | VArray:
+    """Make another (V)Array with the same primary attributes.
+
+    :param array: the array to copy the attributes from
+    :returns: a new, not yet created, (V)Array
+    """
+    if isinstance(array, VArray):
+        return VArray(
+            array._VArray__collection,
+            array._adapter,
+            array._VArray__array_adapter,
+            primary_attributes=array.primary_attributes,
+            custom_attributes=array.custom_attributes,
+        )
+    return Array(
+        array._Array__collection,
+        array._adapter,
+        primary_attributes=array.primary_attributes,
+        custom_attributes=array.custom_attributes,
+    )
 
 
 @pytest.mark.parametrize("adapter_", ["local_array_adapter", "local_varray_adapter"])
@@ -158,3 +206,62 @@ class TestMixinEdges:
         os.remove(paths.main / (inserted_array.id + local_array_adapter.file_ext))
         local_array_adapter.delete(inserted_array)  # the target is already gone, the symlink is removed anyway
         assert not (paths.symlink / (inserted_array.id + local_array_adapter.file_ext)).exists()
+
+
+@pytest.mark.parametrize("array_", ["array_with_attributes", "varray_with_attributes"])
+class TestSymlinkDirectoryLock:
+    """Creation of a (V)Array with primary attributes holds the directory of its symlink exclusively."""
+
+    @pytest.mark.timeout(60)
+    def test_second_creator_waits_and_is_refused(self, array_: str, request, mocker: MockerFixture):
+        """The second creator of the same primary attributes waits for the first one and then learns they are taken."""
+        array = request.getfixturevalue(array_)
+        adapter = array._adapter
+        held = HeldCheck(adapter.check_symlink_existence)
+        mocker.patch.object(adapter, "check_symlink_existence", held)
+        other = twin(array)
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            first = pool.submit(adapter.create, array)
+            assert held.inside.wait(10)
+            second = pool.submit(adapter.create, other)
+            with pytest.raises(FutureTimeoutError):
+                second.result(timeout=0.5)  # the directory is held by the first creator
+            held.go.set()
+            assert first.result(timeout=10) is array
+            with pytest.raises(DekerValidationError):
+                second.result(timeout=10)
+        paths = get_paths(array, adapter.collection_path)
+        assert os.listdir(paths.symlink) == [array.id + adapter.file_ext]
+        assert not (get_paths(other, adapter.collection_path).main / (other.id + adapter.file_ext)).exists()
+
+    @pytest.mark.timeout(60)
+    def test_creator_gives_up_after_the_timeout(self, array_: str, request, mocker: MockerFixture):
+        """A creator that cannot take the directory within the timeout fails and leaves no files."""
+        array = request.getfixturevalue(array_)
+        adapter = array._adapter
+        mocker.patch.object(adapter.ctx.config, "write_lock_timeout", 1)
+        paths = get_paths(array, adapter.collection_path)
+        paths.create()
+        with Flock(paths.symlink), pytest.raises(DekerLockError):
+            adapter.create(array)
+        assert os.listdir(paths.symlink) == []
+        assert not (paths.main / (array.id + adapter.file_ext)).exists()
+
+    def test_lock_is_released_after_creation(self, array_: str, request):
+        """The directory is free once the (V)Array is created."""
+        array = request.getfixturevalue(array_)
+        adapter = array._adapter
+        adapter.create(array)
+        paths = get_paths(array, adapter.collection_path)
+        with Flock(paths.symlink):
+            pass
+
+    def test_lock_is_released_after_a_failed_creation(self, array_: str, request):
+        """The directory is free once a creator is refused."""
+        array = request.getfixturevalue(array_)
+        adapter = array._adapter
+        adapter.create(array)
+        with pytest.raises(DekerValidationError):
+            adapter.create(twin(array))
+        with Flock(get_paths(array, adapter.collection_path).symlink):
+            pass
