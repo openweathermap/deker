@@ -570,12 +570,12 @@ class DimensionSchemaCreationParams(TypedSchemaParams):
         return [
             # wrong size
             *cls._generate_types(
-                base_dict={"name": "name", "labels": [], "scale": None},
+                base_dict={"name": "name", "labels": None, "scale": None},
                 key="size",
                 exception_types=[int],
             ),
             # wrong name
-            *cls._generate_types(base_dict={"labels": [], "size": 2, "scale": None}, key="name"),
+            *cls._generate_types(base_dict={"labels": None, "size": 2, "scale": None}, key="name"),
             # wrong labels
             *cls._generate_types(
                 base_dict={"name": "name", "size": 2, "scale": None},

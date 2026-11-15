@@ -26,6 +26,7 @@ from attr import dataclass
 from deker_tools.time import get_utc
 
 from deker.ABC.base_schemas import BaseArraysSchema, BaseAttributeSchema, BaseDimensionSchema
+from deker.dimensions import validate_labels
 from deker.errors import DekerInvalidSchemaError, DekerValidationError
 from deker.log import SelfLoggerMixin
 from deker.types import DimensionType, DTypeEnum, Labels, Numeric, Scale
@@ -81,8 +82,8 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
 
     :param name: dimension unique name
     :param size: dimension cells quantity
-    :param labels: Represents an ordered sequence of unique cells names or a mapping of unique cells names to their
-      position (index) in dimension row. Size of such sequence or mapping shall be equal to the dimension size.
+    :param labels: an ordered list or tuple of unique cells names: all strings (non-blank) or all finite floats,
+      one per cell, so its length equals the dimension size. Integers and booleans are not labels.
 
       May be useful if some data from different sources is grouped in one array, e.g.::
 
@@ -141,11 +142,7 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
                 f"be passed, not both"
             )
         if self.labels is not None:
-            message = "Labels shall be a sequence of unique strings or a mapping of unique strings to unique ints"
-            if not self.labels:
-                raise DekerValidationError(message)
-            if isinstance(self.labels, Scale) or not isinstance(self.labels, (dict, list, tuple)):
-                raise DekerValidationError(message)
+            validate_labels(self.name, self.size, self.labels)
         if self.scale is not None:
             if not isinstance(self.scale, (Scale, dict)):
                 raise DekerValidationError(

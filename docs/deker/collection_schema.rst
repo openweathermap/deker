@@ -278,6 +278,10 @@ we may use ``labels`` to describe it::
     ]
 
 You can provide not only a list of ``strings``, but a list (or a tuple) of ``floats`` as well.
+The labels are checked when the schema is made: there is one label per cell, the labels are
+unique, all strings (none of them empty or blank) or all finite floats. Integers and booleans
+are not labels, because an integer in a slice is always a position; a list that mixes strings
+and floats is rejected too.
 
 Both ``labels`` and ``scale`` provide a mapping of some reasonable information onto your data
 cells. If ``labels`` is always a full sequence kept in metadata and in memory, ``scale`` is

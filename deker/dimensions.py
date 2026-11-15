@@ -15,6 +15,7 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import datetime
+import math
 
 from typing import Any
 
@@ -22,6 +23,37 @@ from deker.ABC.base_dimension import BaseDimension
 from deker.errors import DekerValidationError
 from deker.log import SelfLoggerMixin
 from deker.types import IndexLabels, Labels, Scale
+
+
+def validate_labels(name: str, size: int, labels: Any) -> None:
+    """Check the labels of a dimension: the rules are the same for the schema and for the dimension.
+
+    Labels are a non-empty list or tuple of unique non-blank strings, or of unique finite floats, one label
+    per cell of the dimension. Integers and booleans are not labels: an integer index is a position, and a
+    label that is an integer could never be told from one.
+
+    :param name: name of the dimension, for the message
+    :param size: size of the dimension
+    :param labels: labels to check
+    :raises DekerValidationError: if the labels break one of the rules
+    """
+    prefix = f"Invalid labels of dimension {name}: "
+    if not isinstance(labels, (tuple, list)):
+        raise DekerValidationError(prefix + f"a list or a tuple is expected, got {type(labels).__name__}")
+    if not labels:
+        raise DekerValidationError(prefix + "labels cannot be empty, use None instead")
+    if len(labels) != size:
+        raise DekerValidationError(prefix + f"{len(labels)} labels for {size} cells")
+    if all(isinstance(label, str) for label in labels):
+        if any(not label or label.isspace() for label in labels):
+            raise DekerValidationError(prefix + "a label cannot be an empty or a blank string")
+    elif all(isinstance(label, float) and not isinstance(label, bool) for label in labels):
+        if any(not math.isfinite(label) for label in labels):
+            raise DekerValidationError(prefix + "a label cannot be nan or infinite")
+    else:
+        raise DekerValidationError(prefix + "labels shall be all strings or all floats")
+    if len(set(labels)) < len(labels):
+        raise DekerValidationError(prefix + "labels shall be unique")
 
 
 class Dimension(SelfLoggerMixin, BaseDimension):
@@ -97,25 +129,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
                 raise DekerValidationError(f"Dimension {name} wrong scale: does not match dimension size {size}")
 
         if labels is not None:
-            common_labels_exc = (
-                "Labels shall be an ordered sequence of unique strings or unique floats, "
-                "mapped to the indexes in the dimension axis"
-            )
-
-            if not isinstance(labels, (tuple, list)):
-                raise DekerValidationError(common_labels_exc)
-
-            if not labels:
-                raise DekerValidationError("Label cannot be empty, use None instead")
-
-            if len(labels) != size:
-                raise DekerValidationError("Labels quantity do not match dimension size")
-
-            if not all(isinstance(el, str) for el in labels) and not all(isinstance(el, float) for el in labels):
-                raise DekerValidationError(common_labels_exc)
-
-            if len(set(labels)) < len(labels):
-                raise DekerValidationError(common_labels_exc)
+            validate_labels(name, size, labels)
 
     def __init__(
         self,
