@@ -14,7 +14,11 @@ from deker_local_adapters.factory import AdaptersFactory
 from numpy import ndarray
 
 from tests.parameters.array_params import attributes_validation_params
-from tests.parameters.index_exp_params import invalid_index_params, valid_index_exp_params
+from tests.parameters.index_exp_params import (
+    invalid_index_params,
+    invalid_step_index_exp_params,
+    valid_index_exp_params,
+)
 from tests.parameters.uri import embedded_uri
 
 from deker.arrays import VArray
@@ -22,10 +26,11 @@ from deker.client import Client
 from deker.collection import Collection
 from deker.dimensions import TimeDimension
 from deker.errors import DekerMemoryError, DekerValidationError
-from deker.schemas import DimensionSchema, VArraySchema
+from deker.schemas import DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.tools import get_paths
 from deker.types import ArrayMeta
 from deker.types.private.typings import FancySlice, Slice
+from deker.types.public.classes import Scale
 
 
 class TestVArrayMethods:
@@ -356,9 +361,8 @@ class TestVArrayMethods:
             (np.index_exp[-90.0, -90.0], np.index_exp[360, 180]),
             (np.index_exp[:, -90.0], np.index_exp[:, 180]),
             (np.index_exp[-90.0, :], np.index_exp[360, :]),
-            (np.index_exp[..., -90.0], np.index_exp[..., 180]),
+            (np.index_exp[..., "j"], np.index_exp[..., 9]),  # the index after an ellipsis is for the last axis
             (np.index_exp[-90.0, ...], np.index_exp[360, ...]),
-            (np.index_exp[360, -90.0], np.index_exp[360, 180]),
             (np.index_exp[-90.0, 180], np.index_exp[360, 180]),
             (-89.5, 359),
             (np.index_exp[90.0:0.0, -180.0:0.0], np.index_exp[0:180, 0:360]),
@@ -421,7 +425,6 @@ class TestVArrayMethods:
             np.index_exp[0.0:-90.0:1.5],
             np.index_exp[0.0:-90.0:-1],
             np.index_exp[0.0:-90.0, 0.0:179.5:-1],
-            np.index_exp[0.0:-90.0, 0.0:179.5:2],
             np.index_exp[:, :, "а"],  # cyrillic
             np.index_exp[:, :, "aa"],
             np.index_exp[:, :, " a"],
@@ -608,9 +611,11 @@ class TestVArrayMethods:
                 int(datetime(2023, 1, 31, tzinfo=timezone.utc).timestamp()),
                 int(datetime(2023, 1, 1, 23, tzinfo=timezone.utc).timestamp()),
             ],
-            np.index_exp[datetime(2023, 1, 1) :: 2],
-            np.index_exp[datetime(2023, 1, 1) :: timedelta(days=2)],
-            np.index_exp[datetime(2023, 1, 1) :: timedelta(days=3)],
+            np.index_exp[datetime(2023, 1, 1) :: timedelta(hours=36)],  # not a multiple of the step of one day
+            np.index_exp[datetime(2023, 1, 1) :: timedelta(0)],
+            np.index_exp[datetime(2023, 1, 1) :: 1.0],
+            np.index_exp[timedelta(days=1) :: 2],
+            np.index_exp[: timedelta(days=1) : 2],
         ],
     )
     def test_varray_time_getitem_raises(self, timed_varray: VArray, scale_index_exp: FancySlice):
@@ -730,18 +735,9 @@ class TestVArrayMethods:
                 s = s[:-1] + f", custom_attributes={ar.custom_attributes!r})"
             assert repr(ar) == s
 
-    @pytest.mark.parametrize(
-        "index_exp",
-        [
-            (None, slice(None, None, 2)),
-            (None, slice(None, None, -2)),
-            (slice(None, None, -2)),
-            (slice(None, None, 2)),
-            (slice(None, None, 0)),
-            (slice(None, None, None), slice(None, None, None), slice(None, None, 3)),
-        ],
-    )
-    def test_step_validaor(self, varray: VArray, index_exp):
+    @pytest.mark.parametrize("index_exp", invalid_step_index_exp_params)
+    def test_step_validator(self, varray: VArray, index_exp):
+        """Tests if a zero or a boolean step is rejected."""
         with pytest.raises(IndexError):
             varray[index_exp]
 
@@ -778,6 +774,103 @@ class TestVArrayMethods:
         )
         assert array.primary_attributes == varray_with_attributes.primary_attributes
         assert array.custom_attributes == varray_with_attributes.custom_attributes
+
+
+# Described dimensions used by the step tests, split into tiles along every axis
+STEP_START = datetime(2024, 1, 1, tzinfo=timezone.utc)
+STEP_LABELS = ["a", "b", "c", "d", "e"]
+
+
+def _step_dimensions():
+    """Dimensions of the varray for the step tests: time (24 x 1h), scale down (10 x -0.5), scale up (10 x 0.5), labels.
+
+    :returns: dimension schemas
+    """
+    return [
+        TimeDimensionSchema(name="t", size=24, start_value=STEP_START, step=timedelta(hours=1)),
+        DimensionSchema(name="y", size=10, scale=Scale(start_value=90.0, step=-0.5)),
+        DimensionSchema(name="x", size=10, scale=Scale(start_value=-180.0, step=0.5)),
+        DimensionSchema(name="layers", size=5, labels=STEP_LABELS),
+    ]
+
+
+# Fancy steps of the described varray and the plain integer slices they convert to
+fancy_step_params = [
+    pytest.param(
+        np.index_exp[STEP_START + timedelta(hours=2) : STEP_START + timedelta(hours=10) : timedelta(hours=2)],
+        (slice(2, 10, 2),),
+        id="time-forward-2h",
+    ),
+    pytest.param(
+        np.index_exp[STEP_START + timedelta(hours=10) : STEP_START + timedelta(hours=2) : -timedelta(hours=2)],
+        (slice(10, 2, -2),),
+        id="time-backward-2h",
+    ),
+    pytest.param(np.index_exp[:, 89.0:86.0:-1.0], (slice(None), slice(2, 8, 2)), id="scale-down-against-the-scale"),
+    pytest.param(np.index_exp[:, 86.0:89.0:1.0], (slice(None), slice(8, 2, -2)), id="scale-down-along-the-scale"),
+    pytest.param(
+        np.index_exp[:, :, -176.0:-179.0:-1.5], (slice(None), slice(None), slice(8, 2, -3)), id="scale-up-backward"
+    ),
+    pytest.param(
+        np.index_exp[:, :, :, "e":"a":-1],
+        (slice(None), slice(None), slice(None), slice(4, 0, -1)),
+        id="labels-backward",
+    ),
+    pytest.param(
+        np.index_exp[STEP_START + timedelta(hours=3) :: timedelta(hours=4), 89.0::-1.0, ::3, "b"::2],
+        (slice(3, None, 4), slice(2, None, 2), slice(None, None, 3), slice(1, None, 2)),
+        id="every-axis-at-once",
+    ),
+]
+
+invalid_fancy_step_params = [
+    pytest.param(np.index_exp[:: timedelta(minutes=30)], id="time-step-not-a-multiple"),
+    pytest.param(np.index_exp[:: timedelta(0)], id="time-zero-step"),
+    pytest.param(np.index_exp[::1.0], id="time-float-step"),
+    pytest.param(np.index_exp[timedelta(hours=1) :: 2], id="time-timedelta-start"),
+    pytest.param(np.index_exp[:, ::0.3], id="scale-step-not-a-multiple"),
+    pytest.param(np.index_exp[:, ::0.0], id="scale-zero-step"),
+    pytest.param(np.index_exp[:, :: timedelta(hours=1)], id="scale-timedelta-step"),
+    pytest.param(np.index_exp[:, :, :, ::1.0], id="labels-float-step"),
+    pytest.param(np.index_exp[:, :, :, ::"b"], id="labels-string-step"),
+    pytest.param(np.index_exp[:, 89.0:86.0:1.0], id="scale-step-walks-away-from-stop"),
+]
+
+
+class TestVArrayStepIndexing:
+    """Steps in the index expressions of a VArray convert exactly as for an Array, whatever the grid."""
+
+    @pytest.fixture(
+        scope="class", params=[(1, 1, 1, 1), (4, 2, 5, 1), (3, 5, 2, 5)], ids=lambda v: "x".join(map(str, v))
+    )
+    def described_varray(self, request, client: Client) -> VArray:
+        vgrid = request.param
+        schema = VArraySchema(dtype=float, dimensions=_step_dimensions(), vgrid=vgrid)
+        collection = client.create_collection(f"varray_steps_{'_'.join(map(str, vgrid))}", schema)
+        try:
+            varray = collection.create()
+            varray[:].update(np.arange(24 * 10 * 10 * 5, dtype=float).reshape(24, 10, 10, 5))
+            yield varray
+        finally:
+            collection.delete()
+
+    @pytest.mark.parametrize(("index_exp", "bounds"), fancy_step_params)
+    def test_fancy_steps_convert_to_integer_slices(self, described_varray: VArray, index_exp: FancySlice, bounds):
+        subset = described_varray[index_exp]
+        assert subset.bounds == bounds
+        expected = described_varray[:].read()[bounds]
+        assert subset.shape == expected.shape
+        assert np.array_equal(subset.read(), expected)
+
+    @pytest.mark.parametrize("index_exp", invalid_fancy_step_params)
+    def test_steps_of_a_wrong_kind_raise(self, described_varray: VArray, index_exp: FancySlice):
+        with pytest.raises(IndexError):
+            described_varray[index_exp]
+
+    @pytest.mark.parametrize("index_exp", invalid_step_index_exp_params)
+    def test_zero_and_boolean_steps_raise(self, described_varray: VArray, index_exp: Slice):
+        with pytest.raises(IndexError):
+            described_varray[index_exp]
 
 
 if __name__ == "__main__":

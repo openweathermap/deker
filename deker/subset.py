@@ -14,15 +14,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import builtins
 import traceback
 
 from collections.abc import Iterator, Sequence
-from typing import TYPE_CHECKING, Optional
+from itertools import product
+from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import numpy as np
 
-from deker_tools.slices import create_shape_from_slice, match_slice_size, slice_converter
+from deker_tools.slices import create_shape_from_slice, positive_bounds, slice_converter
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
@@ -32,13 +32,8 @@ from deker.locks import WriteVarrayLock
 from deker.schemas import TimeDimensionSchema
 from deker.tools import not_deleted
 from deker.tools.time import get_start_datetime
-from deker.types.private.classes import (
-    ArrayOffset,
-    ArrayPosition,
-    ArrayPositionedData,
-    ArraysCoordinatesWithOffset,
-)
-from deker.types.private.typings import Arrays, ArraysCoordinates, Data, Numeric, Slice
+from deker.types.private.classes import ArrayPosition, ArrayPositionedData
+from deker.types.private.typings import Arrays, Data, Numeric, Slice
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
@@ -147,68 +142,77 @@ class Subset(BaseSubset):
         self.logger.info(f"{self!s} data cleared")
 
 
-class _DataSliceCalculator:
-    """Calculator of the slices of the subset data that belong to its inner Arrays.
+class _TileBounds(NamedTuple):
+    """Part of one tile (inner ``Array``) along one axis, selected by a subset bound."""
 
-    The inner Arrays of a subset are walked in order; for every dimension the calculator remembers
-    the position of the previous Array and how many elements the previous Arrays took, so that the
-    slice of the subset data for the current Array continues where the previous one ended.
+    position: int
+    """Index of the tile along the axis of the grid."""
+    bounds: slice | int
+    """Bounds inside the tile along the axis."""
+    data_slice: slice | None
+    """Slice of the subset data along the axis; ``None`` for an integer bound, which drops the axis."""
 
-    :param filled_slice_expression: subset bounds, one slice or index per dimension of the VArray
-    :param arrays_shape: shape of the inner Arrays
+
+def _split_axis(bound: slice | int, size: int, tile_size: int) -> list[_TileBounds]:
+    """Split a subset bound of one axis into the parts that fall into each tile.
+
+    The selected positions are walked in their order: the tiles with no selected position are skipped
+    (a step larger than a tile jumps over tiles), and the slice of the subset data of every tile continues
+    where the previous one ended. The step of the bound shall be positive: a negative step is replaced by
+    its forward twin before, see ``deker_tools.slices.positive_bounds``.
+
+    :param bound: subset bound along the axis, a slice with a positive step or an integer
+    :param size: size of the VArray along the axis
+    :param tile_size: size of a tile along the axis
+    :returns: parts of the tiles the bound selects, in the order of the tiles
     """
+    if isinstance(bound, int):
+        position = bound if bound >= 0 else size + bound
+        return [_TileBounds(position // tile_size, position % tile_size, None)]
 
-    def __init__(self, filled_slice_expression: Sequence[slice | int], arrays_shape: Sequence[int]) -> None:
-        self.filled_slice_expression = tuple(filled_slice_expression)
-        self.arrays_shape = tuple(arrays_shape)
-        length = len(self.filled_slice_expression)
-        # Position of the previous Array in each dimension
-        self.prev_position = [-1] * length
-        # Elements taken by the previous Arrays in each dimension
-        self.prev_sizes = [0] * length
-        # Buffer of sizes, written to prev_sizes only for a dimension whose position has changed
-        self.prev_sizes_buffer = [0] * length
+    start, stop, step = bound.indices(size)
+    if step < 0:  # pragma: no cover
+        raise DekerVSubsetError(f"A negative step {step} shall be replaced by its forward twin before", [])
+    tiles: list[_TileBounds] = []
+    selected_before = 0
+    first = start
+    while first < stop:
+        position = first // tile_size
+        tile_end = min(stop, (position + 1) * tile_size)
+        count = (tile_end - 1 - first) // step + 1
+        last = first + (count - 1) * step
+        offset = position * tile_size
+        local_start, local_stop = first - offset, last - offset + 1
+        if step == 1:
+            # a whole tile is the plain slice(None, None), a cut one keeps its bounds
+            bounds = (
+                slice(None, None) if (local_start, local_stop) == (0, tile_size) else slice(local_start, local_stop)
+            )
+        else:
+            bounds = slice(local_start, local_stop, step)
+        tiles.append(_TileBounds(position, bounds, slice(selected_before, selected_before + count)))
+        selected_before += count
+        first = last + step
+    return tiles
 
-    def calc(self, current_dimension: int, dim: slice | int, array_vposition: Sequence[int]) -> slice | int | None:
-        """Calculate the slice of the subset data for one dimension of an inner Array.
 
-        :param current_dimension: index of the dimension
-        :param dim: bounds of the Array in this dimension (e.g. slice(0, 5)) or an index
-        :param array_vposition: position of the Array in the VArray grid
-        :returns: slice of the subset data for the dimension, an index for an integer bound,
-            ``None`` if the subset bound in this dimension is an integer
-        """
-        if isinstance(self.filled_slice_expression[current_dimension], int):
-            self.prev_position[current_dimension] = array_vposition[current_dimension]
-            return None
+def _tile_positions(bounds: Sequence[slice | int], shape: Sequence[int], arrays_shape: Sequence[int]) -> Arrays:
+    """Find the tiles (inner ``Arrays``) a subset covers, with their bounds and their slices of the subset data.
 
-        if isinstance(dim, int):
-            self.prev_position[current_dimension] = array_vposition[current_dimension]
-            return dim
-
-        dim_start, dim_stop, _ = match_slice_size(self.arrays_shape[current_dimension], dim)
-        positions_length = len(array_vposition)
-
-        if self.prev_position[current_dimension] == array_vposition[current_dimension]:
-            self.prev_sizes_buffer[current_dimension] = self.prev_sizes[current_dimension]
-        if self.prev_position[current_dimension] != array_vposition[current_dimension]:
-            self.prev_sizes[current_dimension] = self.prev_sizes_buffer[current_dimension]
-
-        for i in range(positions_length):
-            if self.prev_position[i] != array_vposition[i] and i < positions_length - 1:
-                self.prev_sizes_buffer[i + 1 : :] = [0] * (positions_length - i - 1)
-
-        elems_in_dimension = abs(dim_stop - dim_start)
-        if array_vposition[current_dimension] == 0:
-            self.prev_sizes[current_dimension] = self.prev_sizes_buffer[current_dimension] = 0
-
-        slice_start = self.prev_sizes[current_dimension]
-        slice_stop = slice_start + elems_in_dimension
-        # what was prev position in that dimension
-        self.prev_position[current_dimension] = array_vposition[current_dimension]
-        # how many elements in that dimension
-        self.prev_sizes_buffer[current_dimension] += elems_in_dimension
-        return slice(slice_start, slice_stop)
+    :param bounds: subset bounds, one slice with a positive step or integer per axis of the VArray
+    :param shape: shape of the VArray
+    :param arrays_shape: shape of the tiles
+    :returns: positions of the tiles in the grid with their bounds and data slices, sorted by position
+    """
+    axes = [_split_axis(bound, size, tile_size) for bound, size, tile_size in zip(bounds, shape, arrays_shape)]
+    return [
+        ArrayPosition(
+            vposition=tuple(part.position for part in parts),
+            bounds=tuple(part.bounds for part in parts),
+            data_slice=tuple(part.data_slice for part in parts if part.data_slice is not None),
+        )
+        for parts in product(*axes)
+    ]
 
 
 class VSubset(BaseSubset):
@@ -267,222 +271,8 @@ class VSubset(BaseSubset):
         "__array_adapter",
         "__collection",
         "__arrays",
+        "__flipped_axes",
     )
-
-    @staticmethod
-    def __get_offset(i: int, step: int, offset_start: int, start: int, offset_end: int, end: int) -> ArrayOffset:
-        """Calculate an offset for array.
-
-        If it's first array, and there are more arrays in result, return offset from start and zero.
-        If it's only one array, offset from end would be equal to the one, which was provided.
-        For last array start offset is always zero, and offset form end would be equal
-        to the one, which was provided. For any array in between, offsets would be zeroes.
-
-        :param i: current array start point. i % step always equals 0
-        :param step: step of vgrid
-        :param offset_start: offset from start
-        :param start: start of current array( with offset)
-        :param offset_end: offset from end
-        :param end: start of current array( with offset)
-        :returns: offset of the array data within the subset
-        """
-        if i == start - offset_start:
-            if end < i + step:
-                return {"start": offset_start, "end": step + offset_end}
-            return {"start": offset_start, "end": 0}
-
-        if i == end - offset_end - step and end < i + step:
-            return {"start": 0, "end": step + offset_end}
-        return {"start": 0, "end": 0}
-
-    def __match_slice_exp(
-        self, slice_exp: slice | int | None, current_index: int, array: "VArray"
-    ) -> ArraysCoordinates:
-        """Create a list of vgrid indexes by expression.
-
-        :param slice_exp: Slice expression (e.g 1,  slice(None, 2, 1), EllipsisType)
-        :param current_index: current index of dimension
-        :param array: Varray object
-        :returns: coordinates of the arrays covered by the expression, with offsets
-        """
-        # Size of dimension
-        dim_size = array.dimensions[current_index].size
-
-        # Step in vgrid
-        step = dim_size // array.vgrid[current_index]
-
-        if type(slice_exp) is builtins.int:
-            # We may receive an int.
-            # In this case, the number of arrays is always 1.
-            # We return it as a list of one element, as the upper function does not know anything about type
-            # so just return it in the same format to avoid unnecessary checking
-            return [
-                [
-                    ArraysCoordinatesWithOffset(
-                        slice_exp // step,
-                        ArrayOffset(
-                            start=slice_exp % step,
-                        ),
-                    )
-                ]
-            ]
-
-        # If its None at slice_exp
-        # Get start of slice, and end of slice
-        start, stop, _ = match_slice_size(dim_size, slice_exp)
-        # Offset from start
-        offset_start = start % step
-        # Offset from end (e.g. for step = 5, and stop = 10, offset would be 0
-        # as slice ends on the same point as stop )
-        offset_end = -(step - (stop % step)) if stop % step else 0
-        # We subtract offsets to get start and end points which are divided to parts
-        # by step (e.g. if there is 2 arrays, step is 20 and start is 12 and stop is 35,
-        # to get the correct number of Arrays, we should start from 0, go up to 40 with given
-        # step)
-        return [
-            [
-                ArraysCoordinatesWithOffset(
-                    i // step,
-                    ArrayOffset(**self.__get_offset(i, step, offset_start, start, offset_end, stop)),
-                )
-            ]
-            for i in range(start - offset_start, stop - offset_end, step)
-        ]
-
-    def __get_arrays_for_dimension(
-        self, slice_exp: list[slice | int], array: "VArray", current_index: int
-    ) -> ArraysCoordinates:
-        """Calculate which Arrays are in the given dimension.
-
-        For every dimension, we calculate indexes of arrays for current dimension with offset
-        using self.__match_slice_exp method, which gives us following:
-        [[
-          (<position in dimension>, (<offset from start>, <offset from end>)),
-          (<position2 in dimension>, (<offset from start>, <offset from end>)),
-          ...
-        ]]
-        After this, for every position, we create variations for rest of dimensions recursively.
-        So [[(<position in dimension>, (<offset from start>, <offset from end>)), ...]], became
-        [[
-            (<position in dimension>, (<offset from start>, <offset from end>)),
-            (<position in dimension2>, (<offset from start>, <offset from end>))
-        ]]
-
-        :param slice_exp: Slice expression (e.g [1, 2], [1, slice(None, 2, 1)], [EllipsisType])
-        :param current_index: current index of dimension
-        :param array: Varray object
-        :return: [
-            [
-              (<position in dimension1>, (<offset from start>, <offset from end>)),
-              (<position in dimension2>, (<offset from start>, <offset from end>)),
-              ...
-            ],
-            [
-              (<position2 in dimension1>, (<offset from start>, <offset from end>)),
-              (<position2 in dimension2>, (<offset from start>, <offset from end>)),
-              ...
-            ]
-        ]
-        """
-        # Exit point for recursion. If we are at last dimension, there is no more recursion.
-        arrays = []
-        if len(slice_exp) == 1:
-            return self.__match_slice_exp(slice_exp[0], current_index, array)
-
-        #  arrays_tuple contains a list with arrays positions like
-        #  [[
-        #    (< position in dimension >, ( < offset from start >, < offset from end >)),
-        #    (< position2 in dimension >, ( < offset from start >, < offset from end >)),
-        #    ...
-        #  ]]
-        arrays_tuple = self.__match_slice_exp(slice_exp[0], current_index, array)
-        for array_tuple in arrays_tuple:
-            # For every position, we create list with arrays indexes for left dimensions.
-            # E.g:
-            #  If the number of dimensions is 3, and the current dimension index is 0
-            # It will create a list with positions for left 2 dimensions
-            variations = self.__get_arrays_for_dimension(slice_exp[1:], array, current_index + 1)
-            # variations example:
-            # [[
-            #    (< position in dimension1>, ( < offset from start >, < offset from end >)),
-            #    (< position in dimension2 >, ( < offset from start >, < offset from end >))
-            # ], ..]
-            for variation in variations:
-                # Concatenate every variation of dimension to current position
-                arrays.append([*array_tuple, *variation])
-
-        return arrays
-
-    def __fill_slice_expression(self, array: "VArray", slice_exp: tuple[slice | None | int, ...]) -> list[slice | int]:
-        """Fill slice expression.
-
-         The number of elements in slice_exp would be to equal number of dimensions.
-        :param array: VArray instance
-        :param slice_exp: tuple of ints or slices
-        :returns: slice expression extended to the number of dimensions
-        """
-        dimension_given_length = len(slice_exp)
-
-        slice_exp_: list[slice | int] = []
-        for i in range(len(array.dimensions)):
-            slice_to_add: slice | int = slice(None, None)
-            if i < dimension_given_length:
-                element = slice_exp[i]
-                if isinstance(element, slice):
-                    slice_to_add = element
-                elif isinstance(element, int):
-                    slice_to_add = element
-                    if element < 0:
-                        slice_to_add = array.dimensions[i].size + element
-
-            slice_exp_.append(slice_to_add)
-        return slice_exp_
-
-    def __get_array_subsets(self, slice_exp: tuple[slice | None | int, ...], array: "VArray") -> Arrays:
-        """Calculate which Arrays are in the given subset.
-
-        :param slice_exp: Slice expression (e.g [1, 2], [1, slice(None, 2, 1)], [EllipsisType])
-        :param array: Varray instance
-        :returns: arrays of the subset with their positions and bounds
-        """
-        filled_slice_expression = self.__fill_slice_expression(array, slice_exp)
-        arrays = self.__get_arrays_for_dimension(filled_slice_expression, array, 0)
-
-        # Reformat to have position and bounds side by side
-        array_positions = []
-
-        calculator = _DataSliceCalculator(
-            filled_slice_expression,
-            tuple(array.dimensions[i].size // array.vgrid[i] for i in range(len(filled_slice_expression))),
-        )
-
-        for array_ in arrays:
-            vposition: list[int] = []
-            bounds: list[slice | int] = []
-            for index, (position, offset) in enumerate(array_):
-                vposition.append(position)
-                if "end" not in offset:
-                    bounds.append(offset["start"])
-                    continue
-                start, end = offset["start"], offset["end"]
-                if end == 0:
-                    end = array.dimensions[index].size // array.vgrid[index]
-                    if start == 0:
-                        bounds.append(slice(None, None))
-                        continue
-                bounds.append(slice(start, end))
-
-            dt_slice = [calculator.calc(i, dim, vposition) for i, dim in enumerate(bounds)]
-            array_positions.append(
-                ArrayPosition(
-                    vposition=tuple(vposition),
-                    bounds=tuple(bounds),
-                    data_slice=tuple([dt for dt in dt_slice if dt is not None]),
-                )
-            )
-
-        sorted_positions = sorted(array_positions, key=lambda p: p.vposition)
-        return sorted_positions
 
     def __init__(
         self,
@@ -498,10 +288,10 @@ class VSubset(BaseSubset):
         self.__array: "VArray" = array
         self.__adapter: "BaseVArrayAdapter" = varray_adapter
         self.__array_adapter: "BaseArrayAdapter" = array_adapter
-        self.__arrays: Arrays = self.__get_array_subsets(
-            slice_expression,
-            array,
-        )
+        # the tiles are walked forwards: a negative step is replaced by its forward twin and the data of the
+        # subset is flipped along the axis on reading, and before splitting on writing
+        forward, self.__flipped_axes = positive_bounds(array.shape, slice_expression)
+        self.__arrays: Arrays = _tile_positions(forward, array.shape, array.arrays_shape)
         self.__collection: "Collection" = collection
         super().__init__(slice_expression, shape, array, array_adapter, varray_adapter, collection)
         self.logger.debug(f"{self.__str__} instantiated")
@@ -551,6 +341,8 @@ class VSubset(BaseSubset):
             if position == tuple():
                 return data[position]
             results[position] = data
+        if self.__flipped_axes:
+            return np.flip(results, self.__flipped_axes)
         return results
 
     def __read_array_data(self, array_pos: ArrayPosition) -> tuple[Slice, Numeric | ndarray | None]:
@@ -637,6 +429,8 @@ class VSubset(BaseSubset):
             processed if isinstance(processed, np.ndarray) else np.full(self.__shape, processed, self.__array.dtype)
         )
 
+        if self.__flipped_axes:
+            data_array = np.flip(data_array, self.__flipped_axes)
         positions = [
             ArrayPositionedData(vpos, array_bounds, data_array[data_bounds])
             for vpos, array_bounds, data_bounds in self.__arrays

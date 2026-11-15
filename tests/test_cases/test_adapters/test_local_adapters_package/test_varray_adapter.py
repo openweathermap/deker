@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from deker_local_adapters import LocalVArrayAdapter
+from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
 from deker_tools.path import is_empty
 
 from deker.arrays import VArray
@@ -16,11 +17,11 @@ from deker.tools import get_paths
 
 class TestVArrayAdapterMethods:
     def test_varray_adapter_init(self, array_collection, ctx, executor):
-        adapter = LocalVArrayAdapter(array_collection.path, ctx, array_collection._storage_adapter, executor)
+        adapter = LocalVArrayAdapter(array_collection.path, ctx, HDF5StorageAdapter, executor)
         assert adapter
 
     def test_varray_adapter_create_varray(self, varray: VArray):
-        find = varray._VArray__collection.filter({"id": varray.id})  # type: ignore[attr-defined]
+        find = varray._VArray__collection.filter({"id": varray.id})
         array = find.first()
         assert array is None
         adapter = varray._adapter
@@ -36,14 +37,14 @@ class TestVArrayAdapterMethods:
 
     def test_varray_adapter_delete_varray(self, varray: VArray):
         """Test delete without inner arrays."""
-        find = varray._VArray__collection.filter({"id": varray.id})  # type: ignore[attr-defined]
+        find = varray._VArray__collection.filter({"id": varray.id})
         array = find.first()
         assert array is None
         adapter = varray._adapter
         adapter.create(varray)
         array = find.first()
         assert array is not None
-        paths = get_paths(varray, varray._VArray__collection.path)  # type: ignore[attr-defined]
+        paths = get_paths(varray, varray._VArray__collection.path)
         adapter.delete(varray)
         assert find.first() is None
         assert not (paths.symlink / array.id).exists()
@@ -52,7 +53,7 @@ class TestVArrayAdapterMethods:
 
     def test_varray_adapter_clears_varray_directories(self, varray: VArray, ctx):
         """Test delete without inner arrays."""
-        find = varray._VArray__collection.filter({"id": varray.id})  # type: ignore[attr-defined]
+        find = varray._VArray__collection.filter({"id": varray.id})
         array = find.first()
         assert array is None
         adapter = varray._adapter
@@ -65,7 +66,7 @@ class TestVArrayAdapterMethods:
             update_data = np.ones(shape=(5, 5, 5), dtype=array.dtype)
             vsubset.update(update_data)
 
-        paths = get_paths(varray, varray._VArray__collection.path)  # type: ignore[attr-defined]
+        paths = get_paths(varray, varray._VArray__collection.path)
         adapter.delete(varray)
         assert find.first() is None
         assert not (paths.symlink / array.id).exists()
@@ -73,14 +74,11 @@ class TestVArrayAdapterMethods:
         assert not paths.main.exists()
         assert not (varray._VArray__collection.path / ctx.config.array_data_directory / array.id).exists()
 
-        assert not is_empty(
-            varray._VArray__collection.path / ctx.config.array_symlinks_directory
-            # type: ignore[attr-defined]
-        )
+        assert not is_empty(varray._VArray__collection.path / ctx.config.array_symlinks_directory)
 
     def test_varray_adapter_delete_varray_and_arrays(self, varray: VArray, ctx):
         """Test delete varray with all its contents."""
-        find = varray._VArray__collection.filter({"id": varray.id})  # type: ignore[attr-defined]
+        find = varray._VArray__collection.filter({"id": varray.id})
         array = find.first()
         assert array is None
         adapter = varray._adapter
@@ -93,7 +91,7 @@ class TestVArrayAdapterMethods:
             update_data = np.ones(shape=(5, 5, 5), dtype=array.dtype)
             vsubset.update(update_data)
 
-        paths = get_paths(varray, varray._VArray__collection.path)  # type: ignore[attr-defined]
+        paths = get_paths(varray, varray._VArray__collection.path)
         array.delete()
         assert find.first() is None
         assert not (paths.symlink / array.id).exists()
@@ -101,14 +99,11 @@ class TestVArrayAdapterMethods:
         assert not paths.main.exists()
         assert not (varray._VArray__collection.path / ctx.config.array_data_directory / array.id).exists()
 
-        assert is_empty(
-            varray._VArray__collection.path / ctx.config.array_symlinks_directory
-            # type: ignore[attr-defined]
-        )
+        assert is_empty(varray._VArray__collection.path / ctx.config.array_symlinks_directory)
 
     def test_varray_adapter_read_meta_from_varray(self, varray: VArray):
         """Test read meta."""
-        adapter: LocalVArrayAdapter = varray._adapter  # type: ignore[attr-defined]
+        adapter: LocalVArrayAdapter = varray._adapter
         adapter.create(varray)
         meta = adapter.read_meta(varray)
         assert meta
@@ -116,9 +111,9 @@ class TestVArrayAdapterMethods:
 
     def test_varray_adapter_read_meta_from_varray_path(self, varray: VArray):
         """Test __iter__."""
-        adapter: LocalVArrayAdapter = varray._adapter  # type: ignore[attr-defined]
+        adapter: LocalVArrayAdapter = varray._adapter
         adapter.create(varray)
-        paths = get_paths(varray, varray._VArray__collection.path)  # type: ignore[attr-defined]
+        paths = get_paths(varray, varray._VArray__collection.path)
         meta = adapter.read_meta(paths.main / (varray.id + adapter.file_ext))
         assert meta
         assert meta["id"] == varray.id
@@ -128,16 +123,16 @@ class TestVArrayAdapterMethods:
             "custom_attribute": 0.6,
             "time_attr_name": datetime.now(timezone.utc),
         }
-        adapter: LocalVArrayAdapter = varray_with_attributes._adapter  # type: ignore[attr-defined]
+        adapter: LocalVArrayAdapter = varray_with_attributes._adapter
         adapter.create(varray_with_attributes)
         adapter.update_meta_custom_attributes(varray_with_attributes, new_custom_attributes)
         assert varray_with_attributes.custom_attributes == new_custom_attributes
         meta = varray_with_attributes.read_meta()
         ar = VArray._create_from_meta(
-            varray_with_attributes._VArray__collection,  # type: ignore[attr-defined]
-            meta,  # type: ignore[arg-type]
+            varray_with_attributes._VArray__collection,
+            meta,
             varray_adapter=adapter,
-            array_adapter=varray_with_attributes._VArray__array_adapter,  # type: ignore[attr-defined]
+            array_adapter=varray_with_attributes._VArray__array_adapter,
         )
         assert ar.custom_attributes == new_custom_attributes
 
@@ -205,7 +200,7 @@ class TestActions:
         varray_collection_with_attributes: Collection,
     ):
         varray_adapter = varray_with_attributes._adapter
-        array_adapter = varray_with_attributes._VArray__array_adapter  # type: ignore[attr-defined]
+        array_adapter = varray_with_attributes._VArray__array_adapter
         varray_adapter.create(varray_with_attributes)
         new_array = VArray(
             collection=varray_collection_with_attributes,

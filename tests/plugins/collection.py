@@ -4,11 +4,15 @@ from datetime import datetime, timedelta
 from random import choices
 from string import ascii_letters
 
+import numpy as np
 import pytest
 
 from deker_local_adapters import HDF5Options
 
+from tests.parameters.uri import embedded_uri
+
 from deker import Scale
+from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.schemas import (
@@ -156,3 +160,135 @@ def timed_varray_collection(client) -> Collection:
     collection = client.create_collection("timed_v_collection", schema)
     yield collection
     collection.delete()
+
+
+class SteppedCollections:
+    """Collections of the step tests, one per shape and grid, created on first use and deleted at the end.
+
+    Every parametrized case asks for its own shape and grid; keeping the collections here saves creating
+    the same collection for every case, whatever the order the tests run in.
+
+    :param client: client that owns the collections
+    """
+
+    def __init__(self, client: Client) -> None:
+        self.client = client
+        self.collections: dict[tuple, Collection] = {}
+        self.filled: dict[tuple, Array | VArray] = {}
+
+    @staticmethod
+    def _dimensions(shape: tuple[int, ...]) -> list[DimensionSchema]:
+        """Plain dimensions of the given shape.
+
+        :param shape: shape of the array
+        :returns: dimension schemas
+        """
+        return [DimensionSchema(name=f"d{n}", size=size) for n, size in enumerate(shape)]
+
+    def array_collection(self, shape: tuple[int, ...]) -> Collection:
+        """Get the Array collection of the shape, creating it on first use.
+
+        :param shape: shape of the arrays
+        :returns: the collection
+        """
+        key = ("array", shape)
+        if key not in self.collections:
+            schema = ArraySchema(dtype=float, dimensions=self._dimensions(shape))
+            name = f"stepped_array_{'_'.join(map(str, shape))}"
+            self.collections[key] = self.client.create_collection(name, schema)
+        return self.collections[key]
+
+    def varray_collection(self, shape: tuple[int, ...], vgrid: tuple[int, ...]) -> Collection:
+        """Get the VArray collection of the shape and the grid, creating it on first use.
+
+        :param shape: shape of the varrays
+        :param vgrid: grid of the varrays
+        :returns: the collection
+        """
+        key = ("varray", shape, vgrid)
+        if key not in self.collections:
+            schema = VArraySchema(dtype=float, dimensions=self._dimensions(shape), vgrid=vgrid)
+            name = f"stepped_varray_{'_'.join(map(str, shape))}_{'_'.join(map(str, vgrid))}"
+            self.collections[key] = self.client.create_collection(name, schema)
+        return self.collections[key]
+
+    @staticmethod
+    def data(shape: tuple[int, ...]) -> np.ndarray:
+        """Distinct values for every cell of the shape: ``1..n``.
+
+        :param shape: shape of the array
+        :returns: the values
+        """
+        return np.arange(1, np.prod(shape, dtype=int) + 1, dtype=float).reshape(shape)
+
+    def filled_array(self, shape: tuple[int, ...]) -> Array:
+        """Get the Array of the shape holding ``data(shape)``, written on first use; it is never changed.
+
+        :param shape: shape of the array
+        :returns: the array
+        """
+        key = ("filled-array", shape)
+        if key not in self.filled:
+            array = self.array_collection(shape).create()
+            array[:].update(self.data(shape))
+            self.filled[key] = array
+        return self.filled[key]
+
+    def filled_varray(self, shape: tuple[int, ...], vgrid: tuple[int, ...]) -> VArray:
+        """Get the VArray of the shape and the grid holding ``data(shape)``, written on first use; it is never changed.
+
+        :param shape: shape of the varray
+        :param vgrid: grid of the varray
+        :returns: the varray
+        """
+        key = ("filled-varray", shape, vgrid)
+        if key not in self.filled:
+            varray = self.varray_collection(shape, vgrid).create()
+            varray[:].update(self.data(shape))
+            self.filled[key] = varray
+        return self.filled[key]
+
+    def delete_all(self) -> None:
+        """Delete every collection created so far."""
+        self.filled.clear()
+        for collection in self.collections.values():
+            collection.delete()
+        self.collections.clear()
+
+
+@pytest.fixture(scope="session")
+def stepped_collections(root_path) -> SteppedCollections:
+    """Registry of the collections of the step tests, with its own client for the whole session."""
+    client = Client(str(embedded_uri(root_path)), loglevel="ERROR")
+    registry = SteppedCollections(client)
+    try:
+        yield registry
+    finally:
+        registry.delete_all()
+        client.close()
+
+
+@pytest.fixture
+def stepped_array_collection(request, stepped_collections: SteppedCollections) -> Collection:
+    """The Array collection of the shape of the parameter."""
+    return stepped_collections.array_collection(request.param)
+
+
+@pytest.fixture
+def filled_stepped_array(request, stepped_collections: SteppedCollections) -> Array:
+    """The Array of the shape of the parameter with data in every cell, shared by the reading tests."""
+    return stepped_collections.filled_array(request.param)
+
+
+@pytest.fixture
+def stepped_varray_collection(request, stepped_collections: SteppedCollections) -> Collection:
+    """The VArray collection of the shape and the grid of the parameter."""
+    shape, vgrid = request.param
+    return stepped_collections.varray_collection(shape, vgrid)
+
+
+@pytest.fixture
+def filled_stepped_varray(request, stepped_collections: SteppedCollections) -> VArray:
+    """The VArray of the shape and the grid of the parameter with data in every cell, shared by the reading tests."""
+    shape, vgrid = request.param
+    return stepped_collections.filled_varray(shape, vgrid)

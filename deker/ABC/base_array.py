@@ -71,12 +71,10 @@ class _FancySlicer:
         start = get_start_datetime(dimension)
         step = dimension.step
 
-        # check step
         if isinstance(value, timedelta):
-            # if passed timedelta does not match step size
-            if (value % step).total_seconds():
-                raise IndexError(f"TimeDimension {dimension} wrong indexing: check 'step' value")
-            return int(value // step)
+            raise IndexError(
+                f"TimeDimension {dimension.name} wrong indexing: a timedelta is a step, not a position; got {value}"
+            )
 
         # check start and stop type
         try:
@@ -131,46 +129,80 @@ class _FancySlicer:
             raise IndexError(f"Dimension {dimension.name} wrong indexing: {value} is out of range")
         return dim_pos
 
+    @staticmethod
+    def _convert_step(step: Any, dimension: TimeDimension | Dimension) -> int | None:
+        """Convert the step of a slice into an index step.
+
+        An integer step is taken as is, as in numpy. A ``timedelta`` step on a time axis is a non-zero multiple
+        of the step of the axis. A ``float`` step on a scaled axis is a non-zero multiple of the step of the scale,
+        counted in the values of the scale: its sign is taken against the sign of the scale, so a negative value
+        step on a descending scale walks forward along the axis. Labels accept integer steps only.
+
+        :param step: step of the slice
+        :param dimension: dimension the slice applies to
+        :returns: index step, ``None`` if the step is not set
+        :raises IndexError: if the step is zero, a boolean, of a kind the axis does not accept or not a multiple
+        """
+        if step is None:
+            return None
+        name = f"{dimension.__class__.__name__} {dimension.name}"
+        if isinstance(step, bool):
+            raise IndexError(f"{name} wrong indexing: step shall not be a boolean")
+        if isinstance(step, int):
+            if step == 0:
+                raise IndexError(f"{name} wrong indexing: step shall not be zero")
+            return step
+        if isinstance(dimension, TimeDimension):
+            if not isinstance(step, timedelta):
+                raise IndexError(f"{name} wrong indexing: step shall be an integer or a timedelta, got {step!r}")
+            if step == timedelta(0):
+                raise IndexError(f"{name} wrong indexing: step shall not be zero")
+            if step % dimension.step != timedelta(0):
+                raise IndexError(
+                    f"{name} wrong indexing: step {step} is not a multiple of the axis step {dimension.step}"
+                )
+            return int(step // dimension.step)
+        if isinstance(step, float):
+            if dimension.scale is None:
+                raise IndexError(f"{name} wrong indexing: {dimension.name} has no scale for a float step")
+            if step == 0.0:
+                raise IndexError(f"{name} wrong indexing: step shall not be zero")
+            ratio = step / dimension.scale.step
+            index_step = round(ratio)
+            if index_step == 0 or abs(ratio - index_step) > 1e-9:
+                raise IndexError(
+                    f"{name} wrong indexing: step {step} is not a multiple of the scale step {dimension.scale.step}"
+                )
+            return int(index_step)
+        raise IndexError(f"{name} wrong indexing: step shall be an integer or a float, got {step!r}")
+
     def _convert_fancy_slice(self, slice_: slice, dimension: TimeDimension | Dimension) -> slice:
         """Convert FancySlice to slice.
+
+        ``start`` and ``stop`` are converted into positions on the axis and left ``None`` if not set, so the
+        plain slice keeps the numpy semantics of its defaults for any sign of the step.
 
         :param slice_: FancySlice to be converted into slice
         :param dimension: TimeDimension or Dimension instance
         :returns: plain ``slice`` with integer positions
         """
-        slice_parameters = []
+        name = f"{dimension.__class__.__name__} {dimension.name}"
+        if any(isinstance(value, bool) for value in (slice_.start, slice_.stop, slice_.step)):
+            raise IndexError(f"{name} wrong indexing: booleans are not valid in a slice")
 
         if all(st is not None for st in (slice_.start, slice_.stop)) and not type(  # noqa: E721,E714
             slice_.start
         ) is type(  # noqa: E721,RUF100
             slice_.stop
         ):
-            raise IndexError(
-                f"'start' and 'stop' of {dimension.__class__.__name__} {dimension.name} slice shall be of the same type"
-            )
+            raise IndexError(f"'start' and 'stop' of {name} slice shall be of the same type")
 
-        if slice_.step is not None:
-            valid_step_types = int
-            if isinstance(dimension, TimeDimension):
-                valid_step_types = (int, timedelta)
-            if not isinstance(slice_.step, valid_step_types):
-                raise IndexError(
-                    f"'step' of {dimension.__class__.__name__} {dimension.name} slice "
-                    f"shall be None or {valid_step_types}"
-                )
-
-        for attr in ("start", "stop", "step"):
+        step = self._convert_step(slice_.step, dimension)
+        positions: list[int | None] = []
+        for attr in ("start", "stop"):
             value = getattr(slice_, attr)
-
-            # check if some attrs are None
             if value is None:
-                if attr == "start":
-                    pos = 0
-                elif attr == "stop":
-                    pos = dimension.size
-                else:
-                    pos = None
-                slice_parameters.append(pos)
+                positions.append(None)
                 continue
 
             if isinstance(dimension, TimeDimension):
@@ -179,13 +211,11 @@ class _FancySlicer:
                 dim_pos = self._convert_value_for_dimension(value, dimension)
 
             if dim_pos < 0 or dim_pos > dimension.size:
-                raise IndexError(
-                    f"{dimension.__class__.__name__} {dimension.name} wrong indexing: {slice_}, check '{attr}' value"
-                )
+                raise IndexError(f"{name} wrong indexing: {slice_}, check '{attr}' value")
 
-            slice_parameters.append(dim_pos)
+            positions.append(dim_pos)
 
-        return slice(*slice_parameters)
+        return slice(positions[0], positions[1], step)
 
     @staticmethod
     def _is_time_dimension(dim: TimeDimension | Dimension) -> bool:
@@ -216,7 +246,8 @@ class _FancySlicer:
         if isinstance(element, (int, EllipsisType)):
             return True
         return isinstance(element, slice) and all(
-            isinstance(getattr(element, attr), (int, NoneType)) for attr in ("start", "stop", "step")
+            isinstance(getattr(element, attr), (int, NoneType)) and not isinstance(getattr(element, attr), bool)
+            for attr in ("start", "stop", "step")
         )
 
 
@@ -413,8 +444,13 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
     def _get_fancy_item(self, item: FancySlice) -> Slice:
         if isinstance(item, tuple):
             fancy_items: list[slice | int | EllipsisType] = []
+            # the indices after an ellipsis apply to the last axes
+            ellipsis_at = next((n for n, i in enumerate(item) if i is ...), len(item))
             for n, i in enumerate(item):
-                dim = self.dimensions[n]
+                if i is ...:
+                    fancy_items.append(i)
+                    continue
+                dim = self.dimensions[n] if n < ellipsis_at else self.dimensions[n - len(item)]
                 element = i if self._check_int_or_slice_or_ellipsis(i) else self._fancy_slice_dimensions(i, dim)
                 if isinstance(element, int) and element > dim.size:
                     raise IndexError(
@@ -513,10 +549,11 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
 
         check_memory(shape, self.dtype, self.__adapter.ctx.config.memory_limit)
         pre_bounds = np.index_exp[item]
+        # an ellipsis stands for every axis the other indices leave out, as in numpy
         bounds: list[Any] = []
         for i in pre_bounds:
             if i is ...:
-                bounds.extend(np.index_exp[:])
+                bounds.extend(slice(None) for _ in range(len(self.shape) - len(pre_bounds) + 1))
             else:
                 bounds.append(i)
         subset = self._create_subset(tuple(bounds), shape)

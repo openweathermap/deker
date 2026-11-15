@@ -18,7 +18,7 @@
 
 from abc import ABC, abstractmethod
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 import numpy as np
 
@@ -230,8 +230,26 @@ class BaseSubset(SelfLoggerMixin, ABC):
             value = list(range(0, dimension.size, dimension.step))
         return value
 
+    def __describe_position(self, dimension: TimeDimension | Dimension, position: int) -> Any:
+        """Descriptive value of one position of a dimension.
+
+        :param dimension: dimension of any Deker type
+        :param position: index on the dimension, non-negative
+        :returns: the datetime, label, scale value or index of the position
+        """
+        if isinstance(dimension, TimeDimension):
+            return get_start_datetime(dimension) + dimension.step * position
+        if dimension.labels:
+            return dimension.labels[position]
+        if dimension.scale:
+            return self.__generate_full_scale(dimension)[position]
+        return position
+
     def __describe_slice(self, dimension: TimeDimension | Dimension, bound: slice) -> list:
         """Generate dimension's range of descriptive values by slice bounds.
+
+        The values follow the positions the slice selects, in their order: a step skips positions and
+        a negative step walks backwards.
 
         :param dimension: dimension of any Deker type
         :param bound: slice object
@@ -239,34 +257,15 @@ class BaseSubset(SelfLoggerMixin, ABC):
         """
         if bound == slice(None, None, None):
             return self.__describe_full_dimension(dimension)
-
-        # convert slice start value to positive integer
-        if bound.start is None:
-            start = 0
-        elif bound.start >= 0:
-            start = bound.start
-        else:
-            start = dimension.size + bound.start
-
-        # convert slice stop value to positive integer
-        if bound.stop is None:
-            stop = dimension.size
-        elif bound.stop >= 0:
-            stop = bound.stop
-        else:
-            stop = dimension.size + bound.stop
-
-        # slice step value is ignored: the dimension's own step is used
+        positions = range(*bound.indices(dimension.size))
         if isinstance(dimension, TimeDimension):
-            first = get_start_datetime(dimension) + dimension.step * start
-            value = [first + n * dimension.step for n in range(stop - start)]
-        elif dimension.labels:
-            value = list(dimension.labels[bound])
-        elif dimension.scale:
-            value = self.__generate_full_scale(dimension)[bound]
-        else:  # just indexes
-            value = list(range(start, stop, dimension.step))
-        return value
+            first = get_start_datetime(dimension)
+            return [first + dimension.step * position for position in positions]
+        if dimension.labels:
+            return list(dimension.labels[bound])
+        if dimension.scale:
+            return self.__generate_full_scale(dimension)[bound]
+        return list(positions)
 
     def describe(self) -> OrderedDict:
         """Describe subset data.
@@ -292,16 +291,7 @@ class BaseSubset(SelfLoggerMixin, ABC):
             else:
                 # convert bound value to positive integer
                 bound = bound if bound >= 0 else dimension.size + bound
-
-                if isinstance(dimension, TimeDimension):
-                    value = [get_start_datetime(dimension) + dimension.step * bound]
-
-                elif dimension.labels:
-                    value = [dimension.labels[bound]]
-                elif dimension.scale:
-                    value = [dimension.scale.start_value + bound * dimension.scale.step]
-                else:  # just index
-                    value = [bound]
+                value = [self.__describe_position(dimension, bound)]
             description.update({dimension.name: value})
 
         # add full description for dimensions if they were excluded from bounds

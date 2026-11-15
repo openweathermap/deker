@@ -289,21 +289,36 @@ slicing parameters::
 DEKER™ allows you to index and slice its ``Array`` and ``VArray`` not only with integers, but with
 the ``types`` by which the dimensions are described.
 
-But let's start with a **constraint**.
-
-
 Step
 ~~~~
 
-Since a ``VArray`` is split in separate files, and each file can contain an ``Array`` with more
-than one dimension, the calculation of their inner bounds is a non-trivial problem.
+The ``step`` of a slice works as it does in NumPy, for both ``Array`` and ``VArray``:
+``array[::2]`` takes every other cell, ``array[::-1]`` reverses the axis, ``array[10:2:-2]`` walks
+backwards. A ``VArray`` splits the selection over its inner ``Arrays`` itself, whatever the grid::
 
-That's why the ``step`` parameter **is limited** to ``1`` for both ``Array`` and ``VArray``
-dimensions. This constraint is introduced to keep consistent behavior, although that there is no
-such a problem for ``Array``.
+   varray[::3, 5, ::-1]          # every third row, one column, the last axis reversed
+   varray[::2].update(data)      # data has the shape of the selection
+   varray[1::2].clear()
 
-Workaround for ``VArray`` would be to read your data and slice it again with steps, if you need,
-as it will be a ``numpy.ndarray``.
+Besides integers, a step may be expressed in the values an axis is described with:
+
+* on a ``TimeDimension`` a ``datetime.timedelta`` step shall be a non-zero multiple of the
+  dimension ``step``: ``array[start::timedelta(hours=6)]`` with an hourly axis takes every sixth
+  hour, ``-timedelta(hours=6)`` walks backwards;
+* on a ``Dimension`` with a ``scale`` a ``float`` step shall be a non-zero multiple of the scale
+  ``step`` and is counted in the values of the scale: on a latitude axis described as
+  ``Scale(start_value=90.0, step=-0.25)`` the step ``-1.0`` walks from the north to the south, that
+  is forwards along the axis, and ``1.0`` walks backwards;
+* on a ``Dimension`` with ``labels`` only integer steps are valid: ``array[:, "a":"e":2]``.
+
+A zero step, a boolean step, a step of a kind the axis does not accept (a ``float`` on a time axis,
+a ``timedelta`` on a scale, a ``str`` anywhere) and a step that is not a multiple of the axis step
+raise ``IndexError``. So does a selection that ends up empty, for instance a negative step whose
+``start`` lies before its ``stop``.
+
+.. note::
+   A ``timedelta`` is a step, never a position: ``start`` and ``stop`` of a time axis take
+   ``datetime`` objects, ISO 8601 strings or timestamps.
 
 
 Start and Stop
@@ -435,6 +450,15 @@ them into 11 cells, as there are no instructions how to arrange them properly. :
        data = np.random.random(subset.shape)
 
        subset.update(data)
+
+A scalar is the exception to the shape rule: it fills every cell of the ``Subset`` or ``VSubset``,
+whatever its shape, so ``subset.update(0.0)`` zeroes the whole selection of an ``Array`` and of a
+``VArray`` alike::
+
+   with Client("file:///tmp/deker") as client:
+       collection: Collection = client.get_collection("weather")
+       array: Array = collection.filter({"dt": datetime(2023, 1, 1, 0)}).first()
+       array[:, :, 0].update(273.15)  # one value in every cell of the selection
 
 The provided data ``dtype`` shall match the dtype of ``Array`` or ``VArray`` set by the schema or
 shall have the correspondent Python type to be converted into such ``dtype``::

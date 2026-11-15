@@ -2,24 +2,30 @@ import time
 import traceback
 
 from collections import OrderedDict
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from random import randint
+from typing import Any
 
+import h5py
 import hdf5plugin
 import numpy as np
 import pytest
 
 from deker_local_adapters import HDF5CompressionOpts, HDF5Options
+from deker_tools.slices import positive_bounds
+from pytest_mock import MockerFixture
 
-from tests.parameters.index_exp_params import valid_index_exp_params
+from tests.parameters.index_exp_params import STEPPED_INDEX_EXPS, valid_index_exp_params, varray_step_cases
+from tests.plugins.collection import SteppedCollections
 
 from deker.arrays import VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerSubsetError, DekerVSubsetError
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
-from deker.subset import VSubset, _DataSliceCalculator
+from deker.subset import VSubset, _split_axis, _tile_positions, _TileBounds
 from deker.types.private.classes import ArrayPosition, ArrayPositionedData
 from deker.types.private.typings import Slice
 from deker.types.public.classes import Scale
@@ -536,133 +542,181 @@ class TestVArraySubset:
         assert test_time <= sleep_time
 
 
-class TestDataSliceCalculator:
-    """Slices of the subset data that belong to the inner Arrays, in the order the Arrays are walked."""
+class TestSplitAxis:
+    """Parts of the tiles a subset bound selects along one axis, with their slices of the subset data."""
 
     @pytest.mark.parametrize(
-        ("slice_expression", "arrays_shape", "calls", "expected"),
+        ("bound", "size", "tile_size", "expected"),
         [
-            # 1 dimension, 3 full tiles of 2 elements
+            # whole axis of 3 tiles of 2 cells: a whole tile is the plain slice(None, None)
             (
-                (slice(None, None),),
-                (2,),
-                [(0, slice(None, None), [0]), (0, slice(None, None), [1]), (0, slice(None, None), [2])],
-                [slice(0, 2), slice(2, 4), slice(4, 6)],
+                slice(None),
+                6,
+                2,
+                [
+                    (0, slice(None, None), slice(0, 2)),
+                    (1, slice(None, None), slice(2, 4)),
+                    (2, slice(None, None), slice(4, 6)),
+                ],
             ),
-            # 1 dimension, the second tile is cut
+            # the second tile is cut
+            (slice(0, 3), 6, 2, [(0, slice(None, None), slice(0, 2)), (1, slice(0, 1), slice(2, 3))]),
+            # the first tile is skipped, the last one is cut
+            (slice(2, 5), 6, 2, [(1, slice(None, None), slice(0, 2)), (2, slice(0, 1), slice(2, 3))]),
+            # negative bounds are resolved against the axis
+            (slice(-4, -1), 6, 2, [(1, slice(None, None), slice(0, 2)), (2, slice(0, 1), slice(2, 3))]),
+            # one tile for the whole axis
+            (slice(None), 6, 6, [(0, slice(None, None), slice(0, 6))]),
+            # a step inside the tiles: every other cell, the phase carries over the tile border
             (
-                (slice(0, 3),),
-                (2,),
-                [(0, slice(None, None), [0]), (0, slice(0, 1), [1])],
-                [slice(0, 2), slice(2, 3)],
+                slice(None, None, 2),
+                6,
+                2,
+                [(0, slice(0, 1, 2), slice(0, 1)), (1, slice(0, 1, 2), slice(1, 2)), (2, slice(0, 1, 2), slice(2, 3))],
             ),
-            # 2 dimensions, 4 full tiles of 5x5: rows continue in the first dimension, columns in the second
             (
-                (slice(None, None), slice(None, None)),
+                slice(1, None, 2),
+                6,
+                2,
+                [(0, slice(1, 2, 2), slice(0, 1)), (1, slice(1, 2, 2), slice(1, 2)), (2, slice(1, 2, 2), slice(2, 3))],
+            ),
+            # a step that does not divide the tile size: the first cell of a tile depends on the phase
+            (
+                slice(None, None, 3),
+                10,
+                4,
+                [(0, slice(0, 4, 3), slice(0, 2)), (1, slice(2, 3, 3), slice(2, 3)), (2, slice(1, 2, 3), slice(3, 4))],
+            ),
+            # a step larger than a tile jumps over tiles
+            (
+                slice(None, None, 5),
+                12,
+                2,
+                [(0, slice(0, 1, 5), slice(0, 1)), (2, slice(1, 2, 5), slice(1, 2)), (5, slice(0, 1, 5), slice(2, 3))],
+            ),
+            # a step larger than the axis selects the first cell only
+            (slice(None, None, 100), 12, 4, [(0, slice(0, 1, 100), slice(0, 1))]),
+            # start inside a tile with a step
+            (slice(5, 12, 4), 12, 4, [(1, slice(1, 2, 4), slice(0, 1)), (2, slice(1, 2, 4), slice(1, 2))]),
+            # integers drop the axis
+            (0, 6, 2, [(0, 0, None)]),
+            (3, 6, 2, [(1, 1, None)]),
+            (-1, 6, 2, [(2, 1, None)]),
+        ],
+    )
+    def test_parts_follow_the_selected_positions(self, bound, size, tile_size, expected):
+        """Tests if the parts walk the selected positions tile by tile and their data slices continue each other."""
+        assert _split_axis(bound, size, tile_size) == [_TileBounds(*part) for part in expected]
+
+    @pytest.mark.parametrize(
+        ("size", "tile_size"),
+        [(6, 1), (6, 2), (6, 3), (6, 6), (7, 1), (7, 7), (12, 1), (12, 3), (12, 4), (24, 2), (24, 6), (24, 24)],
+    )
+    @pytest.mark.parametrize(
+        "bound",
+        [
+            slice(None),
+            slice(1, None),
+            slice(None, -1),
+            slice(2, 5),
+            slice(None, None, 2),
+            slice(1, None, 3),
+            slice(None, None, 5),
+            slice(None, None, 7),
+            slice(3, 20, 4),
+        ],
+    )
+    def test_parts_cover_the_selection_exactly(self, bound, size, tile_size):
+        """Tests if the cells of the parts are exactly the selected cells, in order, whatever the tiles."""
+        axis = np.arange(size)
+        expected = axis[bound]
+        collected = []
+        for part in _split_axis(bound, size, tile_size):
+            tile = axis[part.position * tile_size : (part.position + 1) * tile_size]
+            cells = tile[part.bounds]
+            assert part.data_slice is not None
+            assert part.data_slice == slice(len(collected), len(collected) + len(cells))
+            collected.extend(cells)
+        assert collected == expected.tolist()
+
+    def test_negative_step_is_rejected(self):
+        with pytest.raises(DekerVSubsetError):
+            _split_axis(slice(None, None, -1), 6, 2)
+
+
+class TestTilePositions:
+    """Tiles a subset covers, with their bounds and data slices, for several axes."""
+
+    @pytest.mark.parametrize(
+        ("bounds", "shape", "arrays_shape", "expected"),
+        [
+            # 2 dimensions, 4 whole tiles of 5x5
+            (
+                (slice(None), slice(None)),
+                (10, 10),
                 (5, 5),
                 [
-                    (0, slice(None, None), [0, 0]),
-                    (1, slice(None, None), [0, 0]),
-                    (0, slice(None, None), [0, 1]),
-                    (1, slice(None, None), [0, 1]),
-                    (0, slice(None, None), [1, 0]),
-                    (1, slice(None, None), [1, 0]),
-                    (0, slice(None, None), [1, 1]),
-                    (1, slice(None, None), [1, 1]),
-                ],
-                [
-                    slice(0, 5),
-                    slice(0, 5),
-                    slice(0, 5),
-                    slice(5, 10),
-                    slice(5, 10),
-                    slice(0, 5),
-                    slice(5, 10),
-                    slice(5, 10),
+                    ((0, 0), (slice(None, None), slice(None, None)), (slice(0, 5), slice(0, 5))),
+                    ((0, 1), (slice(None, None), slice(None, None)), (slice(0, 5), slice(5, 10))),
+                    ((1, 0), (slice(None, None), slice(None, None)), (slice(5, 10), slice(0, 5))),
+                    ((1, 1), (slice(None, None), slice(None, None)), (slice(5, 10), slice(5, 10))),
                 ],
             ),
-            # 2 dimensions, the subset [0:7, 2:8] cuts every tile
+            # the subset [0:7, 2:8] cuts every tile
             (
                 (slice(0, 7), slice(2, 8)),
+                (10, 10),
                 (5, 5),
                 [
-                    (0, slice(None, None), [0, 0]),
-                    (1, slice(2, 5), [0, 0]),
-                    (0, slice(None, None), [0, 1]),
-                    (1, slice(0, 3), [0, 1]),
-                    (0, slice(0, 2), [1, 0]),
-                    (1, slice(2, 5), [1, 0]),
-                    (0, slice(0, 2), [1, 1]),
-                    (1, slice(0, 3), [1, 1]),
+                    ((0, 0), (slice(None, None), slice(2, 5)), (slice(0, 5), slice(0, 3))),
+                    ((0, 1), (slice(None, None), slice(0, 3)), (slice(0, 5), slice(3, 6))),
+                    ((1, 0), (slice(0, 2), slice(2, 5)), (slice(5, 7), slice(0, 3))),
+                    ((1, 1), (slice(0, 2), slice(0, 3)), (slice(5, 7), slice(3, 6))),
                 ],
+            ),
+            # an integer index drops its axis from the data slices and selects one row of tiles
+            (
+                (7, slice(None)),
+                (10, 10),
+                (5, 5),
+                [((1, 0), (2, slice(None, None)), (slice(0, 5),)), ((1, 1), (2, slice(None, None)), (slice(5, 10),))],
+            ),
+            # a step jumping over the second tile of the first axis
+            (
+                (slice(None, None, 6), slice(None, None, 3)),
+                (12, 6),
+                (4, 3),
                 [
-                    slice(0, 5),
-                    slice(0, 3),
-                    slice(0, 5),
-                    slice(3, 6),
-                    slice(5, 7),
-                    slice(0, 3),
-                    slice(5, 7),
-                    slice(3, 6),
+                    ((0, 0), (slice(0, 1, 6), slice(0, 1, 3)), (slice(0, 1), slice(0, 1))),
+                    ((0, 1), (slice(0, 1, 6), slice(0, 1, 3)), (slice(0, 1), slice(1, 2))),
+                    ((1, 0), (slice(2, 3, 6), slice(0, 1, 3)), (slice(1, 2), slice(0, 1))),
+                    ((1, 1), (slice(2, 3, 6), slice(0, 1, 3)), (slice(1, 2), slice(1, 2))),
                 ],
             ),
         ],
     )
-    def test_calc_slices_follow_the_tiles(self, slice_expression, arrays_shape, calls, expected):
-        """Tests if the slices of consecutive tiles continue each other in every dimension."""
-        calculator = _DataSliceCalculator(slice_expression, arrays_shape)
-        assert [calculator.calc(*call) for call in calls] == expected
+    def test_tiles_with_bounds_and_data_slices(self, bounds, shape, arrays_shape, expected):
+        positions = _tile_positions(bounds, shape, arrays_shape)
+        assert [tuple(position) for position in positions] == expected
 
     @pytest.mark.parametrize(
-        ("slice_expression", "dim", "expected"),
-        [
-            ((3, slice(None, None)), 3, None),  # the subset bound is an index: no data dimension
-            ((slice(None, None), slice(None, None)), 2, 2),  # the tile bound is an index: kept as is
-        ],
+        ("shape", "arrays_shape"),
+        [((12,), (4,)), ((12, 10), (4, 5)), ((12, 10, 8), (4, 2, 4)), ((6, 5, 4, 6), (2, 1, 2, 3))],
+        ids=["1d", "2d", "3d", "4d"],
     )
-    def test_calc_integer_bounds(self, slice_expression, dim, expected):
-        """Tests the integer bounds: an index in the subset gives no slice, an index of a tile is returned as is."""
-        calculator = _DataSliceCalculator(slice_expression, (5, 5))
-        assert calculator.calc(0, dim, [0, 1]) == expected
-
-    def test_calc_restarts_at_the_first_tile(self):
-        """Tests if the counting restarts when the tile position in a dimension returns to zero."""
-        calculator = _DataSliceCalculator((slice(None, None),), (2,))
-        assert calculator.calc(0, slice(None, None), [0]) == slice(0, 2)
-        assert calculator.calc(0, slice(None, None), [1]) == slice(2, 4)
-        assert calculator.calc(0, slice(None, None), [0]) == slice(0, 2)
-
-    @pytest.mark.parametrize(
-        ("current_dimension", "dim", "vposition", "error"),
-        [
-            (3, slice(None, None), [0], IndexError),  # no such dimension
-            (0, slice(None, None), [], IndexError),  # position shorter than the dimensions
-            (0, "x", [0], AttributeError),  # a bound that is neither a slice nor an index
-        ],
-    )
-    def test_calc_raises_on_wrong_input(self, current_dimension, dim, vposition, error):
-        """Tests if wrong dimensions, positions and bounds are not silently accepted."""
-        calculator = _DataSliceCalculator((slice(None, None),), (2,))
-        with pytest.raises(error):
-            calculator.calc(current_dimension, dim, vposition)
-
-
-class TestVSubsetOffsets:
-    """Offsets of a tile's data within the subset, by the tile's place among the covered tiles."""
-
-    @pytest.mark.parametrize(
-        ("i", "step", "offset_start", "start", "offset_end", "end", "expected"),
-        [
-            (0, 3, 0, 0, 0, 6, {"start": 0, "end": 0}),  # first of several tiles, no offsets
-            (0, 3, 1, 1, -1, 2, {"start": 1, "end": 2}),  # the only tile, cut from both ends
-            (3, 3, 0, 0, -1, 5, {"start": 0, "end": 2}),  # last tile, cut from the end
-            (3, 3, 0, 0, 0, 9, {"start": 0, "end": 0}),  # a tile in the middle
-            (3, 3, 1, 1, -1, 5, {"start": 0, "end": 2}),  # last tile when the first one was cut from the start
-        ],
-    )
-    def test_get_offset(self, i, step, offset_start, start, offset_end, end, expected):
-        """Tests the offsets of the tile data for every place of the tile among the covered ones."""
-        assert VSubset._VSubset__get_offset(i, step, offset_start, start, offset_end, end) == expected
+    def test_tiles_assemble_the_numpy_selection(self, shape, arrays_shape):
+        """Tests if the data slices of the tiles assemble the numpy selection of a stepped expression."""
+        data = np.arange(np.prod(shape)).reshape(shape)
+        ndim = len(shape)
+        for index_exp in STEPPED_INDEX_EXPS[ndim]:
+            forward, flipped = positive_bounds(shape, index_exp)
+            expected = data[forward]
+            assembled = np.empty(expected.shape, dtype=data.dtype)
+            for vposition, bounds, data_slice in _tile_positions(forward, shape, arrays_shape):
+                tile = data[tuple(slice(p * t, (p + 1) * t) for p, t in zip(vposition, arrays_shape))]
+                assembled[data_slice] = tile[bounds]
+            assert np.array_equal(assembled, expected), index_exp
+            assert np.array_equal(np.flip(assembled, flipped), data[index_exp]), index_exp
 
 
 class TestVSubsetArrayWorkers:
@@ -1372,8 +1426,8 @@ class TestVSubsetForXArray:
         [
             np.index_exp[datetime(2023, 1, 1, 11, 0, tzinfo=timezone.utc), -3.5, 16.5, "pcp"],
             np.index_exp[0, 0, 0, 4],
-            np.index_exp[::-1],
-            np.index_exp[::2],
+            np.index_exp[::0],
+            np.index_exp[::True],
         ],
     )
     def test_not_described_subset_raises(self, not_described_varray, index_exp):
@@ -1388,8 +1442,8 @@ class TestVSubsetForXArray:
             np.index_exp[datetime(2023, 1, 1, 11, 0, tzinfo=timezone.utc), -3.5, "16.5", "pcp"],
             np.index_exp[datetime(2023, 1, 1, 11, 0, tzinfo=timezone.utc), -3.5, 16.5, 1.0],
             np.index_exp[0, 0, 0, 4],
-            np.index_exp[::-1],
-            np.index_exp[::2],
+            np.index_exp[::0],
+            np.index_exp[::True],
         ],
     )
     def test_described_vsubset_raises(self, full_described_varray, index_exp):
@@ -1405,13 +1459,227 @@ class TestVSubsetForXArray:
             np.index_exp[datetime(2023, 1, 1, 11, 0, tzinfo=timezone.utc), -3.5, "16.5", "pcp"],
             np.index_exp[datetime(2023, 1, 1, 11, 0, tzinfo=timezone.utc), -3.5, 16.5, 1.0],
             np.index_exp[0, 0, 0, 4],
-            np.index_exp[::-1],
-            np.index_exp[::2],
+            np.index_exp[::0],
+            np.index_exp[::True],
         ],
     )
     def test_not_described_vsubset_raises(self, not_described_varray, index_exp):
         with pytest.raises(IndexError):
             assert not_described_varray[index_exp]
+
+
+@pytest.fixture
+def stepped_data(stepped_varray_collection: Collection) -> np.ndarray:
+    """Distinct values for every cell of the VArray of the collection."""
+    shape = stepped_varray_collection.varray_schema.shape
+    return np.arange(1, np.prod(shape, dtype=int) + 1, dtype=float).reshape(shape)
+
+
+@pytest.fixture
+def stepped_varray(stepped_varray_collection: Collection, stepped_data: np.ndarray) -> Iterator[VArray]:
+    """A VArray with data in every cell."""
+    varray = stepped_varray_collection.create()
+    varray[:].update(stepped_data)
+    try:
+        yield varray
+    finally:
+        varray.delete()
+
+
+class TestVSubsetSteps:
+    """Reading, writing and clearing a stepped subset of a VArray gives exactly what numpy gives, on every grid."""
+
+    @pytest.mark.parametrize(
+        ("filled_stepped_varray", "index_exp"), varray_step_cases(), indirect=["filled_stepped_varray"]
+    )
+    def test_read(self, filled_stepped_varray: VArray, index_exp: Slice):
+        vsubset = filled_stepped_varray[index_exp]
+        expected = SteppedCollections.data(filled_stepped_varray.shape)[index_exp]
+        assert vsubset.shape == expected.shape
+        assert np.array_equal(vsubset.read(), expected)
+
+    @pytest.mark.parametrize(
+        ("stepped_varray_collection", "index_exp"), varray_step_cases(), indirect=["stepped_varray_collection"]
+    )
+    def test_update(self, stepped_varray: VArray, stepped_data: np.ndarray, index_exp: Slice):
+        vsubset = stepped_varray[index_exp]
+        new_data = -1.0 - np.arange(np.prod(vsubset.shape, dtype=int), dtype=float).reshape(vsubset.shape)
+        expected = stepped_data.copy()
+        expected[index_exp] = new_data
+
+        vsubset.update(new_data)
+
+        assert np.array_equal(vsubset.read(), new_data)
+        assert np.array_equal(stepped_varray[:].read(), expected)
+
+    @pytest.mark.parametrize(
+        ("stepped_varray_collection", "index_exp"),
+        varray_step_cases(every_grid=False),
+        indirect=["stepped_varray_collection"],
+    )
+    def test_update_with_a_scalar(self, stepped_varray: VArray, stepped_data: np.ndarray, index_exp: Slice):
+        vsubset = stepped_varray[index_exp]
+        expected = stepped_data.copy()
+        expected[index_exp] = -7.0
+
+        vsubset.update(-7.0)
+
+        assert np.array_equal(stepped_varray[:].read(), expected)
+
+    @pytest.mark.parametrize(
+        ("stepped_varray_collection", "index_exp"), varray_step_cases(), indirect=["stepped_varray_collection"]
+    )
+    def test_clear(self, stepped_varray: VArray, stepped_data: np.ndarray, index_exp: Slice):
+        vsubset = stepped_varray[index_exp]
+        expected = stepped_data.copy()
+        expected[index_exp] = np.nan
+
+        vsubset.clear()
+
+        assert np.all(np.isnan(vsubset.read()))
+        assert np.array_equal(stepped_varray[:].read(), expected, equal_nan=True)
+
+    @pytest.mark.parametrize(
+        ("stepped_varray_collection", "index_exp"), varray_step_cases(), indirect=["stepped_varray_collection"]
+    )
+    def test_update_into_an_empty_varray(
+        self, stepped_varray_collection: Collection, stepped_data: np.ndarray, index_exp: Slice
+    ):
+        """Tests if a stepped write creates only the tiles it touches and leaves the other cells empty."""
+        varray = stepped_varray_collection.create()
+        try:
+            vsubset = varray[index_exp]
+            new_data = stepped_data[index_exp]
+            expected = np.full(varray.shape, np.nan)
+            expected[index_exp] = new_data
+
+            vsubset.update(new_data)
+
+            assert np.array_equal(varray[:].read(), expected, equal_nan=True)
+        finally:
+            varray.delete()
+
+    @pytest.mark.parametrize(
+        ("stepped_varray_collection", "index_exp"),
+        varray_step_cases(every_grid=False),
+        indirect=["stepped_varray_collection"],
+    )
+    def test_wrong_shape_raises(self, stepped_varray: VArray, index_exp: Slice):
+        vsubset = stepped_varray[index_exp]
+        wrong = np.zeros(tuple(n + 1 for n in vsubset.shape))
+        with pytest.raises(IndexError):
+            vsubset.update(wrong)
+
+
+class DatasetAccessLog:
+    """Record which HDF5 datasets are read through h5py while a test runs.
+
+    The h5py hook must be a plain function (a bound method set on a class is not re-bound to the dataset),
+    so the hook reports to the log that is active for the current test.
+    """
+
+    active: "DatasetAccessLog | None" = None
+
+    def __init__(self) -> None:
+        self.reads: list[str] = []
+
+    @property
+    def data_reads(self) -> int:
+        """Number of reads of the ``data`` datasets of the tiles."""
+        return self.reads.count("/data")
+
+
+_dataset_read = h5py.Dataset.__getitem__
+
+
+def _record_read(dataset: h5py.Dataset, args: Any, new_dtype: Any = None) -> Any:
+    """Record a read of the dataset in the active log and perform it.
+
+    :param dataset: dataset being read
+    :param args: index expression
+    :param new_dtype: dtype to read as
+    :returns: the read data
+    """
+    if DatasetAccessLog.active is not None:
+        DatasetAccessLog.active.reads.append(dataset.name)
+    return _dataset_read(dataset, args, new_dtype)
+
+
+@pytest.fixture
+def access(mocker: MockerFixture) -> Iterator[DatasetAccessLog]:
+    mocker.patch.object(h5py.Dataset, "__getitem__", _record_read)
+    log = DatasetAccessLog()
+    DatasetAccessLog.active = log
+    try:
+        yield log
+    finally:
+        DatasetAccessLog.active = None
+
+
+@pytest.fixture
+def tiled_varray(client: Client) -> Iterator[VArray]:
+    """A VArray of shape (15, 10) split into three tiles (5, 10) along the first axis, with data in every cell."""
+    schema = VArraySchema(
+        dtype=float,
+        dimensions=[DimensionSchema(name="x", size=15), DimensionSchema(name="y", size=10)],
+        vgrid=(3, 1),
+    )
+    collection = client.create_collection("tiled_varray_reads", schema)
+    try:
+        varray = collection.create()
+        varray[:].update(np.arange(1, 151, dtype=float).reshape(15, 10))
+        yield varray
+    finally:
+        collection.delete()
+
+
+# Subsets of the (15, 10) VArray and the number of tiles they cover only partially
+TILE_COVERAGE_CASES = [
+    pytest.param(np.index_exp[:], 0, id="whole-varray"),
+    pytest.param(np.index_exp[0:5], 0, id="first-tile-whole"),
+    pytest.param(np.index_exp[5:15], 0, id="last-two-tiles-whole"),
+    pytest.param(np.index_exp[2:15], 1, id="first-tile-partial-rest-whole"),
+    pytest.param(np.index_exp[0:7], 1, id="first-tile-whole-second-partial"),
+    pytest.param(np.index_exp[2:7], 2, id="two-tiles-partial"),
+    pytest.param(np.index_exp[:, 0:5], 3, id="every-tile-partial"),
+    pytest.param(np.index_exp[3], 1, id="one-row-of-the-first-tile"),
+    pytest.param(np.index_exp[4:11], 2, id="outer-tiles-partial-middle-whole"),
+]
+
+
+class TestVSubsetTileReads:
+    """A write or a clear reads a tile only when it covers the tile partially; a fully covered tile is replaced."""
+
+    @pytest.mark.parametrize(("index_exp", "partial_tiles"), TILE_COVERAGE_CASES)
+    def test_update_reads_only_partially_covered_tiles(
+        self, tiled_varray: VArray, access: DatasetAccessLog, index_exp: Slice, partial_tiles: int
+    ):
+        before = tiled_varray[:].read()
+        data = np.full(before[index_exp].shape, -1.0)
+        reads_before = access.data_reads  # the tiles read by the line above
+
+        tiled_varray[index_exp].update(data)
+        reads = access.data_reads - reads_before
+
+        expected = before.copy()
+        expected[index_exp] = data
+        assert np.array_equal(tiled_varray[:].read(), expected)
+        assert reads == partial_tiles
+
+    @pytest.mark.parametrize(("index_exp", "partial_tiles"), TILE_COVERAGE_CASES)
+    def test_clear_reads_only_partially_covered_tiles(
+        self, tiled_varray: VArray, access: DatasetAccessLog, index_exp: Slice, partial_tiles: int
+    ):
+        before = tiled_varray[:].read()
+        reads_before = access.data_reads  # the tiles read by the line above
+
+        tiled_varray[index_exp].clear()
+        reads = access.data_reads - reads_before
+
+        expected = before.copy()
+        expected[index_exp] = np.nan
+        assert np.array_equal(tiled_varray[:].read(), expected, equal_nan=True)
+        assert reads == partial_tiles
 
 
 if __name__ == "__main__":
