@@ -67,7 +67,7 @@ install-matrix:  ## Check the package installs from wheels only, as a user witho
 	done; rm -rf $$tmp
 
 coverage:  ## Run the tests with coverage and enforce the threshold from pyproject.toml
-	uv run pytest --random-order --cov=. tests/ --cov-report=term-missing --cov-report html
+	uv run pytest --random-order --cov=. tests/ --cov-report=term-missing --cov-report html $(PYTEST_ARGS)
 
 ci: format check coverage  ## Run every check and the tests sequentially, as CI does
 

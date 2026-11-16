@@ -6,9 +6,9 @@ on:
       - 'refs/tags/v'
 
 jobs:
-  tox_tests:
-    uses: openweathermap/deker-actions/.github/workflows/tox.yml@master
+  tests:
+    uses: openweathermap/deker-actions/.github/workflows/tox.yml@feature/v2.0.0
     with:
-      package-name: ${{ vars.PACKAGE_NAME }}
-      min-coverage: 96
       python-versions: '["3.10", "3.11", "3.12", "3.13", "3.14"]'
+      siblings: '["deker-local-adapters", "deker-server-adapters", "deker-tools"]'
+    secrets: inherit
