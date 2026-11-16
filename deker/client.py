@@ -46,7 +46,7 @@ from deker.errors import (
     DekerValidationError,
 )
 from deker.integrity import IntegrityChecker
-from deker.log import SelfLoggerMixin, format_string, set_logging_level
+from deker.log import _ROOT_DEKER_LOGGER_NAME, SelfLoggerMixin, format_string, set_logging_level
 from deker.schemas import ArraySchema, VArraySchema
 from deker.tools import convert_human_memory_to_bytes
 from deker.types import (
@@ -84,11 +84,11 @@ def _open_client_only(method: Callable[Concatenate["Client", P], T]) -> Callable
 
     @wraps(method)
     def open_client_method(self: "Client", *args: P.args, **kwargs: P.kwargs) -> T:
-        """Call the method of an open client.
+        r"""Call the method of an open client.
 
         :param self: Client instance
-        :param *args: method arguments
-        :param **kwargs: method keyword arguments
+        :param \*args: method arguments
+        :param \**kwargs: method keyword arguments
         :returns: result of the method
         """
         if self.is_closed:
@@ -105,9 +105,11 @@ class Client(SelfLoggerMixin):
     """Deker ``Client`` - is the first object user starts with.
 
     It is used for creating and getting ``Collections`` and provides connection/path to Deker collections'
-    storage by `uri`. Local collection uri shall contain `file://` schema and path to the collections storage
-    on local machine. Connection to the storage is provided by a client-based context, which remains
+    storage by `uri`. The scheme of the uri picks the installed adapters: ``file://`` with a path to the storage
+    on the local machine is served by ``deker-local-adapters``, ``http://`` and ``https://`` by
+    ``deker-server-adapters``. Connection to the storage is provided by a client-based context, which remains
     open while the Client is open, and vice-versa: while the context is open - the Client is open too.
+    Every method of a closed client raises ``DekerClientError``.
 
     ``Client`` has a context manager which opens and closes context itself::
 
@@ -134,17 +136,18 @@ class Client(SelfLoggerMixin):
     ----------
     - ``is_closed``
     - ``is_open``
-    - ``meta-version``
+    - ``meta_version``
     - ``root_path``
 
     API methods
     -----------
     - ``create_collection``: creates a new ``Collection`` on the storage and returns its object instance to work with.
       Requires:
-        * collection **unique** name
-        * an instance of ArraySchema or VArraySchema
-        * chunking and compression options (optional); default is ``None``
-        * type of a storage adapter (optional); default is ``HDF5StorageAdapter``
+
+      * collection **unique** name
+      * an instance of ArraySchema or VArraySchema
+      * chunking and compression options (optional); default is ``None``
+      * type of a storage adapter (optional); default is ``HDF5StorageAdapter``
 
     - ``get_collection``: returns an object of ``Collection`` by a given name if such exists, otherwise - ``None``
     - ``check_integrity``: runs the named integrity checks of the storage and returns the report;
@@ -188,6 +191,8 @@ class Client(SelfLoggerMixin):
 
         This method is automatically invoked on ``Client`` initiation and in context manager.
         Normally, you don't need to use it yourself.
+
+        :raises DekerClientError: if no adapters are installed or none of them serves the scheme of the uri
         """
         if not self.__plugins:
             raise DekerClientError("No installed adapters are found: run `pip install deker_local_adapters`")
@@ -211,7 +216,10 @@ class Client(SelfLoggerMixin):
             self.logger.info("Client is open")
 
     def __get_plugins(self) -> None:
-        """Get Deker adapters plugins."""
+        """Find the installed adapters: every package named ``deker_*_adapters`` with an ``AdaptersFactory``.
+
+        The first package found for a uri scheme serves it.
+        """
         for package in pkgutil.iter_modules():
             if package.ispkg and (package.name.startswith("deker_") and package.name.endswith("_adapters")):
                 module = importlib.import_module(package.name)
@@ -233,26 +241,29 @@ class Client(SelfLoggerMixin):
         skip_collection_create_memory_check: bool = False,
         **kwargs: Any,
     ) -> None:
-        """Deker client constructor.
+        r"""Deker client constructor.
 
-        :param uri: uri to Deker storage
+        :param uri: uri to Deker storage: ``file:///path`` for a local storage, ``http(s)://host`` for a server
         :param executor: external ThreadPoolExecutor instance (optional)
-        :param workers: number of threads for Deker
+        :param workers: number of threads for Deker; the number of CPUs plus 4 by default
         :param write_lock_timeout: An amount of seconds during which a parallel writing process waits for release
           of the locked file
         :param write_lock_check_interval: An amount of time (in seconds) during which a parallel writing process sleeps
           between checks for locks
-        :param loglevel: Level of Deker loggers
+        :param loglevel: Level of Deker loggers: ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR`` or ``CRITICAL``
         :param memory_limit: Limit of memory allocation per one array/subset in bytes or in human representation of
           kilobytes, megabytes or gigabytes, e.g. ``"100K"``, ``"512M"``, ``"4G"``. Human representations will be
           converted into bytes. If result is ``<= 0`` - total RAM + total swap is used
 
           .. note:: This parameter is used for early runtime break in case of potential memory overflow
         :param skip_collection_create_memory_check: If we don't want to check size during collection creation
-        :param **kwargs: a wildcard, reserved for any extra parameters
+        :param \**kwargs: extra parameters passed to the adapters as they are, such as ``httpx_conf`` of the server
+          adapters
+        :raises DekerClientError: if the client cannot be configured or opened: an invalid uri, a memory limit that
+          cannot be parsed, no adapters for the scheme of the uri
         """
         try:
-            set_logger(format_string)
+            set_logger(format_string, _ROOT_DEKER_LOGGER_NAME)  # the loggers of the application keep their formats
             set_logging_level(loglevel.upper())
             self.__get_plugins()
             total_available_mem = virtual_memory().total + swap_memory().total
@@ -303,9 +314,14 @@ class Client(SelfLoggerMixin):
         self._release()
 
     def _validate_collection_metadata_version(self, collection_metadata: dict) -> None:
-        """Validate collection metadata.
+        """Check the metadata version of a stored collection and bring the metadata to the current version.
+
+        A collection written by a newer Deker cannot be read; an older one is read: the fields the older version
+        did not store (the scale of a generic dimension) get their defaults and the version is set to the current one
+        in the dictionary. The file on the disk is not rewritten.
 
         :param collection_metadata: Dictionary with collection metadata
+        :raises DekerMetaDataError: if the metadata has no version or a newer one than the adapters support
         """
         if "metadata_version" not in collection_metadata or collection_metadata["metadata_version"] > self.meta_version:
             raise DekerMetaDataError(
@@ -328,13 +344,13 @@ class Client(SelfLoggerMixin):
     @property
     @_open_client_only
     def meta_version(self) -> str:
-        """Get actual metadata version, provided by local adapters."""
+        """Get the metadata version the collections adapter writes."""
         return self._adapter.metadata_version
 
     @property
     @_open_client_only
     def root_path(self) -> Path:
-        """Get root path to the current storage."""
+        """Get the path of the collections directory of the storage."""
         return Path(self._adapter.uri.path) / self.__config.collections_directory
 
     @property
@@ -353,22 +369,26 @@ class Client(SelfLoggerMixin):
 
     @property
     def is_closed(self) -> bool:
-        """Check client status."""
+        """``True`` if the client is closed."""
         return self.__is_closed
 
     @property
     def is_open(self) -> bool:
-        """Check client status."""
+        """``True`` if the client is open."""
         return not self.__is_closed
 
     @_open_client_only
     def calculate_storage_size(self, collection_name: str = "") -> StorageSize:
         """Get the size of the storage or of a certain collection in bytes or converted to human representation.
 
+        The size is the sum of the sizes of the data files of the arrays; the metadata files and the symlinks
+        are not counted.
+
         .. warning:: Size calculation may take a long time. Maybe you'd like to have some coffee while it's working.
 
         :param collection_name: Name of a ``Collection``. If not passed, the whole storage will be counted.
         :returns: storage size in bytes and in human representation
+        :raises DekerCollectionNotExistsError: if the collection does not exist
         """
         paths: list[tuple[Path, str]] = []
         if collection_name:
@@ -411,7 +431,7 @@ class Client(SelfLoggerMixin):
         return StorageSize(size, human)
 
     def close(self) -> None:
-        """Close client."""
+        """Close the client and its context; the client can be reopened with the context manager."""
         self._release()
         self.logger.info("Client is closed")
 
@@ -454,6 +474,8 @@ class Client(SelfLoggerMixin):
         :param collection_options: Options for compression and chunks (if applicable)
         :param storage_adapter_type: Type of an adapter, which works with files; default is ``HDF5StorageAdapter``
         :returns: the created ``Collection``
+        :raises DekerValidationError: if the name is empty or the schema is neither ``ArraySchema`` nor
+          ``VArraySchema``
         """
         if not isinstance(name, str) or not name or name.isspace():
             raise DekerValidationError(f"Collection invalid name: {name}")
@@ -486,6 +508,7 @@ class Client(SelfLoggerMixin):
 
         :param name: Name of a ``Collection``
         :returns: the ``Collection``, or ``None`` if it does not exist
+        :raises DekerMetaDataError: if the collection was written by a newer Deker
         """
         try:
             collection_data: dict = self._adapter.read(name)
@@ -498,12 +521,14 @@ class Client(SelfLoggerMixin):
             return None
 
     def _validate_collection(self, collection_data: dict) -> Collection:
-        """Validate ``Collection`` object and return it without creation.
+        """Build a ``Collection`` object from its metadata dictionary without creating it in the storage.
 
-        Not recommended to use except for validation.
+        The fields a dictionary may leave out get their defaults: the fill value, the attributes, the labels
+        of the dimensions and the options. Not recommended to use except for validation.
 
         :param collection_data: Dictionary with collection metadata
         :returns: validated ``Collection`` instance
+        :raises DekerMetaDataError: if the metadata has no version or a newer one than the adapters support
         """
         self._validate_collection_metadata_version(collection_data)  # fills the scale of the generic dimensions
         default_fields: dict = {
@@ -534,8 +559,11 @@ class Client(SelfLoggerMixin):
     def collection_from_dict(self, collection_data: dict) -> Collection:
         """Create a new ``Collection`` in the database from collection metadata dictionary.
 
+        The dictionary has the shape of ``Collection.as_dict``; the fields it leaves out get their defaults.
+
         :param collection_data: Dictionary with collection metadata
         :returns: the created ``Collection``
+        :raises DekerMetaDataError: if the metadata has no version or a newer one than the adapters support
         """
         collection = self._validate_collection(collection_data)
         self._adapter.create(collection)
@@ -590,6 +618,7 @@ class Client(SelfLoggerMixin):
           If passed - gets locks only from passed ``Collection``, else checks every collection in the storage
         :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
         :returns: lock files of collections and arrays
+        :raises DekerCollectionNotExistsError: if the collection does not exist
         """
         locks: list[CollectionLockMeta | ArrayLockMeta] = []
         if collection_name:
@@ -625,6 +654,7 @@ class Client(SelfLoggerMixin):
 
         :param collection_name: Name of a ``Collection``.
           If passed - clears locks only in the provided collection, else clears locks in every collection in the storage
+        :raises DekerCollectionNotExistsError: if the collection does not exist
         """
         warnings.warn(
             "clear_locks is deprecated and will be removed in 3.0.0: Deker leaves no lock files since 2.0.0",
@@ -705,7 +735,11 @@ class Client(SelfLoggerMixin):
         return report
 
     def __iter__(self) -> Generator[Collection]:
-        """Iterate over all collections in the storage."""
+        """Iterate over all collections in the storage.
+
+        :yields: every ``Collection`` of the storage, built from its stored metadata
+        :raises DekerClientError: if the client is closed
+        """
         if self.is_closed:
             raise DekerClientError("Client is closed")
         try:
@@ -715,8 +749,18 @@ class Client(SelfLoggerMixin):
             raise DekerClientError("Client is closed") from None
 
     def __enter__(self) -> "Client":
+        """Open the client, if it was closed, and return it.
+
+        :returns: the open client
+        """
         self._open()
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Close the client.
+
+        :param exc_type: type of the exception raised in the block, if any
+        :param exc_val: the exception
+        :param exc_tb: its traceback
+        """
         self.close()

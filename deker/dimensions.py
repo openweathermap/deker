@@ -57,25 +57,28 @@ def validate_labels(name: str, size: int, labels: Any) -> None:
 
 
 class Dimension(SelfLoggerMixin, BaseDimension):
-    """``Dimension`` of a grid axes or any other series except time (for time series use ``TimeDimension``).
+    r"""``Dimension`` of a grid axes or any other series except time (for time series use ``TimeDimension``).
 
     May be used for defining the majority of parameters which may be stored in an array.
-    You can use ``labels`` or ``scale`` parameter to create a mapping of some names or values to the dimension indexes.
-    The constructor validates the parameters, sets the defaults and converts labels and scale
-    to their types.
+    You can use ``labels`` or ``scale`` parameter to create a mapping of some names or values to the dimension indexes,
+    but not both at once. The constructor validates the parameters, sets the defaults and converts labels and scale
+    to their types; the ``step`` of a ``Dimension`` is always 1.
 
     :param name: dimension unique name (e.g. "length")
     :param size: dimension cells quantity
-    :param labels: ordered sequence of unique dimension values names (strings or floats), mapped to their
-      indexes; default None
+    :param labels: ordered sequence of unique dimension values names (all strings or all floats), one per cell,
+      mapped to their indexes; default None
 
       ::
 
         ["name1", "name2", ..., "nameN"]
         (0.25, 0.5, ..., 1.0)
 
-    :param scale: a description of dimension regular scale; default None
-    :param **kwargs: any keyword arguments
+    :param scale: a regular scale of the dimension: a ``Scale(start_value, step, name)`` or a dictionary of its
+      fields; the value of the cell ``i`` is ``start_value + step * i``; default None
+    :param \**kwargs: extra keyword arguments, ignored
+    :raises DekerValidationError: if the name or the size is invalid, both labels and scale are passed, or the labels
+      or the scale break their rules
     """
 
     __slots__ = ("__name", "__size", "__step", "__labels", "__scale")
@@ -88,6 +91,16 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         scale: dict | Scale | None = None,
         **kwargs: Any,  # noqa: ARG002
     ) -> None:
+        r"""Validate the constructor arguments.
+
+        :param name: dimension name
+        :param size: dimension size
+        :param labels: dimension labels, if any
+        :param scale: dimension scale, if any
+        :param \**kwargs: extra keyword arguments, ignored
+        :raises DekerValidationError: if the name or the size is invalid, both labels and scale are passed, or the
+          labels or the scale break their rules
+        """
         super()._validate(name, size)
 
         if all(param is None for param in (labels, scale)):
@@ -150,7 +163,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
 
     @property
     def step(self) -> int:
-        """Get ``Dimension`` step."""
+        """Get ``Dimension`` step: always 1, kept for the common interface of the dimensions."""
         return self.__step
 
     @property
@@ -165,12 +178,12 @@ class Dimension(SelfLoggerMixin, BaseDimension):
 
     @property
     def labels(self) -> IndexLabels | None:
-        """Get ``Dimension`` labels."""
+        """Get ``Dimension`` labels; ``None`` if the dimension has none."""
         return self.__labels
 
     @property
     def scale(self) -> Scale | None:
-        """Get ``Dimension`` regular scale."""
+        """Get ``Dimension`` regular scale; ``None`` if the dimension has none."""
         return self.__scale
 
     @property
@@ -202,11 +215,15 @@ class Dimension(SelfLoggerMixin, BaseDimension):
 class TimeDimension(SelfLoggerMixin, BaseDimension):
     """Special dimension for time series.
 
+    The value of the cell ``i`` is ``start_value + step * i``.
+
     :param name: dimension name (e.g. "time")
     :param size: dimension cells quantity
 
     :param start_value: time mark of the first cell (index 0) in dimension
-    :param step: a ``datetime.timedelta`` step of ``TimeDimension`` series within the grid
+    :param step: a non-zero ``datetime.timedelta`` step of ``TimeDimension`` series within the grid
+    :raises DekerValidationError: if the name or the size is invalid, the step is not a non-zero ``timedelta``,
+      or the start value is neither a timezone-aware datetime, nor such an ISO string, nor an attribute reference
 
     .. note::
 
@@ -247,6 +264,16 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         step: datetime.timedelta | None = None,
         **kwargs: Any,  # noqa: ARG002
     ) -> None:
+        r"""Validate the constructor arguments.
+
+        :param name: dimension name
+        :param size: dimension size
+        :param start_value: time mark of the first cell
+        :param step: step of the series
+        :param \**kwargs: extra keyword arguments, ignored
+        :raises DekerValidationError: if the name or the size is invalid, the step is not a non-zero ``timedelta``,
+          or the start value is neither a timezone-aware datetime, nor such an ISO string, nor an attribute reference
+        """
         super()._validate(name, size)
         if not isinstance(step, datetime.timedelta) or not step:
             raise DekerValidationError('TimeDimension "step" shall be a none-zero datetime.timedelta')
@@ -291,7 +318,11 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
 
     @property
     def start_value(self) -> datetime.datetime | str:
-        """Get ``TimeDimension`` start value: a ``datetime`` or an attribute reference ``"$name"``."""
+        """Get ``TimeDimension`` start value as it was given: a ``datetime``, an ISO string or a reference ``"$name"``.
+
+        The dimensions of an array are built with a ``datetime``: the schema converts ISO strings and the array
+        resolves the references to its attributes.
+        """
         return self.__start_value
 
     @property

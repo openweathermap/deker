@@ -521,10 +521,11 @@ class TestVArraySubset:
         with pytest.raises(DekerVSubsetError) as info:
             subset.update(np.zeros(subset.shape))
         error = info.value
-        assert error.message == (
-            f"ATTENTION: Data in {subset!s} MAY BE NOW CORRUPTED due to the exceptions occurred in threads"
+        arrays = len(subset._VSubset__arrays)
+        assert (
+            error.message == f"{subset!s} is written partly: {arrays} of {arrays} Arrays failed, the others are written"
         )
-        assert len(error.exceptions) == len(subset._VSubset__arrays)
+        assert len(error.exceptions) == arrays
         assert all(text.startswith("OSError('disk full')") for text in error.exceptions)
         assert all("Traceback" in text for text in error.exceptions)
         assert "1) OSError('disk full')" in str(error)

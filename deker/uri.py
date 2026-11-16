@@ -49,7 +49,9 @@ class ParseResultWithServers(NamedTuple):
 class Uri(ParseResultWithServers, _NetlocResultMixinStr):
     """Deker client uri wrapper.
 
-    Overrides parsed result to have query as a dictionary.
+    Overrides parsed result to have query as a dictionary. A cluster uri lists its hosts with commas,
+    ``http://user:pass@host1,host2``: ``netloc`` keeps the first host, ``servers`` the full uris of the others
+    with the same credentials.
     Validation ref: https://t.ly/ekbU
     """
 
@@ -74,7 +76,7 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
 
     @property
     def raw_url(self) -> str:
-        """Get url from raw uri without query string, arguments and fragments."""
+        """Get the url of the first server without query string, parameters and fragment: ``scheme://netloc/path``."""
         url = self.scheme + self.NETLOC_SEPARATOR
         if self.netloc:
             url += self.netloc
@@ -87,8 +89,8 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
 
         :param netloc: Netloc object
         :param scheme: http or https
-        :returns: netloc of the first node and the list of all nodes, or ``None`` for a single
-            server
+        :returns: netloc of the first node and the uris of the other nodes, or ``None`` for a single server
+            or a scheme that has no clusters
         """
         # If scheme is not http or https, it cannot work in cluster mode
         if scheme not in ["http", "https"] or cls.SERVERS_DIVIDER not in netloc:
@@ -126,6 +128,8 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
         """Validate uri from string.
 
         :param uri: : scheme://username:password@host:port/path;parameters?query
+        :raises DekerValidationError: if the uri is not a non-empty string, or the path of a ``file://`` uri
+          is invalid
         """
         if not isinstance(uri, str):
             raise DekerValidationError(f"Invalid uri type: {uri} - {type(uri)}")
@@ -146,6 +150,8 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
 
         :param uri: scheme://username:password@host:port/path;parameters?query
         :returns: parsed and validated ``Uri``
+        :raises DekerValidationError: if the uri is not a non-empty string, or the path of a ``file://`` uri
+          is invalid
         """
         cls.validate(uri)
         return cls.__parse(uri)
@@ -162,4 +168,9 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
         return Uri(self.scheme, netloc, path, self.params, self.query, self.fragment, servers)
 
     def __itruediv__(self, other: str | Path) -> "Uri":
+        """Join uri to Path or string in place: the same as ``/``, a ``Uri`` is immutable.
+
+        :param other: Path or string to join
+        :returns: ``Uri`` with the joined path
+        """
         return self.__truediv__(other)

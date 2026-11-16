@@ -177,8 +177,8 @@ class TestArrayAdapter:
         filename = paths.main / (array.id + array_adapter.storage_adapter.file_ext)
         array_adapter.create(array)
         assert os.path.exists(filename)
-        with pytest.raises(ValueError):
-            assert array_adapter.update(array, np.index_exp[:], None)
+        with pytest.raises(DekerArrayError, match="shall not be None"):
+            array_adapter.update(array, np.index_exp[:], None)
 
     @pytest.mark.parametrize(
         "data",

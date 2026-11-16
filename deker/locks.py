@@ -45,7 +45,7 @@ T = TypeVar("T", bound=Union[Path, "BaseArray"])
 
 
 class LockWithArrayMixin(Generic[T]):
-    """Base class with getter of array."""
+    """Mixin of the locks of arrays: finds the array among the arguments of the decorated adapter method."""
 
     args: Sequence[Any]
     kwargs: dict[str, Any]
@@ -53,7 +53,7 @@ class LockWithArrayMixin(Generic[T]):
 
     @property
     def array_id(self) -> str:
-        """Get if from Array, or Path to the array."""
+        """Get the id of the array: from the ``Array`` object, or from the name of the path to its file."""
         # Get instance of the array
         if isinstance(self.array, Path):
             path = self.array
@@ -64,24 +64,24 @@ class LockWithArrayMixin(Generic[T]):
 
     @property
     def array(self) -> T:
-        """Parse array from args and save ref to it."""
+        """Get the array of the decorated call: the ``array`` keyword argument or the first positional one."""
         array = self.kwargs.get("array") or self.args[1]  # zero arg is 'self'
         return array
 
     @property
     def dir_path(self) -> Path:
-        """Path to directory with main file."""
+        """Get the directory of the main file of the array."""
         return get_main_path(self.array_id, self.instance.collection_path / self.instance.data_dir)
 
 
 def wait_for_unlock(check_func: Callable, check_func_args: tuple, timeout: float, interval: float) -> bool:
-    """Waiting while there is no locks.
+    """Call the check until it succeeds, sleeping between the attempts, for the timeout at most.
 
-    :param check_func: Func that check if lock has been releases
-    :param check_func_args: Args for func
-    :param timeout: For how long we should wait lock release
-    :param interval: How often we check locks
-    :return:
+    :param check_func: function that returns ``True`` when the lock is taken (or the wait is over)
+    :param check_func_args: arguments of the function
+    :param timeout: seconds to keep trying
+    :param interval: seconds between the attempts
+    :returns: ``True`` if the check succeeded, ``False`` if the timeout is over
     """
     start_time = time.monotonic()
     while (time.monotonic() - start_time) <= timeout:
@@ -135,7 +135,7 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
     ALLOWED_TYPES = ["LocalArrayAdapter"]
 
     def get_path(self) -> Path:
-        """Get path to the file for locking."""
+        """Get path to the main file of the array, which is the file the exclusive lock is taken on."""
         path = self.dir_path / (self.array_id + self.instance.file_ext)
         self.logger.debug(f"Got path for array.id {self.array.id} lock file: {path}")
         return path
@@ -153,10 +153,11 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         return True
 
     def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
-        """Take the exclusive flock, waiting for the readers to leave.
+        """Take the exclusive flock, waiting for the readers and the writers to leave.
 
         :param func_args: arguments of method call
         :param func_kwargs: keyword arguments of method call
+        :raises DekerLockError: if the file is not released within ``write_lock_timeout`` of the client
         """
         path = self.get_path()
         if self._try_acquire(path):
@@ -171,15 +172,16 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
 
         # If we hit the timeout, release whatever is held and raise DekerLockError
         self.release()
-        raise DekerLockError(f"Array {self.array} is locked with read locks")
+        raise DekerLockError(f"{self.array} is locked by its readers or a writer")
 
 
 class ArrayCreationLock:
     """Lock held while a missing ``Array`` of a ``VArray`` is created.
 
     Two writers of a fresh VArray would otherwise both find the Array missing and create two files for one
-    position. The lock is an exclusive flock on the main file of the VArray, so it works across processes and
-    containers on one storage and dies with its holder; the threads of one process queue on a thread lock
+    position. The lock is an exclusive flock on the directory of the main file of the VArray (the file itself
+    is replaced by every update of the custom attributes, the directory stays), so it works across processes
+    and containers on one storage and dies with its holder; the threads of one process queue on a thread lock
     first, so only one of them holds the flock at a time. Creation is short, so the flock is polled often.
 
     :param adapter: VArray adapter; the lock is a no-op for the server adapters, the server keeps its own order
@@ -197,9 +199,7 @@ class ArrayCreationLock:
 
         self.path: Path | None = None
         if isinstance(adapter, LocalVArrayAdapter):
-            self.path = get_main_path(varray.id, adapter.collection_path / adapter.data_dir) / (
-                varray.id + adapter.file_ext
-            )
+            self.path = get_main_path(varray.id, adapter.collection_path / adapter.data_dir)
         self.timeout = adapter.ctx.config.write_lock_timeout
         self.flock: Flock | None = None
         self.thread_lock: Lock | None = None
@@ -207,7 +207,7 @@ class ArrayCreationLock:
     def _try_acquire(self, path: Path) -> bool:
         """Try to take the flock once.
 
-        :param path: main file of the VArray
+        :param path: directory of the main file of the VArray
         :returns: ``True`` if the flock is held now
         """
         flock = Flock(path)
@@ -219,6 +219,11 @@ class ArrayCreationLock:
         return True
 
     def __enter__(self) -> "ArrayCreationLock":
+        """Take the thread lock, then the flock.
+
+        :returns: the held lock
+        :raises DekerLockError: if the flock is not taken within ``write_lock_timeout`` of the client
+        """
         if self.path is None:  # the server keeps its own order of creation
             return self
         with self._thread_locks_guard:
@@ -231,6 +236,10 @@ class ArrayCreationLock:
         return self
 
     def __exit__(self, *exc_info: Any) -> None:
+        r"""Release the flock and the thread lock.
+
+        :param \*exc_info: the exception raised in the block, if any
+        """
         if self.flock is not None:
             self.flock.release()
             self.flock = None
@@ -239,17 +248,20 @@ class ArrayCreationLock:
             self.thread_lock = None
 
 
-class UpdateMetaAttributeLock(LockWithArrayMixin[Union["Array", "VArray"]], BaseLock):
-    """Lock for updating meta."""
+class UpdateMetaAttributeLock(WriteArrayLock):
+    """Lock for updating the custom attributes of a ``VArray``, waited for like a write lock.
 
-    ALLOWED_TYPES = ["LocalArrayAdapter", "LocalVArrayAdapter"]
+    The lock is an exclusive flock on the directory of the main file of the VArray, not on the json file: the
+    update replaces the file, and a lock on it would stay on the old file, letting the next writer in while the
+    holder is still at work. The same directory is held while an Array of the VArray is created.
+    """
+
+    ALLOWED_TYPES = ["LocalVArrayAdapter"]
 
     def get_path(self) -> Path:
-        """Return path to the file that should be locked."""
-        # Get directory where file locates
-        dir_path = get_main_path(self.array.id, self.instance.collection_path / self.instance.data_dir)
-        path = dir_path / f"{self.array.id}{self.instance.file_ext}"
-        self.logger.debug(f"Got path for array.id {self.array.id} lock file: {path}")
+        """Get the directory of the main file of the VArray, which is the directory the exclusive lock is taken on."""
+        path = self.dir_path
+        self.logger.debug(f"Got path for array.id {self.array_id} lock directory: {path}")
         return path
 
 
@@ -263,14 +275,14 @@ class CollectionLock(BaseLock):
     ALLOWED_TYPES = ["LocalCollectionAdapter"]
 
     def get_path(self) -> Path:  # noqa: ARG002
-        """Return path to collection lock file."""
+        """Get path to the ``<collection>.lock`` file next to the directory of the collection."""
         collection = self.args[1]
         path = self.instance.collections_resource / (collection.name + ".lock")
         self.logger.debug(f"Got path for collection {collection.name} lock file: {path}")
         return path
 
     def release(self, e: Exception | None = None) -> None:
-        """Release Collection Lock.
+        """Release the lock; the lock file is removed only when the creation failed for the memory limit.
 
         :param e: Exception that might have been raised
         """

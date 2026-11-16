@@ -81,12 +81,12 @@ class BaseSubset(SelfLoggerMixin, ABC, Generic[ArrayT]):
 
     @property
     def shape(self) -> tuple[int, ...]:
-        """Subset shape."""
+        """Subset shape: the shape of the data ``read()`` returns; an integer index drops its axis."""
         return self.__shape
 
     @property
     def bounds(self) -> tuple[slice | int, ...]:
-        """Subset bounds."""
+        """Subset bounds: the normalized index expression, one integer or slice per axis of the array."""
         return self.__bounds
 
     @property
@@ -101,7 +101,10 @@ class BaseSubset(SelfLoggerMixin, ABC, Generic[ArrayT]):
 
     @abstractmethod
     def read(self) -> Numeric | np.ndarray | None:
-        """Read data from array slice."""
+        """Read data from array slice.
+
+        :returns: the data of the subset shape; a number for a single cell
+        """
         pass
 
     def read_xarray(self) -> "DataArray":
@@ -118,7 +121,13 @@ class BaseSubset(SelfLoggerMixin, ABC, Generic[ArrayT]):
         Right after the description is created - memory checker is invoked.
         If your RAM is insufficient for reading data - `DekerMemoryError` is raised.
 
-        Warning: final xarray.DataArray data shape may differ from subset shape
+        Warning: final xarray.DataArray data shape may differ from subset shape: an axis selected by an integer
+        index is kept with the length of one.
+
+        :returns: the subset data with the coordinates of its dimensions and the attributes of the array
+        :raises ImportError: if xarray is not installed
+        :raises DekerSubsetError: for a subset of a single cell
+        :raises DekerMemoryError: if the data does not fit the memory limit of the client
         """
         if xarray_import_error:
             raise xarray_import_error
@@ -151,17 +160,20 @@ class BaseSubset(SelfLoggerMixin, ABC, Generic[ArrayT]):
     def update(self, data: Data) -> None:
         """Update data in array by slice.
 
-        :param data: new data which shall match subset slicing
+        :param data: new data of the subset shape, or a number that fills the whole subset
         """
         pass
 
     @abstractmethod
     def clear(self) -> None:
-        """Clear data in array by slice."""
+        """Set the cells of the subset to the fill value."""
         pass
 
     def _is_deleted(self) -> bool:
-        """Check if array was deleted."""
+        """Check if the array of the subset was deleted from the storage.
+
+        :returns: ``True`` if the array does not exist anymore
+        """
         return self.__adapter.is_deleted(self.__array)
 
     @staticmethod
@@ -257,7 +269,11 @@ class BaseSubset(SelfLoggerMixin, ABC, Generic[ArrayT]):
         return list(positions)
 
     def describe(self) -> OrderedDict:
-        """Describe subset data.
+        """Describe subset data: the values of every axis the subset covers, in the order of the bounds.
+
+        A time axis is described by datetimes, a labelled one by its labels, a scaled one by the values of the
+        scale, a plain one by its indices. A slice with a step lists the positions it selects, backwards for a
+        negative step; an integer index gives a list of one value.
 
         You shall remember that once it is described, your physical memory becomes reduced
         by the size of all descriptive values of all the subset's dimensions.
@@ -270,7 +286,7 @@ class BaseSubset(SelfLoggerMixin, ABC, Generic[ArrayT]):
         But still subset's description is automatically created and inserted to xarray.DataArray
         on `read_xarray()` call.
 
-        If your RAM is insufficient for reading data - DekerMemoryError is raised.
+        :returns: dimension name -> its values within the subset
         """
         description = OrderedDict()
         for n, bound in enumerate(self.bounds):

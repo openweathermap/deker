@@ -23,7 +23,12 @@ __all__ = ("DTypeEnum", "DimensionType", "LocksExtensions", "LocksTypes")
 
 
 class DTypeEnum(Enum):
-    """Mapping of numeric data type names to types."""
+    """Mapping of the names of the data types to the types, as the names are stored in the metadata.
+
+    The numeric types are the dtypes of the arrays; ``string``, ``datetime`` and ``tuple`` are the types of
+    attributes only. The NumPy aliases removed in NumPy 2 (``cfloat``, ``complex_``, ``longfloat`` and so on)
+    map to their canonical types, so the schemas written with them still read.
+    """
 
     int = int
     float = float
@@ -70,9 +75,8 @@ class DTypeEnum(Enum):
 
     @staticmethod
     def get_name(object: "DTypeEnum") -> str:
-        """Return object name.
+        """Return the name a type is stored under in the metadata.
 
-        Numpy types parsing: we store types as "numpy.typename" in JSON.
         :param object: DtypeEnum object
         :returns: dtype name, with the ``numpy.`` prefix for numpy types
         """
@@ -89,19 +93,21 @@ class DimensionType(str, Enum):
 
 
 class LocksExtensions(str, Enum):
-    """Extensions for lock files."""
+    """Extensions of the lock files: the collection lock, and the markers of VArray writes of Deker < 2."""
 
     collection_lock = ".lock"
     varray_lock = ".varraylock"  # markers of Deker < 2; TODO: remove in 3.0.0 with Client.clear_locks
 
 
 class LocksTypes(str, Enum):
-    """Locks enum."""
+    """Names of the lock files as the lock listing reports them."""
 
     collection_lock = "collection creation lock"
     varray_lock = "varray write lock"  # markers of Deker < 2; TODO: remove in 3.0.0 with Client.clear_locks
 
 
 class ArrayType(str, Enum):
+    """The two kinds of arrays."""
+
     array = "array"
     varray = "varray"

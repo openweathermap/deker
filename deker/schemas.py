@@ -36,11 +36,16 @@ from deker.types import DimensionType, DTypeEnum, Labels, Numeric, Scale
 class AttributeSchema(SelfLoggerMixin, BaseAttributeSchema):
     """Schema of an attribute.
 
-    Describes requirements for the primary or custom attribute of Array or VArray.
+    Describes requirements for the primary or custom attribute of Array or VArray. A primary attribute is part of
+    the identity of an array: it is set on creation, never changes and the arrays are filtered by it. A custom
+    attribute keeps extra information and may be updated.
 
     :param name: attribute name
-    :param dtype: attribute data type
+    :param dtype: attribute data type: ``int``, ``float``, ``complex``, a NumPy number type, ``str``, ``tuple``
+      or ``datetime.datetime``
     :param primary: boolean flag for setting attribute as a key (``True``) or custom (``False``)
+    :raises DekerValidationError: if the name is not a non-empty string, the dtype is not one of the listed or
+      ``primary`` is not a boolean
     """
 
     def __attrs_post_init__(self) -> None:
@@ -128,6 +133,9 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
 
     .. attention:: Either ``scale`` or ``labels`` parameter or none of them shall be passed to the constructor.
        Not both of them.
+
+    :raises DekerValidationError: if the name or the size is invalid, both labels and scale are passed, or the labels
+      or the scale break their rules
     """
 
     labels: Optional["Labels"] = None
@@ -179,13 +187,16 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
 class TimeDimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
     """Dimension schema for time series.
 
-    Describes data distribution within some time.
+    Describes data distribution within some time: the value of the cell ``i`` is ``start_value + step * i``.
 
     :param name: dimension name
     :param size: dimension cells quantity
-    :param start_value: time of the dimension's zero-point.
-    :param step: Set a common time step for all the ``VArrays`` or ``VArrays`` with ``datetime.timedelta``
-                 or its dictionary mapping.
+    :param start_value: time of the dimension's zero-point: a ``datetime.datetime`` with a timezone, such an ISO
+      string (both are converted to UTC) or a reference to an attribute
+    :param step: a non-zero ``datetime.timedelta``, the common time step for all the ``Arrays`` or ``VArrays``
+      of the collection
+    :raises DekerValidationError: if the name or the size is invalid, the step is not a non-zero ``timedelta``,
+      or the start value is neither a timezone-aware datetime, nor such an ISO string, nor an attribute reference
 
     .. note::
        For setting a **common** start date and time for all the arrays use ``datetime.datetime`` with explicit timezone
@@ -252,6 +263,8 @@ def __common_arrays_attributes_post_init__(self: BaseArraysSchema) -> None:  # n
     """Validate attributes for ArraySchema or VArraySchema.
 
     :param self: ArraySchema or VArraySchema instance
+    :raises DekerValidationError: if the attributes are not ``AttributeSchemas`` with unique names, or a time
+      dimension refers to an attribute that is missing or is not a ``datetime.datetime``
     """
     if self.attributes is None:
         self.attributes = tuple()
@@ -282,16 +295,16 @@ def __common_arrays_attributes_post_init__(self: BaseArraysSchema) -> None:  # n
 class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
     """VArray schema - a common schema for all VArrays in Collection.
 
-    Virtual array is an "array of arrays", or an "image of pixels".
+    Virtual array is an "array of arrays": it is split by its virtual grid into ordinary ``Arrays``, each keeping
+    one part of the data in a file of its own.
 
-    If we consider VArray as an image - it is split by virtual grid into tiles. In this case each tile -
-    is an ordinary array.
+    This schema describes the structure of the collection virtual arrays and how they are split into arrays.
+    The ``ArraySchema`` of the ``Arrays`` is constructed from the ``VArraySchema`` automatically: the dimensions are
+    divided by the ``vgrid`` and the ``Arrays`` get the primary attributes ``vid`` and ``v_position``.
 
-    This schema describes the structure of the collection virtual arrays and how it is split into arrays.
-    ArraySchema is automatically constructed from VArraySchema.
-
-    :param dtype: an object, representing final data type of every array, e.g. ``int`` or ``numpy.float32``
-    :param dimensions: an ordered sequence of DimensionSchemas and/or TimeDimensionSchemas;
+    :param dtype: an object, representing final data type of every array, e.g. ``int`` or ``numpy.float32``;
+      ``int``, ``float`` and ``complex`` stand for ``numpy.int64``, ``numpy.float64`` and ``numpy.complex128``
+    :param dimensions: an ordered sequence of DimensionSchemas and/or TimeDimensionSchemas with unique names
     :param attributes: an optional sequence of AttributeSchema. If there is a TimeDimensionSchema, which ``start_value``
       parameter refers to some attribute name, attributes must contain at least such attribute schema, e.g.::
 
@@ -314,8 +327,10 @@ class VArraySchema(SelfLoggerMixin, BaseArraysSchema):
       of each ordinary ``Array``. Each ``VArray`` dimension "size" shall be divided by the correspondent integer
       without remainders, thus a ``VArray's`` vgrid is created.
 
-    :param fill_value: an optional value for filling in empty cells;
-      If ``None`` - default value for each dtype will be used. Numpy ``nan`` can be used only for floating numpy dtypes.
+    :param fill_value: an optional value for filling in empty cells; if ``None``, the minimal value of an integer
+      dtype or ``nan`` of a floating or complex one is used. Numpy ``nan`` can be used only for floating numpy dtypes.
+    :raises DekerValidationError: if the dimensions, the dtype, the fill value or the attributes are invalid, or
+      neither or both of ``vgrid`` and ``arrays_shape`` are passed, or they do not divide the dimensions
     """
 
     vgrid: list[int] | tuple[int, ...] | None = None
@@ -392,7 +407,8 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
     It describes the structure of the collection arrays.
 
     :param dimensions: an ordered sequence of ``DimensionSchemas`` and/or ``TimeDimensionSchemas``
-    :param dtype: an object, representing final data type of every array, e.g. ``int`` or ```numpy.float32```
+    :param dtype: an object, representing final data type of every array, e.g. ``int`` or ``numpy.float32``;
+      ``int``, ``float`` and ``complex`` stand for ``numpy.int64``, ``numpy.float64`` and ``numpy.complex128``
     :param attributes: an optional sequence of AttributeSchema. If there is a TimeDimensionSchema, which ``start_value``
       parameter refers to some attribute name, attributes must contain at least such attribute schema, e.g.::
 
@@ -402,9 +418,9 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
             primary=False  # or True
           )
 
-    :param fill_value: an optional value for filling in empty cells;
-      If ``None`` - default value for each dtype will be used.
-      Numpy ``nan`` can be used only for floating numpy dtypes.
+    :param fill_value: an optional value for filling in empty cells; if ``None``, the minimal value of an integer
+      dtype or ``nan`` of a floating or complex one is used. Numpy ``nan`` can be used only for floating numpy dtypes.
+    :raises DekerValidationError: if the dimensions, the dtype, the fill value or the attributes are invalid
     """
 
     fill_value: Numeric | None = None
@@ -419,7 +435,7 @@ class ArraySchema(SelfLoggerMixin, BaseArraysSchema):
 
 # moved here from deker.types.private.enums because of circular import
 class SchemaTypeEnum(Enum):
-    """Mapping of schema types to strings."""
+    """The two kinds of a collection schema: ``array`` for ``ArraySchema``, ``varray`` for ``VArraySchema``."""
 
     varray = VArraySchema
     array = ArraySchema

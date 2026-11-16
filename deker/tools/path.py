@@ -33,12 +33,16 @@ def get_symlink_path(
     primary_attributes_schema: tuple["BaseAttributeSchema", ...] | None,
     primary_attributes: dict,
 ) -> Path:
-    """Make symlink path from given attributes.
+    """Make the directory of the symlink of an array from its primary attributes.
+
+    The directory is a nested path of the values in the order of the schema: a datetime as its ISO string,
+    a ``v_position`` as its numbers joined with ``-``, the others as their string form. Without primary
+    attributes it is the symlinks directory itself.
 
     :param path_to_symlink_dir: path to array or varray symlinks in certain collection
     :param primary_attributes_schema: schemas of primary attributes
     :param primary_attributes: all primary attributes for a path
-    :returns: path of the symlink
+    :returns: directory of the symlink
     """
     symlink_path = path_to_symlink_dir
     if primary_attributes_schema:
@@ -53,7 +57,10 @@ def get_symlink_path(
 
 
 def get_main_path(array_id: str, data_directory: Path) -> Path:
-    """Generate main path for the given array id by its type.
+    """Generate the directory of the main file of an array from its id.
+
+    The first group of the uuid becomes a tree of one-character directories, the rest of the uuid is the
+    last directory: ``0f1e.../`` -> ``0/f/1/e/.../<rest>``.
 
     :param array_id: Array or VArray id
     :param data_directory: Path to a certain data directory
@@ -133,9 +140,11 @@ def _get_varray_paths(arr: "VArray", base_path: Path) -> Paths:
 def get_paths(array: "BaseArray", collection_path: Path | str) -> Paths:
     """Create main and symlink paths for arrays.
 
-    :param array: Array or VArray instance; any other type raises ``TypeError``
+    :param array: Array or VArray instance
     :param collection_path: path to a certain collection defined by user
-    :returns: namedtuple with "main" and "symlink" pathlib.Paths
+    :returns: namedtuple with "main" and "symlink" pathlib.Paths: the directory of the main file and the
+      directory of the symlink
+    :raises TypeError: for any other object
     """
     from deker.arrays import Array, VArray
 

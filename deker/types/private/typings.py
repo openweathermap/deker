@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, TypeVar, Union
 
 import numpy as np
 
-from .classes import ArrayPosition, ArraysCoordinatesWithOffset
+from .classes import ArrayPosition
 
 if TYPE_CHECKING:
     from deker.arrays import Array, VArray
@@ -32,8 +32,6 @@ __all__ = (
     "EllipsisType",
     "NoneType",
     "Arrays",
-    "ArraysCoordinates",
-    "ArraysInDimension",
     "Slice",
     "FancySlice",
     "MetaDataType",
@@ -150,6 +148,4 @@ FancySlice = Union[
     tuple[Union[slice, int, float, str, datetime, EllipsisType, None], ...],
 ]
 
-ArraysInDimension = list[ArraysCoordinatesWithOffset]
-ArraysCoordinates = list[ArraysInDimension]
 Arrays = list[ArrayPosition]

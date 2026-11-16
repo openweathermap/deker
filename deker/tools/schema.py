@@ -35,7 +35,8 @@ def get_default_fill_value(dtype: type[Numeric]) -> Any:
     """Get default fill value by dtype.
 
     :param dtype: schema dtype
-    :returns: minimal value of an integer dtype, ``numpy.nan`` for the others
+    :returns: minimal value of an integer dtype, ``numpy.nan`` for a floating or complex one
+    :raises DekerValidationError: for a dtype that is neither
     """
     if issubclass(dtype, (np.inexact, float, complex)):
         return np.nan
@@ -50,6 +51,7 @@ def _create_time_dimension(tdim_schema: "TimeDimensionSchema", attributes: dict[
     :param tdim_schema: TimeDimensionSchema
     :param attributes: primary and custom attributes' joint dictionary, resolving ``$`` references
     :returns: ``TimeDimension`` built from the dictionary
+    :raises DekerValidationError: if the attribute a ``$`` reference points to is missing or not a datetime
     """
     # as_dict serializes the start as a string (an iso datetime or a $-reference) and the step as a dict
     d = tdim_schema.as_dict
@@ -65,15 +67,14 @@ def _create_time_dimension(tdim_schema: "TimeDimensionSchema", attributes: dict[
 def create_dimensions(
     dimension_schemas: Sequence["BaseDimensionSchema"], attributes: dict[str, Any]
 ) -> tuple[Dimension | TimeDimension, ...]:
-    """Create Dimension and/or TimeDimension instances from dictionaries.
+    """Create the Dimension and/or TimeDimension instances of an array from the schemas.
 
-     Dimensions' and primary/custom attributes' schemas,
-     stored as dictionaries in collection metadata, are converted into objects:
-     Dimensions and/or TimeDimensions.
+    A time dimension whose start is an attribute reference gets the value of that attribute of the array.
 
     :param dimension_schemas: a sequence of dimensions' schemas
     :param attributes: primary and custom attributes' joint dictionary
-    :returns: dimensions in the order of the dictionaries
+    :returns: dimensions in the order of the schemas
+    :raises DekerValidationError: if the attribute a ``$`` reference points to is missing or not a datetime
     """
     from deker.schemas import TimeDimensionSchema
 
@@ -94,6 +95,7 @@ def create_attributes_schema(attributes_schemas: list[dict]) -> tuple["Attribute
 
     :param attributes_schemas: a list of attributes' schemas dictionaries
     :returns: attribute schemas
+    :raises DekerInvalidSchemaError: if a dictionary is not a valid attribute schema
     """
     from deker.schemas import AttributeSchema
 
@@ -111,8 +113,8 @@ def create_attributes_schema(attributes_schemas: list[dict]) -> tuple["Attribute
 def create_dimensions_schema(dimension_schemas: list[dict]) -> tuple["BaseDimensionSchema", ...]:
     """Create DimensionSchema and/or TimeDimensionSchema instances from a list of dictionaries.
 
-     Dimensions' schemas, stored as dictionaries in collection metadata, are converted into objects:
-     DimensionSchema and/or TimeDimensionSchema.
+    Dimensions' schemas, stored as dictionaries in collection metadata, are converted into objects:
+    DimensionSchema and/or TimeDimensionSchema; a dictionary with a ``start_value`` is a time dimension.
 
     :param dimension_schemas: a list of dimensions' schemas dictionaries
     :returns: dimension schemas

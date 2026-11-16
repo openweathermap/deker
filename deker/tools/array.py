@@ -36,8 +36,10 @@ def calculate_total_cells_in_array(seq: tuple[int, ...] | list[int]) -> int:
 def convert_human_memory_to_bytes(memory_limit: int | str) -> int:
     """Convert a human memory limit to bytes.
 
-    :param memory_limit: memory limit provided by the user
+    :param memory_limit: memory limit provided by the user: a number of bytes, or a string of a number and a unit
+      (``k``, ``m``, ``g``, ``t``, in any case), e.g. ``"8G"`` or ``"512m"``
     :returns: memory limit in bytes
+    :raises DekerValidationError: if the value is neither a number nor such a string
     """
     bytes_ = 1024
     mapping: dict[str, int] = {"k": bytes_, "m": bytes_**2, "g": bytes_**3, "t": bytes_**4}
@@ -66,13 +68,14 @@ def convert_human_memory_to_bytes(memory_limit: int | str) -> int:
 
 
 def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> None:
-    """Memory allocation checker decorator.
+    """Check that the data of the shape and dtype fit the memory.
 
-    Checks if it is possible to allocate memory for array/subset.
+    The limit is the smaller of the limit of the client and the memory free on the machine right now.
 
     :param shape: array or subset shape
     :param dtype: array or subset values dtype
     :param mem_limit_from_settings: deker ram limit in bytes
+    :raises DekerMemoryError: if the data would not fit
     """
     array_values = calculate_total_cells_in_array(shape)
     array_size_bytes = np.dtype(dtype).itemsize * array_values
@@ -105,5 +108,8 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
 
 
 def get_id() -> str:
-    """Generate unique id with uuid4."""
+    """Generate a unique id of an array: a ``uuid4`` string.
+
+    :returns: the id
+    """
     return str(uuid.uuid4())

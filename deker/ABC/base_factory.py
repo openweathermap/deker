@@ -34,6 +34,11 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
     uri_schemes: tuple[str, ...]
 
     def __init__(self, ctx: "CTX", uri: "Uri") -> None:
+        """BaseAdaptersFactory constructor: takes the executor of the context or creates an own one.
+
+        :param ctx: context of the client
+        :param uri: uri of the storage
+        """
         self.ctx = ctx
         self.uri = uri
         self.executor: ThreadPoolExecutor
@@ -48,11 +53,12 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
         self.logger.debug(f"{self.__class__.__name__} instantiated")
 
     def __del__(self) -> None:
+        """Close the factory when it is dropped."""
         self.close()
 
     @abstractmethod
     def close(self) -> None:
-        """Close own executor."""
+        """Close the own executor; an executor given by the user is left to the user."""
         try:
             if self.executor and self._own_executor:
                 self.executor.shutdown(wait=True, cancel_futures=False)
@@ -61,30 +67,30 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
 
     @abstractmethod
     def get_array_adapter(self, *args: Any, **kwargs: Any) -> "BaseArrayAdapter":
-        """Create ArrayAdapter instance.
+        r"""Create ArrayAdapter instance.
 
-        :param *args: any arguments
-        :param **kwargs: any keyword arguments
+        :param \*args: any arguments
+        :param \**kwargs: any keyword arguments
         :returns: ``ArrayAdapter`` instance
         """
         pass
 
     @abstractmethod
     def get_varray_adapter(self, *args: Any, **kwargs: Any) -> "BaseVArrayAdapter":
-        """Create VArrayAdapter instance.
+        r"""Create VArrayAdapter instance.
 
-        :param *args: any arguments
-        :param **kwargs: any keyword arguments
+        :param \*args: any arguments
+        :param \**kwargs: any keyword arguments
         :returns: ``VArrayAdapter`` instance
         """
         pass
 
     @abstractmethod
     def get_collection_adapter(self, *args: Any, **kwargs: Any) -> "BaseCollectionAdapter":
-        """Create collection adapter.
+        r"""Create collection adapter.
 
-        :param *args: any arguments
-        :param **kwargs: any keyword arguments
+        :param \*args: any arguments
+        :param \**kwargs: any keyword arguments
         :returns: ``CollectionAdapter`` instance
         """
         pass

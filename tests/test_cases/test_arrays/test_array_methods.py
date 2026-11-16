@@ -355,6 +355,40 @@ class TestArrayMethods:
         with pytest.raises(IndexError):
             assert inserted_array[index_exp]
 
+    @pytest.mark.parametrize(
+        "index_exp",
+        [10, -11, (10,), (0, 10), (0, 0, 10), (10, 0), (-11, 0), (0, -11, 0), (..., 10), (..., -11), (0, ..., 10), 11],
+    )
+    def test_array_getitem_raises_on_a_position_out_of_range(self, inserted_array: Array, index_exp):
+        """An integer index beyond the axis raises IndexError, as it does in numpy; nothing is read as fill values.
+
+        :param inserted_array: Pre created array of shape (10, 10, 10)
+        :param index_exp: index expression with a position out of range
+        """
+        with pytest.raises(IndexError, match="out of range"):
+            inserted_array[index_exp]
+
+    @pytest.mark.parametrize(
+        ("index_exp", "shape"),
+        [
+            (9, (10, 10)),
+            (-10, (10, 10)),
+            (0, (10, 10)),
+            ((0, 9), (10,)),
+            ((-10, -10, -10), ()),
+            ((..., 9), (10, 10)),
+            ((9, ..., -10), (10,)),
+        ],
+    )
+    def test_array_getitem_accepts_the_positions_within_range(self, inserted_array: Array, index_exp, shape: tuple):
+        """Every position from -size to size - 1 is accepted, on every axis, with and without an ellipsis.
+
+        :param inserted_array: Pre created array of shape (10, 10, 10)
+        :param index_exp: index expression within the range
+        :param shape: shape of the subset
+        """
+        assert inserted_array[index_exp].shape == shape
+
     def test_array_getitem_raises_memory_error(self, client, root_path):
         """Test array raise MemoryError on too big slice expression and too low memory limit."""
         schema = ArraySchema(

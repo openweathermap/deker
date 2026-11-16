@@ -31,9 +31,12 @@ if TYPE_CHECKING:
 def serialize_attribute_value(
     val: Any,
 ) -> tuple[str, int, float, tuple] | str | int | float | tuple:
-    """Serialize attribute value.
+    """Serialize an attribute value for the JSON metadata.
 
-    :param val: complex number
+    A datetime becomes an ISO string, a complex number a string, a NumPy number a Python one, a NumPy array
+    a list, a tuple or a list a tuple of serialized elements; everything else stays as it is.
+
+    :param val: attribute value
     :returns: JSON-serializable value
     """
     if isinstance(val, datetime):
@@ -71,7 +74,11 @@ def serialize_attribute_nested_tuples(value: tuple | list) -> tuple[Any, ...]:
 
 
 def deserialize_attribute_value(val: Any, dtype: type, from_tuple: bool) -> Any:
-    """Deserialize attribute value.
+    """Deserialize attribute value read from the JSON metadata.
+
+    A datetime attribute is parsed from its ISO string into UTC; the others are converted with the dtype of the
+    schema; a tuple is deserialized element by element, where a string that looks like a serialized complex number
+    becomes a complex number again.
 
     :param val: attribute value
     :param dtype: attribute dtype from schema or type of tuple element
@@ -130,12 +137,15 @@ def make_ordered_dict(
     custom_attributes: dict,
     attrs_schema: Sequence["AttributeSchema"],
 ) -> tuple[OrderedDict, OrderedDict]:
-    """Ensure that attributes in dict are located in correct order (Based on schema).
+    """Order the attributes as in the schema and deserialize their values.
+
+    Every attribute of the schema shall be present; a custom attribute may be ``None``.
 
     :param primary_attributes:  Primary attributes dict
     :param custom_attributes: Custom attributes dict
     :param attrs_schema: Schema of attributes to get order
     :returns: primary and custom attributes ordered as in the schema
+    :raises KeyError: if an attribute of the schema is missing
     """
     # To ensure the order of attributes
     ordered_primary_attributes: OrderedDict = OrderedDict()

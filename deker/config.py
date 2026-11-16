@@ -19,14 +19,21 @@ from attr import asdict, dataclass, fields
 
 @dataclass(kw_only=True)
 class DekerConfig:
-    """Deker application configuration.
+    """Deker application configuration, built by the ``Client`` from its arguments.
 
     :param uri: Deker uri string
     :param workers: number of threads for VArray management
-    :param write_lock_timeout: number of seconds for WriteLock timeout
-    :param write_lock_check_interval: number of seconds for WriteLock check
+    :param write_lock_timeout: seconds a writer waits for a locked file to be released
+    :param write_lock_check_interval: seconds a writer sleeps between the checks of a lock
     :param memory_limit: RAM size in bytes available for Deker
     :param loglevel: Deker logging level
+    :param collections_directory: directory of the collections in the storage
+    :param array_data_directory: directory of the files of the ``Arrays`` in a collection
+    :param varray_data_directory: directory of the files of the ``VArrays`` in a collection
+    :param array_symlinks_directory: directory of the symlinks of the ``Arrays`` in a collection
+    :param varray_symlinks_directory: directory of the symlinks of the ``VArrays`` in a collection
+    :param skip_collection_create_memory_check: skip the memory check when a collection is created
+    :raises ValueError: if a setting has a wrong type
     """
 
     # configurable attributes
@@ -51,7 +58,10 @@ class DekerConfig:
         return asdict(self)
 
     def __attrs_post_init__(self) -> None:
-        """Check if types are correct."""
+        """Check that every setting has the type of its field.
+
+        :raises ValueError: if a setting has a wrong type
+        """
         for field in fields(self.__class__):
             default_value = getattr(self, field.name)
             if not isinstance(default_value, field.type):

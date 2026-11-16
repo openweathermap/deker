@@ -32,7 +32,11 @@ if TYPE_CHECKING:
 
 
 class FilteredManager(SelfLoggerMixin, BaseAbstractManager[ArrayT]):
-    """Manager for ``Collection`` contents filtering."""
+    """Manager for ``Collection`` contents filtering.
+
+    The filters are either the ``id`` of an array, ``{"id": "<uuid>"}``, or the values of all its primary
+    attributes, ``{"name": value, ...}``; the storage is searched when ``first()`` or ``last()`` is called.
+    """
 
     __slots__ = (
         "__filters",
@@ -49,6 +53,15 @@ class FilteredManager(SelfLoggerMixin, BaseAbstractManager[ArrayT]):
         schema: "BaseArraysSchema",
         filters: dict,
     ):
+        """FilteredManager constructor.
+
+        :param collection: the collection to search in
+        :param array_adapter: adapter of its ``Arrays``
+        :param varray_adapter: adapter of its ``VArrays``, for a collection of ``VArrays``
+        :param schema: the schema that decides the kind of arrays
+        :param filters: the filters: an id or all the primary attributes
+        :raises DekerInvalidManagerCallError: if the schema is a ``VArraySchema`` and no ``VArray`` adapter is given
+        """
         super().__init__(collection, schema, array_adapter, varray_adapter)
         self.__collection = collection
         self.__schema = schema
@@ -75,18 +88,29 @@ class FilteredManager(SelfLoggerMixin, BaseAbstractManager[ArrayT]):
             return arrays[elem_index]
 
     def first(self) -> ArrayT | None:
-        """Return first array in the filter."""
+        """Return the first array matching the filters; ``None`` if there is none.
+
+        :returns: the array or ``None``
+        :raises DekerValidationError: if the id is not a UUID string or a datetime attribute is of a wrong type
+        :raises DekerFilterError: if the filters are neither an id nor all the primary attributes of the schema
+        """
         return self.__get_item_in_list_arrays(0)
 
     def last(self) -> ArrayT | None:
-        """Return last array in the filter."""
+        """Return the last array matching the filters; ``None`` if there is none.
+
+        :returns: the array or ``None``
+        :raises DekerValidationError: if the id is not a UUID string or a datetime attribute is of a wrong type
+        :raises DekerFilterError: if the filters are neither an id nor all the primary attributes of the schema
+        """
         return self.__get_item_in_list_arrays(-1)
 
 
 class DataManager(BaseManager[ArrayT]):
     """Common data manager.
 
-    Its behavior depends on the type of Collection (Array/Varrary)
+    Its behavior depends on the type of Collection: it creates ``VArrays`` in a collection with a ``VArraySchema``,
+    ``Arrays`` otherwise.
     """
 
     __slots__ = (
@@ -101,6 +125,12 @@ class DataManager(BaseManager[ArrayT]):
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"] = None,
     ):
+        """DataManager constructor.
+
+        :param collection: the collection managed
+        :param array_adapter: adapter of its ``Arrays``
+        :param varray_adapter: adapter of its ``VArrays``, for a collection of ``VArrays``
+        """
         schema = collection.varray_schema or collection.array_schema
         super().__init__(collection, schema, array_adapter, varray_adapter)
         self.__collection = collection
@@ -141,6 +171,7 @@ class DataManager(BaseManager[ArrayT]):
         :param custom_attributes: varray custom attributes
         :param id_: VArray uuid string
         :returns: the created ``VArray``
+        :raises DekerInvalidManagerCallError: if the manager has no ``VArray`` adapter
         """
         if self.__varray_adapter is None:
             raise DekerInvalidManagerCallError("VArray adapter is not set")
@@ -179,12 +210,14 @@ class DataManager(BaseManager[ArrayT]):
         custom_attributes: dict | None = None,
         id_: str | None = None,
     ) -> ArrayT:
-        """Create array or varray.
+        """Create an array of the kind the schema of the collection decides.
 
-        :param primary_attributes: primary attributes
+        :param primary_attributes: primary attributes: all of the schema, no other
         :param custom_attributes: custom attributes
-        :param id_: unique UUID string
+        :param id_: unique UUID string; generated if not passed
         :returns: the created ``Array`` or ``VArray``
+        :raises DekerValidationError: if the attributes do not match the schema or an array with these primary
+          attributes exists
         """
         schema = self.__collection.varray_schema or self.__collection.array_schema
         # the schema decides the kind of arrays, the same way it decides the manager's type parameter
@@ -192,7 +225,7 @@ class DataManager(BaseManager[ArrayT]):
 
 
 class VArrayManager(SelfLoggerMixin, DataManager[VArray]):
-    """Manager for VArrays."""
+    """Manager for the ``VArrays`` of a collection: ``collection.varrays``."""
 
     __slots__ = (
         "__collection",
@@ -206,6 +239,12 @@ class VArrayManager(SelfLoggerMixin, DataManager[VArray]):
         array_adapter: "BaseArrayAdapter",
         varray_adapter: "BaseVArrayAdapter",
     ) -> None:
+        """VArrayManager constructor.
+
+        :param collection: the collection managed
+        :param array_adapter: adapter of the ``Arrays`` the ``VArrays`` are made of
+        :param varray_adapter: adapter of the ``VArrays``
+        """
         super().__init__(collection, array_adapter, varray_adapter)
         self.__collection = collection
         self.__array_adapter: "BaseArrayAdapter" = array_adapter
@@ -216,6 +255,11 @@ class VArrayManager(SelfLoggerMixin, DataManager[VArray]):
         return self.__varray_adapter
 
     def _get_schema(self) -> "VArraySchema":
+        """Get the ``VArraySchema`` of the collection.
+
+        :returns: the schema
+        :raises DekerInvalidManagerCallError: if the collection has no ``VArraySchema``
+        """
         schema = self.__collection.varray_schema
         if schema is None:
             raise DekerInvalidManagerCallError("VArrays cannot be created in a collection without VArraySchema")
@@ -231,21 +275,31 @@ class VArrayManager(SelfLoggerMixin, DataManager[VArray]):
 
         :param primary_attributes: VArray primary attributes
         :param custom_attributes: VArray custom attributes
-        :param id_: VArray unique UUID string
+        :param id_: VArray unique UUID string; generated if not passed
         :returns: the created ``VArray``
+        :raises DekerInvalidManagerCallError: if the collection has no ``VArraySchema``
+        :raises DekerValidationError: if the attributes do not match the schema or a ``VArray`` with these primary
+          attributes exists
         """
         self._get_schema()
         return self._create_varray(primary_attributes, custom_attributes, id_)
 
     def __iter__(self) -> Generator[VArray, None, None]:
-        """Yield VArrays from adapter."""
+        """Yield every ``VArray`` of the collection.
+
+        :yields: the ``VArrays``, built from their stored metadata
+        """
         self.logger.debug("iterating over VArrays")
         for meta in self._adapter:
             yield VArray._create_from_meta(self.__collection, meta, self.__array_adapter, self.__varray_adapter)
 
 
 class ArrayManager(SelfLoggerMixin, DataManager[Array]):
-    """Manager for Arrays."""
+    """Manager for the ``Arrays`` of a collection: ``collection.arrays``.
+
+    In a collection of ``VArrays`` these are the ``Arrays`` the ``VArrays`` are made of: their primary attributes
+    are ``vid`` and ``v_position``.
+    """
 
     __slots__ = (
         "__collection",
@@ -254,6 +308,11 @@ class ArrayManager(SelfLoggerMixin, DataManager[Array]):
     )
 
     def __init__(self, collection: "Collection", array_adapter: "BaseArrayAdapter"):
+        """ArrayManager constructor.
+
+        :param collection: the collection managed
+        :param array_adapter: adapter of its ``Arrays``
+        """
         super().__init__(collection, array_adapter, None)
         self.__collection = collection
         self.__array_adapter = array_adapter
@@ -264,7 +323,10 @@ class ArrayManager(SelfLoggerMixin, DataManager[Array]):
         return self.__array_adapter
 
     def _get_schema(self) -> "ArraySchema":
-        """Override method which returns only array schema."""
+        """Get the ``ArraySchema`` of the collection.
+
+        :returns: the schema
+        """
         return self.__collection.array_schema
 
     def create(
@@ -277,13 +339,18 @@ class ArrayManager(SelfLoggerMixin, DataManager[Array]):
 
         :param primary_attributes: Array primary attributes
         :param custom_attributes: Array custom attributes
-        :param id_: Array unique UUID string
+        :param id_: Array unique UUID string; generated if not passed
         :returns: the created ``Array``
+        :raises DekerValidationError: if the attributes do not match the schema or an ``Array`` with these primary
+          attributes exists
         """
         return self._create_array(primary_attributes, custom_attributes, id_)
 
     def __iter__(self) -> Generator[Array, None, None]:
-        """Yield Arrays from adapter."""
+        """Yield every ``Array`` of the collection.
+
+        :yields: the ``Arrays``, built from their stored metadata
+        """
         self.logger.debug("iterating over Arrays")
         for meta in self._adapter:
             yield Array._create_from_meta(self.__collection, meta, self.__array_adapter)

@@ -38,9 +38,8 @@ class BaseCollectionOptions(Serializer, ABC):
     def _process_options(cls, storage_options: dict | None) -> dict:
         """Validate and convert collection storage options.
 
-        :param storage_options: options for storing data by a certain storage adapter,
+        :param storage_options: options for storing data by a certain storage adapter, like chunks,
+          compression, etc. Such options are passed to a collection to be used for every Array in it.
         :returns: options ready for the collection options class
-        like chunks, compression, etc. Such options are passed to a collection to be used for every
-        Array in it.
         """
         pass

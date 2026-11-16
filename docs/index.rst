@@ -20,6 +20,12 @@
 
 .. toctree::
    :hidden:
+   :caption: Project
+
+   Changelog <deker/changelog>
+
+.. toctree::
+   :hidden:
    :caption: About Us
 
    OpenWeather <https://openweathermap.org>

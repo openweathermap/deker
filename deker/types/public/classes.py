@@ -56,6 +56,8 @@ class Scale(NamedTuple):
 
         EarthGridArray[1, 1] == EarthGridArray[89.75, -179.75]
 
+    The value of the cell ``i`` of the dimension is ``start_value + step * i``.
+
     :param start_value: scale real start point
     :param step: scale values step (may be positive or negative)
     :param name: optional scale name (latitude, longitude or whatever)
@@ -67,7 +69,11 @@ class Scale(NamedTuple):
 
 
 class StorageSize(NamedTuple):
-    """Namedtuple for storage size with bytes and human representation."""
+    """Namedtuple for storage size with bytes and human representation.
+
+    :param bytes: size in bytes
+    :param human: the same size as a string with a unit, e.g. ``"1.5 GB"``
+    """
 
     bytes: int
     human: str
@@ -83,12 +89,16 @@ class IndexLabels(tuple, SelfLoggerMixin):
     Valid Labels are list or tuple of unique strings or floats::
 
       ["name1", "name2", ..., "nameN"] | (0.2, 0.1, 0.4, 0.3, ..., -256.78963)
-
-    :param labels: list or tuple of unique strings or floats
     """
 
     @classmethod
     def __validate(cls, labels: Labels | None) -> tuple[str | float, ...]:
+        """Check the labels and return them as a tuple.
+
+        :param labels: labels
+        :returns: the labels as a tuple
+        :raises DekerValidationError: if the labels are empty or not all strings or all floats
+        """
         error = DekerValidationError(
             "Labels shall be a list or tuple of unique values of the same type (strings, floats), "
             "not None or empty list or tuple"
@@ -116,7 +126,11 @@ class IndexLabels(tuple, SelfLoggerMixin):
         """
         return super().__new__(cls, cls.__validate(labels))
 
-    def __init__(self, labels: Labels | None) -> None:
+    def __init__(self, labels: Labels | None) -> None:  # noqa: ARG002
+        """Log the creation; the labels are set by ``__new__``.
+
+        :param labels: list or tuple of unique strings or floats
+        """
         self.logger.debug("labels initialized")
 
     @property

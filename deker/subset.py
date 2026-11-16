@@ -74,8 +74,9 @@ class Subset(BaseSubset["Array"]):
 
       .. note::
          * Data cannot be ``None``
-         * Data ``shape`` should be equal to the ``Subset.shape``
-         * Data ``dtype`` should be equal to the ``Array.dtype``
+         * Data ``shape`` should be equal to the ``Subset.shape``, or data is a number that fills the whole subset
+         * Python numbers, lists and tuples are converted to the ``Array.dtype`` when every value fits it;
+           NumPy arrays and scalars shall have the ``Array.dtype`` already
 
     - ``clear``: removes or resets with `fill_value` all data from the storage within the subset bounds;
     """
@@ -110,7 +111,12 @@ class Subset(BaseSubset["Array"]):
 
     @not_deleted
     def read(self) -> Numeric | np.ndarray:
-        """Read data from ``Array`` slice."""
+        """Read data from ``Array`` slice.
+
+        :returns: the data of the subset shape; a number for a single cell; the fill value where nothing was written
+        :raises DekerLockError: if a writer holds the ``Array``
+        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
+        """
         self.logger.debug(f"Trying to read data from {self.__array.id} bounds={slice_converter[self.__bounds]}")
         data = self.__adapter.read_data(self.__array, self.__bounds)
         self.logger.info(f"{self!s} data read")
@@ -121,10 +127,17 @@ class Subset(BaseSubset["Array"]):
         """Update data in ``Array`` by slice.
 
         * Data cannot be ``None``
-        * Data ``shape`` should be equal to the ``Subset.shape``
-        * Data ``dtype`` should be equal to the ``Array.dtype``
+        * Data ``shape`` should be equal to the ``Subset.shape``, or data is a number that fills the whole subset
+        * Python numbers, lists and tuples are converted to the ``Array.dtype`` when every value fits it;
+          NumPy arrays and scalars shall have the ``Array.dtype`` already
+
+        The write waits for the readers of the ``Array`` to leave, up to ``write_lock_timeout`` of the client.
 
         :param data: new data which shall match subset slicing
+        :raises DekerArrayError: if the data is ``None``
+        :raises DekerValidationError: if the data does not fit the shape or the dtype
+        :raises DekerLockError: if the ``Array`` is not released within the timeout
+        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
         """
         self.logger.debug(f"Trying to update data for {self.__array.id} bounds={slice_converter[self.__bounds]}")
         if data is None:
@@ -134,7 +147,13 @@ class Subset(BaseSubset["Array"]):
 
     @not_deleted
     def clear(self) -> None:
-        """Clear data in ``Array`` by slice."""
+        """Set the cells of the ``Array`` within the subset to the fill value.
+
+        The data of an ``Array`` that becomes entirely empty are removed from its file.
+
+        :raises DekerLockError: if the ``Array`` is not released within the timeout
+        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
+        """
         self.logger.debug(f"Trying to clear data for {self.__array.id} bounds={slice_converter[self.__bounds]}")
         self.__adapter.clear(self.__array, self.__bounds)
         self.logger.info(f"{self!s} data cleared")
@@ -248,10 +267,15 @@ class VSubset(BaseSubset["VArray"]):
 
       .. note::
          * Data cannot be ``None``
-         * Data ``shape`` shall be equal to the ``VSubset.shape``
-         * Data ``dtype`` shall be equal to the ``VArray.dtype``
+         * Data ``shape`` shall be equal to the ``VSubset.shape``, or data is a number that fills the whole subset
+         * Python numbers, lists and tuples are converted to the ``VArray.dtype`` when every value fits it;
+           NumPy arrays and scalars shall have the ``VArray.dtype`` already
+
+      The ``Arrays`` the subset covers are written one by one, each under its own lock; a missing ``Array``
+      is created.
 
     - ``clear``: removes or resets with `fill_value` all data from the storage within the virtual subset bounds;
+      an ``Array`` the subset covers entirely is deleted
 
     :param slice_expression: a slice, tuple of slices or numpy IndexExpression, created by VArray.__getitem__()
     :param shape: subset shape, calculated by VArray.__getitem__()
@@ -295,6 +319,12 @@ class VSubset(BaseSubset["VArray"]):
         self.logger.debug(f"{self.__str__} instantiated")
 
     def _create_array_from_vposition(self, vpos: tuple[int, ...]) -> Optional["Array"]:
+        """Find the ``Array`` of the ``VArray`` at the position.
+
+        :param vpos: ``v_position`` of the Array in the ``vgrid``
+        :returns: the Array, ``None`` if there is no Array at the position yet
+        :raises DekerLockError: if a writer holds the Array
+        """
         from deker.arrays import Array
 
         array = self.__collection.arrays.filter({"vid": self.__array.id, "v_position": vpos}).last()
@@ -349,7 +379,13 @@ class VSubset(BaseSubset["VArray"]):
 
     @not_deleted
     def clear(self) -> None:
-        """Clear data in ``VArray`` by slice."""
+        """Clear the data of the ``VArray`` within the subset.
+
+        An ``Array`` the subset covers entirely is deleted, a partly covered one is cleared.
+
+        :raises DekerLockError: if an ``Array`` is not released within the timeout
+        :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
+        """
         self.logger.debug(f"Trying to clear data for {self.__str__()}")
         results = self.__adapter.executor.map(self.__clear_array, self.__arrays)
         list(results)
@@ -392,7 +428,12 @@ class VSubset(BaseSubset["VArray"]):
 
     @not_deleted
     def read(self) -> Numeric | np.ndarray:
-        """Read data from ``VArray`` slice."""
+        """Read data from ``VArray`` slice, assembled from its ``Arrays``.
+
+        :returns: the data of the subset shape; a number for a single cell; the fill value where nothing was written
+        :raises DekerLockError: if a writer holds one of the ``Arrays``
+        :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
+        """
         self.logger.debug(f"Trying to read data from {self!s}")
         arrays_data = self.__adapter.executor.map(self.__read_array_data, self.__arrays)
         data = self.__sum_results(arrays_data)
@@ -441,10 +482,19 @@ class VSubset(BaseSubset["VArray"]):
         """Update data in ``VArray`` by slice.
 
         * Data cannot be ``None``
-        * Data ``shape`` should be equal to the ``VSubset.shape``
-        * Data ``dtype`` should be equal to the ``VArray.dtype``
+        * Data ``shape`` should be equal to the ``VSubset.shape``, or data is a number that fills the whole subset
+        * Python numbers, lists and tuples are converted to the ``VArray.dtype`` when every value fits it;
+          NumPy arrays and scalars shall have the ``VArray.dtype`` already
+
+        The ``Arrays`` the subset covers are written one by one in the executor of the client, each under its own
+        write lock; a missing ``Array`` is created. The ``Arrays`` that failed are reported together, the others
+        are written.
 
         :param data: new data which shall match subset slicing
+        :raises DekerArrayError: if the data is ``None``
+        :raises DekerValidationError: if the data does not fit the shape or the dtype
+        :raises DekerVSubsetError: if one or more ``Arrays`` could not be written: the lock timeout among the reasons
+        :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
         """
         self.logger.debug(f"Trying to update data for {self!s}")
         if data is None:
@@ -473,7 +523,8 @@ class VSubset(BaseSubset["VArray"]):
 
         if exceptions:
             raise DekerVSubsetError(
-                f"ATTENTION: Data in {self!s} MAY BE NOW CORRUPTED due to the exceptions occurred in threads",
+                f"{self!s} is written partly: {len(exceptions)} of {len(positions)} Arrays failed, "
+                "the others are written",
                 exceptions,
             )
 

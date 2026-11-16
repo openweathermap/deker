@@ -12,6 +12,7 @@ DEKER™ public API
    dimensions
    subsets
    tuples
+   enums
    errors
    warnings
    hdf5_options

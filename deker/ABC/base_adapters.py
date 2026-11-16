@@ -17,7 +17,6 @@
 """Abstract interfaces for adapters."""
 
 import datetime
-import logging
 import warnings
 
 from abc import ABC, abstractmethod
@@ -73,11 +72,12 @@ class BaseStorageAdapter(ABC, Generic[OptionsT]):
 
     @abstractmethod
     def create(self, path: Path, array_shape: tuple[int, ...], metadata: str | bytes | dict) -> None:
-        """Create a new hdf5 file with metadata.
+        """Create a new file of an array with its metadata and no data yet.
 
-        :param path: path to hdf5 file
+        :param path: path to the file; it shall not exist
         :param array_shape: shape of the array
         :param metadata: array metadata
+        :raises FileExistsError: if the file exists
         """
         pass
 
@@ -90,12 +90,12 @@ class BaseStorageAdapter(ABC, Generic[OptionsT]):
         fill_value: Numeric,
         dtype: type[Numeric],
     ) -> ndarray | Numeric:
-        """Read array data from hdf5 file.
+        """Read array data from the file of the array.
 
-        :param path: path to hdf5 file
+        :param path: path to the file
         :param array_shape: shape of the array
         :param bounds: array slice
-        :param fill_value: value to fill the empty array
+        :param fill_value: value the cells never written read as
         :param dtype: array dtype
         :returns: data within the bounds; a scalar for a single cell
         """
@@ -103,9 +103,9 @@ class BaseStorageAdapter(ABC, Generic[OptionsT]):
 
     @abstractmethod
     def read_meta(self, path: Path) -> ArrayMeta:
-        """Read array metadata from hdf5 file.
+        """Read array metadata from the file of the array.
 
-        :param path: path to hdf5 file
+        :param path: path to the file
         :returns: array metadata
         """
         pass
@@ -135,9 +135,9 @@ class BaseStorageAdapter(ABC, Generic[OptionsT]):
 
     @abstractmethod
     def update_meta_custom_attributes(self, path: Path, attributes: dict) -> dict:
-        """Update metadata in the hdf5 file.
+        """Replace the custom attributes in the metadata of the file.
 
-        :param path: path to hdf5 file
+        :param path: path to the file
         :param attributes: new custom attributes
         :returns: the stored custom attributes
         """
@@ -145,11 +145,11 @@ class BaseStorageAdapter(ABC, Generic[OptionsT]):
 
     @abstractmethod
     def clear_data(self, path: Path, array_shape: tuple[int, ...], bounds: Slice, fill_value: Numeric) -> None:
-        """Clear array data in hdf5 file.
+        """Set the cells within the bounds to the fill value; the data of an entirely empty array are removed.
 
-        :param path: path to hdf5 file
+        :param path: path to the file
         :param array_shape: array shape
-        :param bounds: array bounds to update
+        :param bounds: array bounds to clear
         :param fill_value: array fill_value
         """
         pass
@@ -195,11 +195,15 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
     metadata_version: str
 
     def __init__(self, ctx: CTX):
+        """BaseCollectionAdapter constructor.
+
+        :param ctx: context of the client
+        """
         self.ctx = ctx
         self.uri = self.ctx.uri
 
     def __del__(self) -> None:
-        """Delete object."""
+        """Close the adapter when it is dropped."""
         self.close()
 
     @abstractmethod
@@ -226,6 +230,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
         """Add collection to storage and creates file structure.
 
         :param collection: Collection to be created
+        :raises DekerCollectionAlreadyExistsError: if a collection of the name exists
         """
         pass
 
@@ -235,6 +240,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
 
         :param name: Collection name
         :returns: collection metadata
+        :raises DekerCollectionNotExistsError: if there is no collection of the name
         """
         pass
 
@@ -248,7 +254,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
 
     @abstractmethod
     def clear(self, collection: "Collection") -> None:
-        """Clear collection directory.
+        """Remove every array of the collection; the collection itself stays.
 
         :param collection: Collection to be cleared
         """
@@ -260,7 +266,8 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
 
         :param collection_data: dict with information about Collection (schemas, vgrid, etc)
         :param factory: adapters factory instance
-        :returns: the created ``Collection``
+        :returns: the ``Collection`` object; nothing is written to the storage
+        :raises DekerMetaDataError: if the metadata is invalid or corrupted
         """
         from deker.collection import Collection
 
@@ -297,10 +304,10 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
                 storage_adapter=storage_adapter,
             )
 
-            logging.debug(f"Collection {collection.name} read")
+            self.logger.debug(f"Collection {collection.name} read")
             return collection
         except (KeyError, ValueError, TypeError, AttributeError) as e:
-            logging.exception(e)  # noqa: TRY401
+            self.logger.exception(e)  # noqa: TRY401
             raise DekerMetaDataError(f'Collection "{name}" metadata is invalid/corrupted: {e}')
 
     @staticmethod
@@ -316,7 +323,10 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
 
     @abstractmethod
     def __iter__(self) -> Generator[dict, None, None]:
-        """Iterate over the metadata of all the Collections in the storage."""
+        """Iterate over the metadata of all the Collections in the storage.
+
+        :yields: the metadata dictionary of every collection
+        """
         pass
 
 
@@ -336,6 +346,13 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         executor: ThreadPoolExecutor,
         storage_adapter: type[BaseStorageAdapter],
     ) -> None:
+        """IArrayAdapter constructor.
+
+        :param collection_path: location of the collection in the storage
+        :param ctx: context of the client
+        :param executor: thread pool the arrays of a ``VArray`` are processed in
+        :param storage_adapter: type of the adapter of the files
+        """
         self.collection_path = collection_path
         self.ctx = ctx
         self.executor = executor
@@ -441,7 +458,7 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
     def read_meta(self, array: ArrayT) -> ArrayMeta:
         """Read array metadata.
 
-        :param array: Array or VArray instance or Path to meta file
+        :param array: Array or VArray instance
         :returns: array metadata
         """
         pass
@@ -457,7 +474,7 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
 
     @abstractmethod
     def delete(self, array: ArrayT) -> None:
-        """Delete a whole array.
+        """Delete a whole array with its data and metadata.
 
         :param array: Array or VArray
         """
@@ -479,13 +496,13 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
 
         :param array: Array or VArray
         :param bounds: bounds of a section to be updated
-        :param data: new data to be inserted into Array
+        :param data: new data of the shape of the bounds, or a number that fills them; validated by ``_process_data``
         """
         pass
 
     @abstractmethod
     def clear(self, array: ArrayT, bounds: Slice) -> None:
-        """Clear a section of array.
+        """Set a section of array to the fill value.
 
         :param array: Array or VArray
         :param bounds: bounds of a section to be cleared
@@ -509,14 +526,16 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         array_adapter: "BaseArrayAdapter",
         varray_adapter: Optional["BaseVArrayAdapter"],
     ) -> list[ArrayT]:
-        """Filter arrays.
+        """Filter arrays by an id or by all the primary attributes.
 
-        :param filters:  dict with filtering criteria
+        :param filters: ``{"id": "<uuid>"}`` or the values of all the primary attributes of the schema
         :param schema: Array or Varray schema
         :param collection: Collection instance
         :param array_adapter: Arrays' adapter
         :param varray_adapter: VArrays' adapter
-        :returns: arrays matching the filter
+        :returns: the matching array in a list, an empty list if there is none
+        :raises DekerValidationError: if the id is not a UUID string or a datetime attribute is of a wrong type
+        :raises DekerFilterError: if the filters are neither an id nor all the primary attributes of the schema
         """
         # If we got "id" in filters, just return the array with the given ID
         # (Till AND/OR logic not implemented)
@@ -527,16 +546,16 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
             return [array] if array else []
 
         primary_attribute_filters = {}
-        error_message = "Filtering by non primary attributes is not implemented yet"
+        error_message = "Filtering is possible by the id or by all the primary attributes of the schema only"
         # If there are no primary attributes in the schema
         if not schema.primary_attributes:
-            raise NotImplementedError(error_message)
+            raise DekerFilterError(error_message)
 
         for primary_attr in schema.primary_attributes:
             value = filters.get(primary_attr.name)
             # If any of key attrs wasn't passed, use simple filter
             if value is None:
-                raise NotImplementedError(error_message)
+                raise DekerFilterError(f"{error_message}; {primary_attr.name} is missing")
             if primary_attr.dtype == datetime.datetime:
                 if not isinstance(value, (str, datetime.datetime)):
                     raise DekerValidationError(
@@ -599,7 +618,10 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
 
     @abstractmethod
     def __iter__(self) -> Generator["ArrayMeta", None, None]:
-        """All adapters should provide iterator interface."""
+        """Iterate over the metadata of all the arrays of the collection.
+
+        :yields: the metadata of every array
+        """
         pass
 
 
@@ -608,7 +630,7 @@ class BaseArrayAdapter(IArrayAdapter[PathT, "Array"], ABC):
 
     @abstractmethod
     def delete_all_by_vid(self, vid: str, collection: "Collection") -> None:
-        """Delete all Arrays in a VArray.
+        """Delete all the Arrays a VArray is made of.
 
         :param vid: VArray id
         :param collection: Collection instance

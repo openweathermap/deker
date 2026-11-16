@@ -679,8 +679,10 @@ creation of an ``Array`` with primary attributes (an Array has them: the ``VArra
 position) holds the directory of its symlink exclusively, so two creators of one Array, through a
 ``VArray`` or through the ``arrays`` manager, never create two files for one position: the second
 one learns that the Array exists. The writers of one fresh ``VArray`` also take a short lock on the
-``VArray`` file while they create its Arrays, so the later writers find the Array and update it
-instead of failing.
+directory of the ``VArray`` file while they create its Arrays, so the later writers find the Array
+and update it instead of failing. An update of the custom attributes of a ``VArray`` holds the
+same directory, waiting for the previous updater as a writer waits, and replaces the metadata file
+in one step, so a reader never meets a half-written file.
 
 The locks live in the kernel: a process that dies in the middle of a read or a write releases its
 locks at once, nobody waits for a dead reader or writer, and no file is left behind. There is
@@ -692,7 +694,7 @@ stays afterwards as the marker of the collection, which ``check_integrity`` reli
    ``flock`` works for the processes of one machine whatever way they run, in containers sharing a
    volume as well. It does not work on network file systems such as NFS: the locks of different
    machines do not see each other there. Put the storage of DEKER™ on a local disk of the machine
-   that writes into it; the ``deker-server`` is the way to give other machines access to it.
+   that writes into it.
 
 .. note::
    DEKER™ before 2.0.0 marked the Arrays a ``VArray`` was writing with ``.varraylock`` files, which

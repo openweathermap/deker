@@ -33,6 +33,7 @@ def get_start_datetime(dimension: "TimeDimension") -> datetime:
 
     :param dimension: ``TimeDimension`` of an array
     :returns: start value of the dimension
+    :raises DekerValidationError: if the start value is an unresolved attribute reference
     """
     if isinstance(dimension.start_value, str):  # pragma: no cover
         raise DekerValidationError(
@@ -47,6 +48,7 @@ def convert_datetime_attrs_to_iso(attrs: dict | None) -> dict | None:
 
     :param attrs: attributes dict
     :returns: attributes with datetimes as ISO strings, or the input as is if it is empty
+    :raises TypeError: if the attributes are not a dictionary
     """
     if attrs is not None and not isinstance(attrs, dict):
         raise TypeError(f"Invalid attribute value type: {type(attrs)}; expected dict")
@@ -57,10 +59,11 @@ def convert_datetime_attrs_to_iso(attrs: dict | None) -> dict | None:
 
 
 def convert_iso_attrs_to_datetime(attrs: dict | None) -> dict | None:
-    """Convert iso-format attributes to datetime if possible.
+    """Convert iso-format attributes to datetime if possible; a string that is not an ISO datetime stays.
 
     :param attrs: attributes dict
     :returns: attributes with ISO strings as datetimes, or the input as is if it is empty
+    :raises TypeError: if the attributes are not a dictionary
     """
     if attrs is not None and not isinstance(attrs, dict):
         raise TypeError(f"Invalid attribute value type: {type(attrs)}; expected dict")

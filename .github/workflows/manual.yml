@@ -2,15 +2,30 @@ name: manual_docs
 
 on:
   workflow_dispatch:
+    inputs:
+      ref:
+        description: The tag or branch to build the documentation from
+        required: true
+        type: string
+      version:
+        description: The name to publish it under, a release tag (v2.0.0) or a line of releases (1.x)
+        required: true
+        type: string
 
 jobs:
   build_docs:
-    if: ${{ github.ref == 'refs/heads/main'}}
     uses: openweathermap/deker-actions/.github/workflows/docs_build.yml@feature/v2.0.0
     with:
       python-version: '3.10'
+      ref: ${{ inputs.ref }}
+      version: ${{ inputs.version }}
       siblings: '["deker-local-adapters", "deker-server-adapters", "deker-tools"]'
 
   publish_docs:
     needs: build_docs
     uses: openweathermap/deker-actions/.github/workflows/docs_publish.yml@feature/v2.0.0
+    permissions:
+      contents: write
+    with:
+      ref: ${{ inputs.ref }}
+      version: ${{ inputs.version }}

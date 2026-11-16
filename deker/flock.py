@@ -44,7 +44,9 @@ class Flock(SelfLoggerMixin):
     def acquire(self) -> None:
         """Open the file (or directory) and lock it.
 
-        :raises DekerLockError: if the file is already locked by another holder
+        :raises DekerLockError: if the file is already locked by another holder: exclusively, or at all when
+          an exclusive lock is asked
+        :raises FileNotFoundError: if the file does not exist; only a collection lock file is created on the way
         """
         # a collection lock file is created on the way; any other path (a data file, a directory) is locked as it is
         self.logger.debug(f"Trying to acquire lock for {self.file}")
@@ -75,8 +77,18 @@ class Flock(SelfLoggerMixin):
             self.logger.debug(f"{self.file} released lock")
 
     def __enter__(self) -> "Flock":
+        """Acquire the lock.
+
+        :returns: the held lock
+        """
         self.acquire()
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        """Release the lock.
+
+        :param exc_type: type of the exception raised in the block, if any
+        :param exc_val: the exception
+        :param exc_tb: its traceback
+        """
         return self.release()

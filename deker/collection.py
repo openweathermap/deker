@@ -145,6 +145,8 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
         :param name: Collection name
         :param schema: Collection main schema
+        :raises DekerValidationError: if the name is not a non-empty string or the schema is neither
+          ``ArraySchema`` nor ``VArraySchema``
         """
         if not name or not isinstance(name, str) or name.isspace():
             raise DekerValidationError("Collection name shall be a non-empty string")
@@ -203,7 +205,7 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
         self.logger.debug(f"Collection {self.__name} initialized")
 
     def __del__(self) -> None:
-        """Delete object."""
+        """Drop the references to the adapter and the managers."""
         del self.__adapter
         del self.__manager
         del self.__arrays
@@ -226,7 +228,7 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
     @property
     def varray_schema(self) -> VArraySchema | None:
-        """Get collection ``VArraySchema``."""
+        """Get collection ``VArraySchema``; ``None`` for a collection of ``Arrays``."""
         return self.__varray_schema
 
     @property
@@ -241,7 +243,7 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
     @property
     def as_dict(self) -> dict:
-        """Serialize ``Collection`` to dictionary."""
+        """Serialize ``Collection`` to dictionary: name, type, schema, options, storage adapter and metadata version."""
         dic: dict = {
             "name": self.name,
             "type": (SchemaTypeEnum.varray.name if self.__varray_schema else SchemaTypeEnum.array.name),
@@ -255,7 +257,10 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
     @property
     def varrays(self) -> VArrayManager:
-        """Return manager for ``VArrays``."""
+        """Return manager for ``VArrays``.
+
+        :raises DekerInvalidManagerCallError: in a collection of ``Arrays``
+        """
         if not self.__varrays:
             raise DekerInvalidManagerCallError(
                 "``.varrays`` in `Arrays` collection is unavailable; use ``.arrays`` instead"
@@ -264,7 +269,10 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
     @property
     def arrays(self) -> ArrayManager:
-        """Return manager for ``Arrays``."""
+        """Return manager for ``Arrays``.
+
+        In a collection of ``VArrays`` these are the ``Arrays`` the ``VArrays`` are made of.
+        """
         return self.__arrays
 
     @not_deleted
@@ -280,10 +288,13 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
         as this method will create just ``VArrays`` (``Arrays`` will be created automatically by ``VArray``).
         Otherwise, only ``Arrays`` will be created.
 
-        :param primary_attributes: ``Array`` or ``VArray`` primary attribute
+        :param primary_attributes: ``Array`` or ``VArray`` primary attributes; all of the schema, no other
         :param custom_attributes: ``Array`` or ``VArray`` custom attributes
-        :param id_: ``Array`` or ``VArray`` unique UUID string
+        :param id_: ``Array`` or ``VArray`` unique UUID string; generated if not passed
         :returns: the created ``Array`` or ``VArray``
+        :raises DekerValidationError: if the attributes do not match the schema, or an array with these primary
+          attributes already exists
+        :raises DekerInstanceNotExistsError: if the collection was deleted
         """
         array = self.__manager.create(primary_attributes, custom_attributes, id_)
         self.logger.debug(
@@ -299,7 +310,10 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
     @not_deleted
     def clear(self) -> None:
-        """Clear all ``Arrays`` and/or ``VArrays``  inside ``Collection``."""
+        """Remove all ``Arrays`` and/or ``VArrays`` from the ``Collection``; the collection itself stays.
+
+        :raises DekerInstanceNotExistsError: if the collection was deleted
+        """
         self.logger.debug(f"Clearing data from collection {self.__name}")
         self.__adapter.clear(self)
         self.logger.debug(f"Collection {self.__name} cleared OK")
@@ -322,14 +336,18 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
         return self.__manager.filter(filters)
 
     def _is_deleted(self) -> bool:
-        """Check if collection was deleted."""
+        """Check if collection was deleted from the storage.
+
+        :returns: ``True`` if the collection does not exist in the storage anymore
+        """
         return self.__adapter.is_deleted(self)
 
-    def __next__(self) -> None:
-        pass
-
     def __iter__(self) -> Generator[ArrayT, None, None]:
-        """Yield ``VArrays`` or ``VArrays`` from the ``Collection``."""
+        """Yield the ``Arrays`` or the ``VArrays`` of the ``Collection``, as its schema decides.
+
+        :yields: every ``Array`` or ``VArray`` of the collection
+        :raises DekerInstanceNotExistsError: if the collection was deleted
+        """
         if self._is_deleted():
             raise DekerInstanceNotExistsError(
                 f"{self} doesn't exist, create new or get an instance again to be able to iterate"

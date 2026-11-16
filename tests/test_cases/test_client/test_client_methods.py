@@ -36,6 +36,7 @@ from deker.errors import (
     DekerMetaDataError,
     DekerValidationError,
 )
+from deker.log import format_string
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_symlink_path
 from deker.types import IntegrityCheck, IntegrityFindingKind, IntegrityReport, LocksExtensions
@@ -196,6 +197,26 @@ class TestClientMethods:
         client = Client(str(embedded_uri(root_path)), loglevel="INFO")
         client.close()
         assert "Client is closed" in deker_log.messages
+
+    def test_client_leaves_the_logging_of_the_application_alone(self, root_path):
+        """Tests a client sets the format of the Deker loggers only.
+
+        The handlers of the other loggers and of the root logger keep their formats.
+        """
+        app_logger = logging.getLogger("tests.application")
+        handler = logging.StreamHandler()
+        formatter = logging.Formatter("%(message)s | application")
+        handler.setFormatter(formatter)
+        app_logger.addHandler(handler)
+        root_handlers = list(logging.root.handlers)
+        try:
+            client = Client(str(embedded_uri(root_path)))
+            client.close()
+            assert handler.formatter is formatter
+            assert logging.root.handlers == root_handlers
+            assert all(h.formatter._fmt == format_string for h in logging.getLogger("Deker").handlers)
+        finally:
+            app_logger.removeHandler(handler)
 
     def test_forgotten_client_is_closed_quietly(self, root_path, deker_log: pytest.LogCaptureFixture):
         """Tests a client that is dropped without close() releases its context and writes nothing to the log.

@@ -19,6 +19,7 @@ from deker.locks import (
     CollectionLock,
     Flock,
     ReadArrayLock,
+    UpdateMetaAttributeLock,
     WriteArrayLock,
 )
 from deker.schemas import ArraySchema, DimensionSchema
@@ -358,53 +359,67 @@ class TestCollectionLock:
 
 
 class TestArrayCreationLock:
-    """The exclusive flock on the main file of a VArray while one of its Arrays is created."""
+    """The exclusive flock on the directory of the main file of a VArray while one of its Arrays is created.
+
+    The directory, not the json file: the file is replaced on every update of the custom attributes, and a lock
+    on it would stay on the old file.
+    """
 
     @pytest.fixture
-    def main_file(self, inserted_varray: VArray) -> Path:
+    def main_dir(self, inserted_varray: VArray) -> Path:
         adapter = inserted_varray._adapter
-        return get_main_path(inserted_varray.id, adapter.collection_path / adapter.data_dir) / (
-            inserted_varray.id + adapter.file_ext
-        )
+        return get_main_path(inserted_varray.id, adapter.collection_path / adapter.data_dir)
 
-    def test_lock_holds_the_main_file_while_entered(self, inserted_varray: VArray, main_file: Path):
+    def test_lock_holds_the_directory_of_the_main_file_while_entered(self, inserted_varray: VArray, main_dir: Path):
         collection = inserted_varray._VArray__collection
         lock = ArrayCreationLock(inserted_varray._adapter, inserted_varray, collection)
-        assert lock.path == main_file
+        assert lock.path == main_dir
         with lock:
             assert lock.flock is not None
             assert lock.thread_lock is not None and lock.thread_lock.locked()
             with pytest.raises(DekerLockError):
-                Flock(main_file).acquire()
+                Flock(main_dir).acquire()
         assert lock.flock is None
         assert lock.thread_lock is None
-        assert not ArrayCreationLock._thread_locks[main_file].locked()
-        other = Flock(main_file)
+        assert not ArrayCreationLock._thread_locks[main_dir].locked()
+        other = Flock(main_dir)
         other.acquire()
         other.release()
 
-    def test_lock_times_out_when_the_file_is_held(self, inserted_varray: VArray, main_file: Path):
+    def test_lock_survives_the_replacement_of_the_main_file(self, inserted_varray: VArray, main_dir: Path):
+        """An update of the custom attributes replaces the json file; the creation lock still holds."""
+        collection = inserted_varray._VArray__collection
+        lock = ArrayCreationLock(inserted_varray._adapter, inserted_varray, collection)
+        with lock:
+            main_file = main_dir / (inserted_varray.id + inserted_varray._adapter.file_ext)
+            replacement = main_dir / "replacement.json"
+            replacement.write_text(main_file.read_text())
+            replacement.replace(main_file)
+            with pytest.raises(DekerLockError):
+                Flock(main_dir).acquire()
+
+    def test_lock_times_out_when_the_directory_is_held(self, inserted_varray: VArray, main_dir: Path):
         """A holder that never lets go: the lock gives up after write_lock_timeout and frees the thread lock."""
         collection = inserted_varray._VArray__collection
         config = inserted_varray._adapter.ctx.config
-        holder = Flock(main_file)
+        holder = Flock(main_dir)
         holder.acquire()
         timeout = config.write_lock_timeout
         config.write_lock_timeout = 1
         try:
             lock = ArrayCreationLock(inserted_varray._adapter, inserted_varray, collection)
-            assert lock._try_acquire(main_file) is False
+            assert lock._try_acquire(main_dir) is False
             assert lock.flock is None
             with pytest.raises(DekerLockError, match="locked for the creation of its Arrays"):
                 with lock:
                     pass
             assert lock.thread_lock is None
-            assert not ArrayCreationLock._thread_locks[main_file].locked()
+            assert not ArrayCreationLock._thread_locks[main_dir].locked()
         finally:
             config.write_lock_timeout = timeout
             holder.release()
 
-    def test_lock_is_a_no_op_for_an_adapter_of_another_storage(self, inserted_varray: VArray, main_file: Path):
+    def test_lock_is_a_no_op_for_an_adapter_of_another_storage(self, inserted_varray: VArray, main_dir: Path):
         """The server adapters keep their own order of creation: no path, no flock, no thread lock."""
         collection = inserted_varray._VArray__collection
         adapter = SimpleNamespace(ctx=inserted_varray._adapter.ctx)
@@ -414,11 +429,86 @@ class TestArrayCreationLock:
             assert entered is lock
             assert lock.flock is None
             assert lock.thread_lock is None
-            other = Flock(main_file)
+            other = Flock(main_dir)
             other.acquire()
             other.release()
         assert lock.flock is None
         assert lock.thread_lock is None
+
+
+class DirectoryProbe:
+    """Stands in for a method of the adapter and notes whether the directory was locked when it was called."""
+
+    def __init__(self, directory: Path, original):
+        self.directory = directory
+        self.original = original
+        self.held: list[bool] = []
+
+    def __call__(self, array: VArray) -> Path:
+        flock = Flock(self.directory)
+        try:
+            flock.acquire()
+        except DekerLockError:
+            self.held.append(True)
+        else:
+            self.held.append(False)
+            flock.release()
+        return self.original(array)
+
+
+class TestUpdateMetaAttributeLock:
+    """The exclusive flock on the directory of the main file of a VArray while its custom attributes are updated.
+
+    The directory, not the json file: the file is replaced by the update, and a lock on it would stay on the old
+    file, letting the next writer in while the holder is still at work.
+    """
+
+    @pytest.fixture
+    def lock(self, inserted_varray: VArray) -> UpdateMetaAttributeLock:
+        lock = UpdateMetaAttributeLock()
+        lock.instance = inserted_varray._adapter
+        lock.args = (inserted_varray._adapter, inserted_varray)
+        lock.kwargs = {}
+        return lock
+
+    def test_lock_path_is_the_directory_of_the_main_file(self, lock: UpdateMetaAttributeLock, inserted_varray: VArray):
+        adapter = inserted_varray._adapter
+        assert lock.get_path() == get_main_path(inserted_varray.id, adapter.collection_path / adapter.data_dir)
+
+    def test_lock_allows_the_varray_adapter_only(self, lock: UpdateMetaAttributeLock, local_array_adapter):
+        lock.check_type()
+        lock.instance = local_array_adapter
+        with pytest.raises(TypeError, match="LocalArrayAdapter lock is not supported"):
+            lock.check_type()
+
+    def test_writer_waits_for_the_holder_and_gives_up_after_the_timeout(
+        self, lock: UpdateMetaAttributeLock, inserted_varray: VArray, mocker: MockerFixture
+    ):
+        """A second updater waits for the first one; a holder that never lets go makes it fail after the timeout."""
+        config = inserted_varray._adapter.ctx.config
+        mocker.patch.object(config, "write_lock_timeout", 1)
+        mocker.patch.object(config, "write_lock_check_interval", 0.1)
+        holder = Flock(lock.get_path())
+        holder.acquire()
+        try:
+            with pytest.raises(DekerLockError, match="is locked"):
+                lock.check_existing_lock(func_args=(), func_kwargs={})
+            assert lock.lock is None
+        finally:
+            holder.release()
+        lock.check_existing_lock(func_args=(), func_kwargs={})
+        assert lock.lock is not None
+        lock.release()
+
+    def test_update_of_the_attributes_holds_the_directory(self, inserted_varray_with_attributes: VArray, mocker):
+        """The adapter method runs under the lock: the directory is held while it works."""
+        varray = inserted_varray_with_attributes
+        adapter = varray._adapter
+        directory = get_main_path(varray.id, adapter.collection_path / adapter.data_dir)
+        probe = DirectoryProbe(directory, adapter._get_main_path_to_file)
+        mocker.patch.object(adapter, "_get_main_path_to_file", side_effect=probe)
+        varray.update_custom_attributes({"custom_attribute": 0.9})
+        assert probe.held == [True]
 
 
 if __name__ == "__main__":

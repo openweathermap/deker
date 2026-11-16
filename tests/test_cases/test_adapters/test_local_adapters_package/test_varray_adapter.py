@@ -1,6 +1,8 @@
 import json
+import os
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -147,6 +149,43 @@ class TestVArrayAdapterMethods:
             array_adapter=varray_with_attributes._VArray__array_adapter,
         )
         assert ar.custom_attributes == new_custom_attributes
+
+    def test_varray_adapter_update_custom_attributes_replaces_the_file_in_one_step(
+        self, varray_with_attributes: VArray, mocker
+    ):
+        """The new metadata is written next to the json file and moved over it in one step.
+
+        A reader of the metadata never meets a half-written file.
+        """
+        adapter: LocalVArrayAdapter = varray_with_attributes._adapter
+        adapter.create(varray_with_attributes)
+        main = get_paths(varray_with_attributes, varray_with_attributes._VArray__collection.path).main / (
+            varray_with_attributes.id + adapter.file_ext
+        )
+        replace = mocker.spy(os, "replace")
+        adapter.update_meta_custom_attributes(varray_with_attributes, {"custom_attribute": 0.7})
+        replace.assert_called_once()
+        source, target = replace.call_args.args
+        assert Path(target) == main
+        assert Path(source).parent == main.parent
+        assert not Path(source).exists()
+        assert adapter.read_meta(varray_with_attributes)["custom_attributes"]["custom_attribute"] == 0.7
+
+    def test_varray_adapter_update_custom_attributes_keeps_the_file_when_the_write_fails(
+        self, varray_with_attributes: VArray, mocker
+    ):
+        """A failed update leaves the old metadata readable and no temporary file behind."""
+        adapter: LocalVArrayAdapter = varray_with_attributes._adapter
+        adapter.create(varray_with_attributes)
+        before = adapter.read_meta(varray_with_attributes)
+        main = get_paths(varray_with_attributes, varray_with_attributes._VArray__collection.path).main / (
+            varray_with_attributes.id + adapter.file_ext
+        )
+        mocker.patch.object(os, "replace", side_effect=OSError("disk is full"))
+        with pytest.raises(OSError, match="disk is full"):
+            adapter.update_meta_custom_attributes(varray_with_attributes, {"custom_attribute": 0.7})
+        assert adapter.read_meta(varray_with_attributes) == before
+        assert [path.name for path in main.parent.iterdir()] == [main.name]
 
 
 class TestActions:

@@ -1,3 +1,4 @@
+import errno
 import os
 import shutil
 
@@ -180,6 +181,26 @@ class TestCollectionAdapter:
         collection_adapter.delete(array_collection)
         assert not os.path.exists(array_collection.path)
         assert not os.path.exists(array_collection.path.parent / (array_collection.name + ".lock"))
+
+    def test_collection_adapter_delete_tolerates_a_collection_already_gone(
+        self, collection_adapter: LocalCollectionAdapter, array_collection: Collection
+    ):
+        """Deleting a collection whose directory is gone already is not an error: the lock file is removed anyway."""
+        shutil.rmtree(array_collection.path)
+        lock = array_collection.path.parent / (array_collection.name + ".lock")
+        assert lock.exists()
+        collection_adapter.delete(array_collection)
+        assert not lock.exists()
+
+    def test_collection_adapter_delete_raises_when_the_directory_cannot_be_removed(
+        self, collection_adapter: LocalCollectionAdapter, array_collection: Collection, mocker: MockerFixture
+    ):
+        """A failure to remove the directory is not swallowed: the collection would stay with its files."""
+        # a real OSError carries errno and strerror: rmtree of Python 3.12+ adds the filename to it before raising
+        mocker.patch.object(os, "rmdir", side_effect=PermissionError(errno.EACCES, "read-only storage"))
+        with pytest.raises(PermissionError, match="read-only storage"):
+            collection_adapter.delete(array_collection)
+        assert os.path.exists(array_collection.path)
 
     def test_collection_adapter_get_collection(
         self,

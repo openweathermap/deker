@@ -31,11 +31,12 @@ if TYPE_CHECKING:
 
 
 def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.datetime:
-    """Validate time attribute and return its value.
+    """Get the attribute a time dimension starts at, as a UTC datetime.
 
-    :param attributes: attributes to validate
-    :param attr_name: attribute name to validate
+    :param attributes: attributes of the array
+    :param attr_name: name of the attribute
     :returns: the time attribute as a datetime
+    :raises DekerValidationError: if the attribute is missing or ``None``
     """
     time_attribute = attributes.get(attr_name)
     if time_attribute is None:
@@ -46,9 +47,10 @@ def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.d
 
 
 def __validate_attribute_type(attribute: object) -> None:
-    """Validate attribute type over allowed types.
+    """Validate attribute type over allowed types; a tuple is validated element by element.
 
     :param attribute: attribute object
+    :raises DekerValidationError: if the type of the value is not an attribute dtype
     """
     if isinstance(attribute, tuple):
         for attr in attribute:
@@ -70,10 +72,15 @@ def __process_attributes_types(
 ) -> None:
     """Validate attributes types over schema and update dicts if needed.
 
+    A custom attribute left out is set to ``None``, unless a time dimension starts at it; datetime attributes
+    are converted to UTC in place.
+
     :param attrs_schema: attributes schema
     :param primary_attributes: primary attributes to validate
     :param custom_attributes: custom attributes to validate
     :param dimensions: dimensions schemas
+    :raises DekerValidationError: if a primary attribute is missing, a value has a wrong type, or a custom
+      attribute a time dimension starts at is ``None``
     """
     from deker.schemas import TimeDimensionSchema
 
@@ -139,7 +146,10 @@ def process_attributes(
     :param schema: ArraySchema or VArraySchema instance
     :param primary_attributes: attributes to validate
     :param custom_attributes: attributes to validate
-    :returns: validated primary and custom attributes
+    :returns: validated primary and custom attributes: the custom ones completed with ``None`` for the attributes
+      left out, the datetimes in UTC
+    :raises DekerValidationError: if attributes are given to a schema without them, the primary ones are missing,
+      a name is both primary and custom, a name is not in the schema, or a value has a wrong type
     """
     from deker.schemas import VArraySchema
 
@@ -200,7 +210,9 @@ def validate_custom_attributes_update(
     :param primary_attributes: (V)Array primary attributes
     :param custom_attributes: old custom attributes
     :param attributes: new custom attributes to validate
-    :returns: validated attributes
+    :returns: validated attributes: the given ones and the current values of the others
+    :raises DekerValidationError: if no attributes are given, a name is primary or not in the schema, or a value has
+      a wrong type
     """
     if not attributes:
         raise DekerValidationError("No attributes passed for update")

@@ -273,11 +273,21 @@ class TestDataManagerMethods:
         inserted_array_with_attributes: Array,
         collection_manager_with_attributes,
     ):
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(DekerFilterError, match="primary_attribute is missing"):
             collection_manager_with_attributes.filter({"extra": 12}).first()
 
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(DekerFilterError, match="primary_attribute is missing"):
             collection_manager_with_attributes.filter({"extra": 12}).last()
+
+    def test_filter_without_primary_attributes_in_schema_accepts_an_id_only(
+        self, inserted_array: Array, collection_manager
+    ):
+        """A collection whose schema has no primary attributes can be filtered by an id and by nothing else."""
+        assert collection_manager.filter({"id": inserted_array.id}).first().id == inserted_array.id
+        with pytest.raises(DekerFilterError, match="by the id or by all the primary attributes"):
+            collection_manager.filter({"extra": 12}).first()
+        with pytest.raises(DekerFilterError, match="by the id or by all the primary attributes"):
+            collection_manager.filter({"extra": 12}).last()
 
 
 class TestDataManagerMethodsVArray:
@@ -441,10 +451,10 @@ class TestDataManagerMethodsVArray:
         inserted_varray_with_attributes: Array,
         va_collection_manager_with_attributes,
     ):
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(DekerFilterError):
             va_collection_manager_with_attributes.filter({"extra": 12}).first()
 
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(DekerFilterError):
             va_collection_manager_with_attributes.filter({"extra": 12}).last()
 
 

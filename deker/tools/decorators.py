@@ -25,21 +25,21 @@ R = TypeVar("R")
 
 
 def check_ctx_state(method: Callable[Concatenate[Any, P], R]) -> Callable[Concatenate[Any, P], R]:
-    """Context checker deco.
+    """Reject the calls of an adapter method after the client context was closed.
 
     The decorated method keeps its signature for type checkers.
 
-    :param method: callable class method
-    :returns: the decorated method
+    :param method: adapter method
+    :returns: the decorated method, raising ``DekerAdapterClosedError`` on a closed context
     """
 
     @wraps(method)
     def ctx_checker(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
-        """Inner executor methods wrapper.
+        r"""Inner executor methods wrapper.
 
         :param self: Adapter instance
-        :param *args: any
-        :param **kwargs: any
+        :param \*args: any
+        :param \**kwargs: any
         :returns: result of the method
         """
         if self.ctx.is_closed:
@@ -60,11 +60,11 @@ def not_deleted(method: Callable[Concatenate[Any, P], R]) -> Callable[Concatenat
 
     @wraps(method)
     def _inner(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
-        """Check instance for flag.
+        r"""Check instance for flag.
 
         :param self: class instance
-        :param *args: any
-        :param **kwargs: any
+        :param \*args: any
+        :param \**kwargs: any
         :returns: result of the method
         """
         if self._is_deleted():
