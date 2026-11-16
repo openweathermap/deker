@@ -8,6 +8,7 @@ import pytest
 
 from deker_local_adapters import AdaptersFactory, LocalCollectionAdapter
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from pytest_mock import MockerFixture
 
 from tests.parameters.common import random_string
 
@@ -57,13 +58,14 @@ class TestCollectionAdapter:
         self,
         collection_adapter: LocalCollectionAdapter,
         factory: AdaptersFactory,
+        mocker: MockerFixture,
     ):
         """Tests if adapter raises memory error on collection creation.
 
         :param collection_adapter: CollectionAdapter
         :param factory: AdaptersFactory
         """
-        collection_adapter.ctx.config.memory_limit = 100
+        mocker.patch.object(collection_adapter.ctx.config, "memory_limit", 100)  # the ctx is shared by the class
         schema = ArraySchema(
             dimensions=[
                 DimensionSchema(name="x", size=10000),

@@ -5,8 +5,12 @@ TESTS        := tests
 DOCS         := docs/deker
 PY_FILES      = $(wildcard $(shell git ls-files '*.py'))
 TARGET_PYTHON := py310
+# the supported Pythons and the next one, for test-matrix
+PYTHONS      ?= 3.10 3.11 3.12 3.13 3.14 3.15
+# the sibling packages of [tool.uv.sources], built as wheels for install-matrix until they are released
+SIBLINGS     := ../deker-local-adapters ../deker-server-adapters ../deker-tools
 
-.PHONY: help install format lint typecheck docstrings docs-lint check test coverage ci pre-commit clean
+.PHONY: help install format lint typecheck docstrings docs-lint check test test-matrix install-matrix coverage ci pre-commit clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -38,6 +42,29 @@ check: lint typecheck docstrings docs-lint  ## Run every static check
 
 test:  ## Run the tests in random order
 	uv run pytest --random-order $(PYTEST_ARGS)
+
+test-matrix:  ## Run the tests on every Python of PYTHONS in a temporary environment each, like tox
+	@for py in $(PYTHONS); do \
+	  echo "=== Python $$py"; \
+	  uv run --isolated --python $$py pytest --random-order $(PYTEST_ARGS) || exit 1; \
+	done
+
+install-matrix:  ## Check the package installs from wheels only, as a user without a compiler would, on every Python of PYTHONS
+	@tmp=$$(mktemp -d); \
+	for src in . $(SIBLINGS); do uv build --wheel --quiet --out-dir $$tmp/dist $$src || exit 1; done; \
+	for py in $(PYTHONS); do \
+	  if uv venv --quiet --python $$py $$tmp/venv-$$py >$$tmp/log 2>&1 \
+	     && uv pip install --quiet --python $$tmp/venv-$$py/bin/python --only-binary :all: $$tmp/dist/*.whl >$$tmp/log 2>&1; then \
+	    echo "Python $$py: installs from wheels"; \
+	  else \
+	    missing=$$( { grep -oE "Distribution \`[^\`]+\`" $$tmp/log | sed -E 's/Distribution `([^@ ]+).*/\1/'; \
+	                  grep -oE "[A-Za-z0-9_.-]+[^ ]* has no usable wheels" $$tmp/log | sed -E 's/ has no usable wheels//'; } | sort -u | tr '\n' ' '); \
+	    if [ -n "$$missing" ]; then echo "Python $$py: no wheel for $$missing- a compiler would be needed"; \
+	    else echo "Python $$py: cannot be installed"; fi; \
+	    sed 's/^/    /' $$tmp/log; \
+	    rm -rf $$tmp; exit 1; \
+	  fi; \
+	done; rm -rf $$tmp
 
 coverage:  ## Run the tests with coverage and enforce the threshold from pyproject.toml
 	uv run pytest --random-order --cov=. tests/ --cov-report=term-missing --cov-report html

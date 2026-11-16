@@ -282,9 +282,25 @@ class Client(SelfLoggerMixin):
         except Exception as e:
             raise DekerClientError(e)
 
+    def _release(self) -> None:
+        """Close the adapter, the factory and the context; a client that failed to construct has nothing to close."""
+        try:
+            if self.__adapter:
+                self.__adapter.close()
+            if self.__factory:
+                self.__factory.close()
+            if self.__ctx:
+                self.__ctx.is_closed = True
+            self.__is_closed = True
+        except AttributeError:  # pragma: no cover  # guard: the constructor raised before the fields were set
+            pass
+
     def __del__(self) -> None:
-        """Delete client."""
-        self.close()
+        """Release the resources of a client dropped without ``close()``.
+
+        Nothing is logged: a finalizer may run at the interpreter shutdown, when the log streams are closed already.
+        """
+        self._release()
 
     def _validate_collection_metadata_version(self, collection_metadata: dict) -> None:
         """Validate collection metadata.
@@ -396,18 +412,8 @@ class Client(SelfLoggerMixin):
 
     def close(self) -> None:
         """Close client."""
-        try:
-            if self.__adapter:
-                self.__adapter.close()
-            if self.__factory:
-                self.__factory.close()
-            if self.__ctx:
-                self.__ctx.is_closed = True
-            self.__is_closed = True
-        except AttributeError as e:
-            self.logger.debug(f"Exception in Client.close(): {e}")
-        finally:
-            self.logger.info("Client is closed")
+        self._release()
+        self.logger.info("Client is closed")
 
     # the overloads carry the decorator too: mypy matches them against the decorated implementation
     @overload

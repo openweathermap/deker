@@ -1,3 +1,4 @@
+import gc
 import json
 import logging
 import os
@@ -35,7 +36,6 @@ from deker.errors import (
     DekerMetaDataError,
     DekerValidationError,
 )
-from deker.log import set_logging_level
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_symlink_path
 from deker.types import IntegrityCheck, IntegrityFindingKind, IntegrityReport, LocksExtensions
@@ -184,13 +184,31 @@ class TestClientMethods:
 
     def test_client_open_close(self, root_path):
         """Test client open and close methods."""
-        set_logging_level("DEBUG")
         client = Client(str(embedded_uri(root_path)))
         assert client.is_open
         assert not client.is_closed
         client.close()
         assert client.is_closed
         assert not client.is_open
+
+    def test_client_close_is_logged(self, root_path, deker_log: pytest.LogCaptureFixture):
+        """Tests an explicit close tells about itself in the log."""
+        client = Client(str(embedded_uri(root_path)), loglevel="INFO")
+        client.close()
+        assert "Client is closed" in deker_log.messages
+
+    def test_forgotten_client_is_closed_quietly(self, root_path, deker_log: pytest.LogCaptureFixture):
+        """Tests a client that is dropped without close() releases its context and writes nothing to the log.
+
+        A finalizer runs at any moment, the interpreter shutdown included, when the log streams may be closed.
+        """
+        client = Client(str(embedded_uri(root_path)), loglevel="INFO")
+        ctx = client._ctx
+        deker_log.clear()
+        del client
+        gc.collect()
+        assert ctx.is_closed
+        assert "Client is closed" not in deker_log.messages
 
     def test_client_context_manager(self, root_path):
         """Test client open and close methods in context manager."""
