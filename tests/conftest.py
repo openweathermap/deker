@@ -34,7 +34,6 @@ pytest_plugins = [
     "tests.fixtures.arrays",
     "tests.fixtures.factory",
     "tests.fixtures.manager",
-    "tests.fixtures.integrity",
 ]
 
 

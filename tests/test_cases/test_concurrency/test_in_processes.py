@@ -110,7 +110,7 @@ def call_array_method(
     except DekerLockError:
         return DekerLockError
 
-    # a VArray holds no lock of its own: its tiles are held one by one through the Array write lock
+    # a VArray holds no lock of its own: its Arrays are held one by one through the Array write lock
     lock = WriteArrayLock
     schema = collection.varray_schema if is_virtual else collection.array_schema
     try:
@@ -235,7 +235,7 @@ _ORIGINAL_CREATE = HDF5StorageAdapter.create
 
 def slow_create(adapter: HDF5StorageAdapter, *args, **kwargs) -> None:
     """Create the file as the storage adapter does, after a pause that widens the window between the check
-    for the tile and its creation, so that concurrent writers collide for sure.
+    for the Array and its creation, so that concurrent writers collide for sure.
 
     :param adapter: storage adapter
     :param args: arguments of create
@@ -284,7 +284,7 @@ def update_array_and_report(uri: str, collection_name: str, array_id: str, queue
         queue.put(e)
 
 
-def update_tile_region(
+def update_array_region(
     uri: str, collection_name: str, varray_id: str, index_exp: str, value: float, go: Event, queue: Queue
 ):
     """Write one region of a VArray from another process, all processes starting together.
@@ -337,7 +337,7 @@ def write_varray_region(
     timeout: int,
     started: EventType | None = None,
 ) -> None:
-    """Write one region of a VArray from another process, holding every tile write for a while.
+    """Write one region of a VArray from another process, holding every Array write for a while.
 
     :param uri: client uri
     :param collection_name: collection of the varray
@@ -346,9 +346,9 @@ def write_varray_region(
     :param value: value to fill the region with
     :param go: barrier the writers and the test pass together once every writer is ready
     :param queue: queue for the result: ``None`` or the exception
-    :param seconds: how long every tile write takes
+    :param seconds: how long every Array write takes
     :param timeout: write lock timeout of the client
-    :param started: event set when the first tile write starts
+    :param started: event set when the first Array write starts
     """
     StorageHooks.seconds = seconds
     StorageHooks.started = started
@@ -366,7 +366,7 @@ def write_varray_region(
         queue.put(e)
 
 
-def write_tile_directly(
+def write_array_directly(
     uri: str,
     collection_name: str,
     varray_id: str,
@@ -377,17 +377,17 @@ def write_tile_directly(
     queue: Queue,
     seconds: float,
 ) -> None:
-    """Write one region of a tile through the arrays manager, bypassing the VArray and its subset.
+    """Write one region of an Array through the arrays manager, bypassing the VArray and its subset.
 
     :param uri: client uri
     :param collection_name: collection of the varray
     :param varray_id: id of the varray
-    :param v_position: position of the tile
-    :param index_exp: region of the tile to write, as a string
+    :param v_position: position of the Array
+    :param index_exp: region of the Array to write, as a string
     :param value: value to fill the region with
     :param go: barrier the writers and the test pass together once every writer is ready
     :param queue: queue for the result: ``None`` or the exception
-    :param seconds: how long the tile write takes
+    :param seconds: how long the Array write takes
     """
     StorageHooks.seconds = seconds
     StorageHooks.started = None
@@ -397,25 +397,25 @@ def write_tile_directly(
             patch.object(HDF5StorageAdapter, "update_data", slow_update_data),
         ):
             collection = client.get_collection(collection_name)
-            tile = collection.arrays.filter({"vid": varray_id, "v_position": v_position}).last()
+            array = collection.arrays.filter({"vid": varray_id, "v_position": v_position}).last()
             go.wait(60)
-            tile[slice_converter[index_exp]].update(value)
+            array[slice_converter[index_exp]].update(value)
         queue.put(None)
     except Exception as e:
         queue.put(e)
 
 
-def create_tile_directly(
+def create_array_directly(
     uri: str, collection_name: str, varray_id: str, v_position: tuple, go: Barrier, queue: Queue, seconds: float
 ) -> None:
-    """Create a tile through the arrays manager, bypassing the VArray and its creation lock.
+    """Create an Array through the arrays manager, bypassing the VArray and its creation lock.
 
     :param uri: client uri
     :param collection_name: collection of the varray
     :param varray_id: id of the varray
-    :param v_position: position of the tile
+    :param v_position: position of the Array
     :param go: barrier the creators and the test pass together once every creator is ready
-    :param queue: queue for the result: the id of the created tile or the exception
+    :param queue: queue for the result: the id of the created Array or the exception
     :param seconds: pause between the check for the file and its creation
     """
     StorageHooks.seconds = seconds
@@ -426,8 +426,8 @@ def create_tile_directly(
         ):
             collection = client.get_collection(collection_name)
             go.wait(60)
-            tile = collection.arrays.create({"vid": varray_id, "v_position": v_position})
-        queue.put(tile.id)
+            array = collection.arrays.create({"vid": varray_id, "v_position": v_position})
+        queue.put(array.id)
     except Exception as e:
         queue.put(e)
 
@@ -478,15 +478,15 @@ def read_varray(uri: str, collection_name: str, varray_id: str, queue: Queue) ->
         queue.put(e)
 
 
-def tile_main_file(collection: Collection, tile: Array) -> Path:
-    """Path of the main data file of a tile.
+def array_main_file(collection: Collection, array: Array) -> Path:
+    """Path of the main data file of an Array.
 
-    :param collection: collection of the tile
-    :param tile: the tile
+    :param collection: collection of the Array
+    :param Array: the Array
     :returns: path of its hdf5 file
     """
-    adapter = tile._adapter
-    return get_main_path(tile.id, collection.path / adapter.data_dir) / (tile.id + adapter.file_ext)
+    adapter = array._adapter
+    return get_main_path(array.id, collection.path / adapter.data_dir) / (array.id + adapter.file_ext)
 
 
 def run_writers(mp_context: BaseContext, target: Callable, args_per_writer: list) -> list:
@@ -600,19 +600,19 @@ class TestReadersAndWriters:
         assert not list(inserted_array._Array__adapter._get_main_path_to_file(inserted_array).parent.glob("*lock"))
 
 
-class TestTileCreation:
-    """Two writers of a fresh VArray create its tile once; the data of both land in the one tile."""
+class TestArrayCreation:
+    """Two writers of a fresh VArray create its Array once; the data of both land in the one Array."""
 
     @pytest.mark.parametrize("writers", [2, 4])
-    def test_concurrent_writers_create_one_tile(
+    def test_concurrent_writers_create_one_array(
         self, client: Client, root_path: Path, mp_context: BaseContext, writers: int
     ):
         schema = VArraySchema(
             dtype=float,
             dimensions=[DimensionSchema(name="x", size=writers * 4), DimensionSchema(name="y", size=4)],
-            vgrid=(1, 1),  # one tile: every writer creates the same inner Array
+            vgrid=(1, 1),  # one Array: every writer creates the same inner Array
         )
-        collection = client.create_collection(f"tile_creation_{writers}", schema)
+        collection = client.create_collection(f"array_creation_{writers}", schema)
         try:
             varray = collection.create()
             manager = mp_context.Manager()
@@ -621,7 +621,7 @@ class TestTileCreation:
             uri = str(embedded_uri(root_path))
             processes = [
                 mp_context.Process(
-                    target=update_tile_region,
+                    target=update_array_region,
                     args=(uri, collection.name, varray.id, f"[{n * 4}:{n * 4 + 4}]", float(n + 1), go, queue),
                 )
                 for n in range(writers)
@@ -636,8 +636,8 @@ class TestTileCreation:
                     process.join(60)
             assert all(result is None for result in results), results
 
-            tiles = [tile for tile in collection.arrays if tile._vid == varray.id]
-            assert len(tiles) == 1
+            arrays = [array for array in collection.arrays if array._vid == varray.id]
+            assert len(arrays) == 1
             expected = np.repeat(np.arange(1, writers + 1, dtype=float), 4)[:, np.newaxis] * np.ones((1, 4))
             assert np.array_equal(varray[:].read(), expected)
         finally:
@@ -648,20 +648,20 @@ class TestTileCreation:
 class TestConcurrentVArrayWriters:
     """Writers of one storage in different processes, started together.
 
-    The VArray is 16 x 4 in four tiles of 4 x 4 along x: tile k covers x in [4k, 4k + 4). Every tile write is
+    The VArray is 16 x 4 in four Arrays of 4 x 4 along x: Array k covers x in [4k, 4k + 4). Every Array write is
     held for a while, so the writers overlap in time for sure. Only the data files are locked, on write, for
     the time of the write of that file: writers of different files never wait for each other, writers of one
     file queue on it and a region is always written by one writer as a whole.
     """
 
-    TILE = 4
+    SIDE = 4
     HOLD = 0.3
 
     @pytest.fixture
     def varray(self, client: Client, request: pytest.FixtureRequest) -> VArray:
         schema = VArraySchema(
             dtype=float,
-            dimensions=[DimensionSchema(name="x", size=4 * self.TILE), DimensionSchema(name="y", size=self.TILE)],
+            dimensions=[DimensionSchema(name="x", size=4 * self.SIDE), DimensionSchema(name="y", size=self.SIDE)],
             vgrid=(4, 1),
             fill_value=0.0,
         )
@@ -691,8 +691,8 @@ class TestConcurrentVArrayWriters:
             ],
         )
 
-    def test_different_tiles(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """1. Different tiles of one VArray: the writers never meet, both land."""
+    def test_different_arrays(self, mp_context: BaseContext, root_path: Path, varray: VArray):
+        """1. Different Arrays of one VArray: the writers never meet, both land."""
         results = self.write(mp_context, root_path, varray, [("[0:4]", 1.0), ("[8:12]", 2.0)])
         assert results == [None, None]
         data = varray[:].read()
@@ -700,8 +700,8 @@ class TestConcurrentVArrayWriters:
         assert np.all(data[8:12] == 2.0)
         assert np.all(data[4:8] == 0.0) and np.all(data[12:16] == 0.0)
 
-    def test_overlapping_tile_sets(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """2. Tile sets that overlap: both writers finish; a shared tile holds the data of one of them as a whole."""
+    def test_overlapping_array_sets(self, mp_context: BaseContext, root_path: Path, varray: VArray):
+        """2. Array sets that overlap: both writers finish; a shared Array holds the data of one of them as a whole."""
         results = self.write(mp_context, root_path, varray, [("[0:8]", 1.0), ("[4:12]", 2.0)])
         assert results == [None, None]
         data = varray[:].read()
@@ -711,8 +711,8 @@ class TestConcurrentVArrayWriters:
         assert np.all(shared == 1.0) or np.all(shared == 2.0)
         assert np.all(data[12:16] == 0.0)
 
-    def test_same_tile_different_parts(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """3. One tile, different parts: the writers queue on the file, both parts land."""
+    def test_same_array_different_parts(self, mp_context: BaseContext, root_path: Path, varray: VArray):
+        """3. One Array, different parts: the writers queue on the file, both parts land."""
         results = self.write(mp_context, root_path, varray, [("[0:2]", 1.0), ("[2:4]", 2.0)])
         assert results == [None, None]
         data = varray[:].read()
@@ -720,8 +720,8 @@ class TestConcurrentVArrayWriters:
         assert np.all(data[2:4] == 2.0)
         assert np.all(data[4:] == 0.0)
 
-    def test_same_tile_same_part(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """4. One tile, the same part: the last writer wins and the part is entirely his."""
+    def test_same_array_same_part(self, mp_context: BaseContext, root_path: Path, varray: VArray):
+        """4. One Array, the same part: the last writer wins and the part is entirely his."""
         results = self.write(mp_context, root_path, varray, [("[1:3, 1:3]", 1.0), ("[1:3, 1:3]", 2.0)])
         assert results == [None, None]
         data = varray[:].read()
@@ -729,13 +729,13 @@ class TestConcurrentVArrayWriters:
         assert np.all(part == 1.0) or np.all(part == 2.0)
         assert np.count_nonzero(data) == part.size
 
-    def test_same_tile_whole(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """5. One tile as a whole by two writers: the last one wins, the tile is entirely his."""
+    def test_same_array_whole(self, mp_context: BaseContext, root_path: Path, varray: VArray):
+        """5. One Array as a whole by two writers: the last one wins, the Array is entirely his."""
         results = self.write(mp_context, root_path, varray, [("[4:8]", 1.0), ("[4:8]", 2.0)])
         assert results == [None, None]
         data = varray[:].read()
-        tile = data[4:8]
-        assert np.all(tile == 1.0) or np.all(tile == 2.0)
+        region = data[4:8]
+        assert np.all(region == 1.0) or np.all(region == 2.0)
         assert np.all(data[0:4] == 0.0) and np.all(data[8:] == 0.0)
 
     def test_different_varrays(self, mp_context: BaseContext, root_path: Path, varray: VArray):
@@ -755,13 +755,13 @@ class TestConcurrentVArrayWriters:
         assert np.all(varray[0:8].read() == 1.0) and np.all(varray[8:].read() == 0.0)
         assert np.all(other[0:8].read() == 2.0) and np.all(other[8:].read() == 0.0)
 
-    def test_direct_writers_of_one_tile(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """A writer that takes the tile through the arrays manager meets the same lock as a VArray writer."""
-        varray[:].update(0.0)  # every tile exists now
+    def test_direct_writers_of_one_array(self, mp_context: BaseContext, root_path: Path, varray: VArray):
+        """A writer that takes the Array through the arrays manager meets the same lock as a VArray writer."""
+        varray[:].update(0.0)  # every Array exists now
         uri = str(embedded_uri(root_path))
         results = run_writers(
             mp_context,
-            write_tile_directly,
+            write_array_directly,
             [
                 ((uri, varray.collection, varray.id, (1, 0), "[0:2]", 1.0), (self.HOLD,)),
                 ((uri, varray.collection, varray.id, (1, 0), "[2:4]", 2.0), (self.HOLD,)),
@@ -772,8 +772,8 @@ class TestConcurrentVArrayWriters:
         assert np.all(data[4:6] == 1.0)
         assert np.all(data[6:8] == 2.0)
 
-    def test_direct_and_varray_writers_of_one_tile(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """A VArray writer and a direct writer of the same tile queue on its file, both parts land."""
+    def test_direct_and_varray_writers_of_one_array(self, mp_context: BaseContext, root_path: Path, varray: VArray):
+        """A VArray writer and a direct writer of the same Array queue on its file, both parts land."""
         varray[:].update(0.0)
         uri = str(embedded_uri(root_path))
         manager = mp_context.Manager()
@@ -784,7 +784,7 @@ class TestConcurrentVArrayWriters:
                 args=(uri, varray.collection, varray.id, "[4:6]", 1.0, go, queue, self.HOLD, 30),
             ),
             mp_context.Process(
-                target=write_tile_directly,
+                target=write_array_directly,
                 args=(uri, varray.collection, varray.id, (1, 0), "[2:4]", 2.0, go, queue, self.HOLD),
             ),
         ]
@@ -801,27 +801,27 @@ class TestConcurrentVArrayWriters:
         assert np.all(data[4:6] == 1.0)
         assert np.all(data[6:8] == 2.0)
 
-    def test_direct_creators_of_one_tile(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """Two creators of one tile through the arrays manager: one creates it, the other is told it exists."""
+    def test_direct_creators_of_one_array(self, mp_context: BaseContext, root_path: Path, varray: VArray):
+        """Two creators of one Array through the arrays manager: one creates it, the other is told it exists."""
         uri = str(embedded_uri(root_path))
         results = run_writers(
             mp_context,
-            create_tile_directly,
+            create_array_directly,
             [((uri, varray.collection, varray.id, (2, 0)), (0.5,)) for _ in range(2)],
         )
         created = [result for result in results if isinstance(result, str)]
         errors = [result for result in results if isinstance(result, Exception)]
         assert len(created) == 1, results
         assert len(errors) == 1 and isinstance(errors[0], DekerValidationError), results
-        tiles = [tile for tile in varray._VArray__collection.arrays if tile._vid == varray.id]
-        assert [tile.id for tile in tiles] == created
+        arrays = [array for array in varray._VArray__collection.arrays if array._vid == varray.id]
+        assert [array.id for array in arrays] == created
 
     def test_rebalancer_lock_is_refused_during_a_write(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """A process holding the file as the rebalancer does cannot take it while a VArray writes the tile."""
+        """A process holding the file as the rebalancer does cannot take it while a VArray writes the Array."""
         varray[:].update(0.0)
         collection = varray._VArray__collection
-        tile = collection.arrays.filter({"vid": varray.id, "v_position": (0, 0)}).last()
-        path = tile_main_file(collection, tile)
+        array = collection.arrays.filter({"vid": varray.id, "v_position": (0, 0)}).last()
+        path = array_main_file(collection, array)
         manager = mp_context.Manager()
         go, queue, started = manager.Barrier(2), manager.Queue(), manager.Event()
         writer = mp_context.Process(
@@ -830,7 +830,7 @@ class TestConcurrentVArrayWriters:
         )
         writer.start()
         go.wait(60)
-        assert started.wait(60)  # the writer holds the tile now
+        assert started.wait(60)  # the writer holds the Array now
         try:
             probe = mp_context.Process(target=try_exclusive_flock, args=(str(path), queue))
             probe.start()
@@ -845,11 +845,11 @@ class TestConcurrentVArrayWriters:
         assert queue.get(timeout=30) is True
 
     def test_writer_and_reader_wait_for_the_rebalancer(self, mp_context: BaseContext, root_path: Path, varray: VArray):
-        """While the rebalancer holds a tile, its reader fails at once and its writer waits; both pass afterwards."""
+        """While the rebalancer holds an Array, its reader fails at once and its writer waits; both pass afterwards."""
         varray[:].update(0.0)
         collection = varray._VArray__collection
-        tile = collection.arrays.filter({"vid": varray.id, "v_position": (0, 0)}).last()
-        path = tile_main_file(collection, tile)
+        array = collection.arrays.filter({"vid": varray.id, "v_position": (0, 0)}).last()
+        path = array_main_file(collection, array)
         manager = mp_context.Manager()
         held, release, queue = manager.Event(), manager.Event(), manager.Queue()
         holder = mp_context.Process(target=hold_exclusive_flock, args=(str(path), held, release))
@@ -866,7 +866,7 @@ class TestConcurrentVArrayWriters:
             writer.start()
             go.wait(60)
             with pytest.raises(Empty):
-                queue.get(timeout=2)  # the writer is waiting for the tile: no result while the file is held
+                queue.get(timeout=2)  # the writer is waiting for the Array: no result while the file is held
             release.set()
             writer.join(60)
             assert queue.get(timeout=30) is None
@@ -888,7 +888,7 @@ class TestConcurrentVArrayWriters:
         )
         writer.start()
         go.wait(60)
-        assert started.wait(60)  # the writer holds its tiles and sleeps inside the write
+        assert started.wait(60)  # the writer holds its Arrays and sleeps inside the write
         os.kill(writer.pid, 9)
         writer.join(30)
 
@@ -978,8 +978,8 @@ class TestLocks:
     def test_varray_writer_times_out_on_a_long_reader(
         self, varray_schema: VArraySchema, root_path, inserted_varray_with_attributes: VArray, mp_context: BaseContext
     ):
-        """A VArray writer waits for the reader of a tile and gives up by timeout: update reports the tiles it
-        could not write, clear raises the lock error of the first tile."""
+        """A VArray writer waits for the reader of an Array and gives up by timeout: update reports the Arrays it
+        could not write, clear raises the lock error of the first Array."""
         manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()

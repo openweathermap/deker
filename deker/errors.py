@@ -92,7 +92,7 @@ class DekerIntegrityError(DekerBaseApplicationError):
 
 
 class DekerLockError(DekerBaseApplicationError):
-    """If a Collection or a Array or VArray instance is locked."""
+    """If a Collection or an Array or VArray instance is locked."""
 
     pass
 

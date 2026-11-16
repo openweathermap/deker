@@ -261,9 +261,12 @@ class TestCollectionAdapterClosed:
 class TestCollectionAdapterEdges:
     def test_create_path_raises_if_directory_exists(self, collection_adapter: LocalCollectionAdapter):
         name = "already-there"
-        collection_adapter._LocalCollectionAdapter__create_path(name)
-        with pytest.raises(DekerCollectionAlreadyExistsError):
-            collection_adapter._LocalCollectionAdapter__create_path(name)
+        path = collection_adapter._LocalCollectionAdapter__create_path(name)
+        try:
+            with pytest.raises(DekerCollectionAlreadyExistsError):
+                collection_adapter._LocalCollectionAdapter__create_path(name)
+        finally:
+            shutil.rmtree(path)
 
     def test_create_writes_nothing_without_path(self, collection_adapter: LocalCollectionAdapter, root_path: Path):
         collection_adapter._LocalCollectionAdapter__create("ghost", {}, None)

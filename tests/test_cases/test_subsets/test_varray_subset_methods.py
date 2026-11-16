@@ -27,7 +27,7 @@ from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerLockError, DekerSubsetError, DekerVSubsetError
 from deker.flock import Flock
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
-from deker.subset import VSubset, _split_axis, _tile_positions, _TileBounds
+from deker.subset import VSubset, _array_positions, _ArrayBounds, _split_axis
 from deker.tools import get_main_path
 from deker.types.private.classes import ArrayPosition, ArrayPositionedData
 from deker.types.private.typings import Slice
@@ -514,8 +514,8 @@ class TestVArraySubset:
 
         coll.delete()
 
-    def test_update_reports_the_exceptions_of_its_tile_workers(self, inserted_varray: VArray, mocker: MockerFixture):
-        """Every tile is written by a worker; the failures of the workers are collected into one error."""
+    def test_update_reports_the_exceptions_of_its_array_workers(self, inserted_varray: VArray, mocker: MockerFixture):
+        """Every Array is written by a worker; the failures of the workers are collected into one error."""
         mocker.patch.object(VSubset, "_VSubset__update_array_data", side_effect=OSError("disk full"))
         subset = inserted_varray[:]
         with pytest.raises(DekerVSubsetError) as info:
@@ -530,14 +530,14 @@ class TestVArraySubset:
         assert "1) OSError('disk full')" in str(error)
 
 
-def tile_main_file(tile) -> Path:
-    """Main file of a tile.
+def array_main_file(array) -> Path:
+    """Main file of an Array.
 
-    :param tile: inner Array of a VArray
-    :returns: path to the hdf5 file of the tile
+    :param array: Array of a VArray
+    :returns: path to the hdf5 file of the Array
     """
-    adapter = tile._adapter
-    return get_main_path(tile.id, adapter.collection_path / adapter.data_dir) / (tile.id + adapter.file_ext)
+    adapter = array._adapter
+    return get_main_path(array.id, adapter.collection_path / adapter.data_dir) / (array.id + adapter.file_ext)
 
 
 def is_free(path: Path) -> bool:
@@ -559,7 +559,7 @@ class HeldStorageCall:
     """Replacement of a storage adapter method that records what is held while it runs and waits to be let go.
 
     :param original: the replaced bound method
-    :param files: main files of the tiles, by their position in the grid
+    :param files: main files of the Arrays, by their v_position in the vgrid
     """
 
     def __init__(self, original, files: dict[tuple[int, ...], Path]) -> None:
@@ -579,30 +579,32 @@ class HeldStorageCall:
         return self.original(path, *args, **kwargs)
 
 
-class TestFindTileForWriting:
-    """A writer looks for a tile waiting for a writer of another process to leave it."""
+class TestFindArrayForWriting:
+    """A writer looks for an Array waiting for a writer of another process to leave it."""
 
     @pytest.fixture
-    def held_tile(self, inserted_varray: VArray) -> Iterator[tuple[tuple[int, ...], Flock]]:
-        """Holds the first tile as a writer of another process does; the tile is released afterwards."""
+    def held_array(self, inserted_varray: VArray) -> Iterator[tuple[tuple[int, ...], Flock]]:
+        """Holds the first Array as a writer of another process does; the Array is released afterwards."""
         subset = inserted_varray[:]
         vpos = subset._VSubset__arrays[0].vposition
-        tile = subset._create_array_from_vposition(vpos)
-        with Flock(tile_main_file(tile)) as flock:
+        array = subset._create_array_from_vposition(vpos)
+        with Flock(array_main_file(array)) as flock:
             yield vpos, flock
 
-    def test_try_find_tile_reports_a_tile_held_by_another_writer(self, inserted_varray: VArray, held_tile):
-        vpos, flock = held_tile
+    def test_try_find_array_reports_a_array_held_by_another_writer(self, inserted_varray: VArray, held_array):
+        vpos, flock = held_array
         subset = inserted_varray[:]
         found: list = []
-        assert subset._try_find_tile(vpos, found) is False
+        assert subset._try_find_array(vpos, found) is False
         assert found == []
         flock.release()
-        assert subset._try_find_tile(vpos, found) is True
+        assert subset._try_find_array(vpos, found) is True
         assert len(found) == 1 and found[0] is not None and found[0]._v_position == vpos
 
-    def test_find_tile_for_writing_times_out_on_a_tile_held_by_another_writer(self, inserted_varray: VArray, held_tile):
-        vpos, _ = held_tile
+    def test_find_array_for_writing_times_out_on_a_array_held_by_another_writer(
+        self, inserted_varray: VArray, held_array
+    ):
+        vpos, _ = held_array
         subset = inserted_varray[:]
         config = subset._VSubset__adapter.ctx.config
         timeout, interval = config.write_lock_timeout, config.write_lock_check_interval
@@ -610,94 +612,94 @@ class TestFindTileForWriting:
         try:
             started = time.monotonic()
             with pytest.raises(DekerLockError) as info:
-                subset._find_tile_for_writing(vpos)
-            assert str(info.value) == f"Tile {vpos} of {inserted_varray} is locked for update operation"
+                subset._find_array_for_writing(vpos)
+            assert str(info.value) == f"Array {vpos} of {inserted_varray} is locked for update operation"
             assert time.monotonic() - started >= 1
         finally:
             config.write_lock_timeout, config.write_lock_check_interval = timeout, interval
 
-    def test_find_tile_for_writing_returns_a_free_tile(self, inserted_varray: VArray):
+    def test_find_array_for_writing_returns_a_free_array(self, inserted_varray: VArray):
         subset = inserted_varray[:]
         vpos = subset._VSubset__arrays[0].vposition
-        tile = subset._find_tile_for_writing(vpos)
-        assert tile is not None
-        assert tile._v_position == vpos
-        assert tile._vid == inserted_varray.id
+        array = subset._find_array_for_writing(vpos)
+        assert array is not None
+        assert array._v_position == vpos
+        assert array._vid == inserted_varray.id
 
 
 @pytest.mark.timeout(60)
-class TestVSubsetWritesTileByTile:
-    """A VArray write holds each tile only while it is written and leaves no files behind."""
+class TestVSubsetWritesArrayByArray:
+    """A VArray write holds each Array only while it is written and leaves no files behind."""
 
     @pytest.fixture
-    def tiles(self, inserted_varray: VArray) -> dict[tuple[int, ...], Path]:
-        """Main files of the tiles by their position in the grid."""
+    def files(self, inserted_varray: VArray) -> dict[tuple[int, ...], Path]:
+        """Main files of the Arrays by their v_position in the vgrid."""
         subset = inserted_varray[:]
         return {
-            position.vposition: tile_main_file(subset._create_array_from_vposition(position.vposition))
+            position.vposition: array_main_file(subset._create_array_from_vposition(position.vposition))
             for position in subset._VSubset__arrays
         }
 
     @pytest.mark.parametrize("method", ["update_data", "clear_data"])
-    def test_only_the_written_tile_is_held(
-        self, inserted_varray: VArray, tiles: dict[tuple[int, ...], Path], mocker: MockerFixture, method: str
+    def test_only_the_written_array_is_held(
+        self, inserted_varray: VArray, files: dict[tuple[int, ...], Path], mocker: MockerFixture, method: str
     ):
-        """While a tile is written, that tile is held exclusively, the other tiles are free, no file is made."""
+        """While an Array is written, that Array is held exclusively, the other Arrays are free, no file is made."""
         storage = inserted_varray._VArray__array_adapter.storage_adapter
-        held = HeldStorageCall(getattr(storage, method), tiles)
+        held = HeldStorageCall(getattr(storage, method), files)
         mocker.patch.object(storage, method, held)
-        subset = inserted_varray[0:2, 0:2, 0:2]  # one tile: (0, 0, 0)
+        subset = inserted_varray[0:2, 0:2, 0:2]  # one Array: (0, 0, 0)
         with ThreadPoolExecutor(max_workers=1) as pool:
             future = pool.submit(subset.update, 1.0) if method == "update_data" else pool.submit(subset.clear)
             assert held.inside.wait(10)
-            assert held.free == {vpos: vpos != (0, 0, 0) for vpos in tiles}
+            assert held.free == {vpos: vpos != (0, 0, 0) for vpos in files}
             assert held.lock_files == []
             held.go.set()
             assert future.result(timeout=10) is None
-        assert all(is_free(file) for file in tiles.values())
+        assert all(is_free(file) for file in files.values())
 
-    def test_update_leaves_no_files_behind(self, inserted_varray: VArray, tiles: dict[tuple[int, ...], Path]):
-        """A VArray write touches nothing but the files of its tiles."""
+    def test_update_leaves_no_files_behind(self, inserted_varray: VArray, files: dict[tuple[int, ...], Path]):
+        """A VArray write touches nothing but the files of its Arrays."""
         collection_path = inserted_varray._VArray__collection.path
         before = sorted(collection_path.rglob("*"))
         inserted_varray[:].update(2.0)
         assert sorted(collection_path.rglob("*")) == before
-        assert all(is_free(file) for file in tiles.values())
+        assert all(is_free(file) for file in files.values())
         assert np.all(inserted_varray[:].read() == 2.0)
 
-    def test_writers_of_one_tile_queue_on_it(
+    def test_writers_of_one_array_queue_on_it(
         self,
         inserted_varray: VArray,
         array_data: np.ndarray,
-        tiles: dict[tuple[int, ...], Path],
+        files: dict[tuple[int, ...], Path],
         mocker: MockerFixture,
     ):
-        """Two threads writing different parts of one tile wait for each other; both parts land."""
+        """Two threads writing different parts of one Array wait for each other; both parts land."""
         storage = inserted_varray._VArray__array_adapter.storage_adapter
-        held = HeldStorageCall(storage.update_data, tiles)
+        held = HeldStorageCall(storage.update_data, files)
         mocker.patch.object(storage, "update_data", held)
         with ThreadPoolExecutor(max_workers=2) as pool:
             first = pool.submit(inserted_varray[0:2, 0:5, 0:5].update, 1.0)
             assert held.inside.wait(10)
             second = pool.submit(inserted_varray[2:5, 0:5, 0:5].update, 2.0)
             with pytest.raises(FutureTimeoutError):
-                second.result(timeout=0.5)  # the tile is held by the first writer
+                second.result(timeout=0.5)  # the Array is held by the first writer
             held.go.set()
             assert first.result(timeout=10) is None
             assert second.result(timeout=10) is None
         data = inserted_varray[:].read()
         assert np.all(data[0:2, 0:5, 0:5] == 1.0)
         assert np.all(data[2:5, 0:5, 0:5] == 2.0)
-        assert np.array_equal(data[5:, :, :], array_data[5:, :, :])  # the other tiles are untouched
+        assert np.array_equal(data[5:, :, :], array_data[5:, :, :])  # the other Arrays are untouched
 
 
 class TestSplitAxis:
-    """Parts of the tiles a subset bound selects along one axis, with their slices of the subset data."""
+    """Parts of the Arrays a subset bound selects along one axis, with their slices of the subset data."""
 
     @pytest.mark.parametrize(
-        ("bound", "size", "tile_size", "expected"),
+        ("bound", "size", "array_size", "expected"),
         [
-            # whole axis of 3 tiles of 2 cells: a whole tile is the plain slice(None, None)
+            # whole axis of 3 Arrays of 2 cells: a whole Array is the plain slice(None, None)
             (
                 slice(None),
                 6,
@@ -708,15 +710,15 @@ class TestSplitAxis:
                     (2, slice(None, None), slice(4, 6)),
                 ],
             ),
-            # the second tile is cut
+            # the second Array is cut
             (slice(0, 3), 6, 2, [(0, slice(None, None), slice(0, 2)), (1, slice(0, 1), slice(2, 3))]),
-            # the first tile is skipped, the last one is cut
+            # the first Array is skipped, the last one is cut
             (slice(2, 5), 6, 2, [(1, slice(None, None), slice(0, 2)), (2, slice(0, 1), slice(2, 3))]),
             # negative bounds are resolved against the axis
             (slice(-4, -1), 6, 2, [(1, slice(None, None), slice(0, 2)), (2, slice(0, 1), slice(2, 3))]),
-            # one tile for the whole axis
+            # one Array for the whole axis
             (slice(None), 6, 6, [(0, slice(None, None), slice(0, 6))]),
-            # a step inside the tiles: every other cell, the phase carries over the tile border
+            # a step inside the Arrays: every other cell, the phase carries over the Array border
             (
                 slice(None, None, 2),
                 6,
@@ -729,14 +731,14 @@ class TestSplitAxis:
                 2,
                 [(0, slice(1, 2, 2), slice(0, 1)), (1, slice(1, 2, 2), slice(1, 2)), (2, slice(1, 2, 2), slice(2, 3))],
             ),
-            # a step that does not divide the tile size: the first cell of a tile depends on the phase
+            # a step that does not divide the Array size: the first cell of an Array depends on the phase
             (
                 slice(None, None, 3),
                 10,
                 4,
                 [(0, slice(0, 4, 3), slice(0, 2)), (1, slice(2, 3, 3), slice(2, 3)), (2, slice(1, 2, 3), slice(3, 4))],
             ),
-            # a step larger than a tile jumps over tiles
+            # a step larger than an Array jumps over Arrays
             (
                 slice(None, None, 5),
                 12,
@@ -745,7 +747,7 @@ class TestSplitAxis:
             ),
             # a step larger than the axis selects the first cell only
             (slice(None, None, 100), 12, 4, [(0, slice(0, 1, 100), slice(0, 1))]),
-            # start inside a tile with a step
+            # start inside an Array with a step
             (slice(5, 12, 4), 12, 4, [(1, slice(1, 2, 4), slice(0, 1)), (2, slice(1, 2, 4), slice(1, 2))]),
             # integers drop the axis
             (0, 6, 2, [(0, 0, None)]),
@@ -753,12 +755,12 @@ class TestSplitAxis:
             (-1, 6, 2, [(2, 1, None)]),
         ],
     )
-    def test_parts_follow_the_selected_positions(self, bound, size, tile_size, expected):
-        """Tests if the parts walk the selected positions tile by tile and their data slices continue each other."""
-        assert _split_axis(bound, size, tile_size) == [_TileBounds(*part) for part in expected]
+    def test_parts_follow_the_selected_positions(self, bound, size, array_size, expected):
+        """Tests if the parts walk the selected positions Array by Array and their data slices continue each other."""
+        assert _split_axis(bound, size, array_size) == [_ArrayBounds(*part) for part in expected]
 
     @pytest.mark.parametrize(
-        ("size", "tile_size"),
+        ("size", "array_size"),
         [(6, 1), (6, 2), (6, 3), (6, 6), (7, 1), (7, 7), (12, 1), (12, 3), (12, 4), (24, 2), (24, 6), (24, 24)],
     )
     @pytest.mark.parametrize(
@@ -775,14 +777,14 @@ class TestSplitAxis:
             slice(3, 20, 4),
         ],
     )
-    def test_parts_cover_the_selection_exactly(self, bound, size, tile_size):
-        """Tests if the cells of the parts are exactly the selected cells, in order, whatever the tiles."""
+    def test_parts_cover_the_selection_exactly(self, bound, size, array_size):
+        """Tests if the cells of the parts are exactly the selected cells, in order, whatever the Arrays."""
         axis = np.arange(size)
         expected = axis[bound]
         collected = []
-        for part in _split_axis(bound, size, tile_size):
-            tile = axis[part.position * tile_size : (part.position + 1) * tile_size]
-            cells = tile[part.bounds]
+        for part in _split_axis(bound, size, array_size):
+            piece = axis[part.position * array_size : (part.position + 1) * array_size]
+            cells = piece[part.bounds]
             assert part.data_slice is not None
             assert part.data_slice == slice(len(collected), len(collected) + len(cells))
             collected.extend(cells)
@@ -793,13 +795,13 @@ class TestSplitAxis:
             _split_axis(slice(None, None, -1), 6, 2)
 
 
-class TestTilePositions:
-    """Tiles a subset covers, with their bounds and data slices, for several axes."""
+class TestArrayPositions:
+    """Arrays a subset covers, with their bounds and data slices, for several axes."""
 
     @pytest.mark.parametrize(
         ("bounds", "shape", "arrays_shape", "expected"),
         [
-            # 2 dimensions, 4 whole tiles of 5x5
+            # 2 dimensions, 4 whole Arrays of 5x5
             (
                 (slice(None), slice(None)),
                 (10, 10),
@@ -811,7 +813,7 @@ class TestTilePositions:
                     ((1, 1), (slice(None, None), slice(None, None)), (slice(5, 10), slice(5, 10))),
                 ],
             ),
-            # the subset [0:7, 2:8] cuts every tile
+            # the subset [0:7, 2:8] cuts every Array
             (
                 (slice(0, 7), slice(2, 8)),
                 (10, 10),
@@ -823,14 +825,14 @@ class TestTilePositions:
                     ((1, 1), (slice(0, 2), slice(0, 3)), (slice(5, 7), slice(3, 6))),
                 ],
             ),
-            # an integer index drops its axis from the data slices and selects one row of tiles
+            # an integer index drops its axis from the data slices and selects one row of Arrays
             (
                 (7, slice(None)),
                 (10, 10),
                 (5, 5),
                 [((1, 0), (2, slice(None, None)), (slice(0, 5),)), ((1, 1), (2, slice(None, None)), (slice(5, 10),))],
             ),
-            # a step jumping over the second tile of the first axis
+            # a step jumping over the second Array of the first axis
             (
                 (slice(None, None, 6), slice(None, None, 3)),
                 (12, 6),
@@ -844,8 +846,8 @@ class TestTilePositions:
             ),
         ],
     )
-    def test_tiles_with_bounds_and_data_slices(self, bounds, shape, arrays_shape, expected):
-        positions = _tile_positions(bounds, shape, arrays_shape)
+    def test_arrays_with_bounds_and_data_slices(self, bounds, shape, arrays_shape, expected):
+        positions = _array_positions(bounds, shape, arrays_shape)
         assert [tuple(position) for position in positions] == expected
 
     @pytest.mark.parametrize(
@@ -853,17 +855,17 @@ class TestTilePositions:
         [((12,), (4,)), ((12, 10), (4, 5)), ((12, 10, 8), (4, 2, 4)), ((6, 5, 4, 6), (2, 1, 2, 3))],
         ids=["1d", "2d", "3d", "4d"],
     )
-    def test_tiles_assemble_the_numpy_selection(self, shape, arrays_shape):
-        """Tests if the data slices of the tiles assemble the numpy selection of a stepped expression."""
+    def test_arrays_assemble_the_numpy_selection(self, shape, arrays_shape):
+        """Tests if the data slices of the Arrays assemble the numpy selection of a stepped expression."""
         data = np.arange(np.prod(shape)).reshape(shape)
         ndim = len(shape)
         for index_exp in STEPPED_INDEX_EXPS[ndim]:
             forward, flipped = positive_bounds(shape, index_exp)
             expected = data[forward]
             assembled = np.empty(expected.shape, dtype=data.dtype)
-            for vposition, bounds, data_slice in _tile_positions(forward, shape, arrays_shape):
-                tile = data[tuple(slice(p * t, (p + 1) * t) for p, t in zip(vposition, arrays_shape))]
-                assembled[data_slice] = tile[bounds]
+            for vposition, bounds, data_slice in _array_positions(forward, shape, arrays_shape):
+                piece = data[tuple(slice(p * t, (p + 1) * t) for p, t in zip(vposition, arrays_shape))]
+                assembled[data_slice] = piece[bounds]
             assert np.array_equal(assembled, expected), index_exp
             assert np.array_equal(np.flip(assembled, flipped), data[index_exp]), index_exp
 
@@ -872,8 +874,10 @@ class TestVSubsetArrayWorkers:
     """Methods that read, update and clear one inner Array of the subset."""
 
     @pytest.mark.parametrize("index_exp", [np.index_exp[:], np.index_exp[0:5, 0:5, 0:5], np.index_exp[7, 1:3, :]])
-    def test_read_array_data_of_existing_tiles(self, inserted_varray: VArray, array_data: np.ndarray, index_exp: Slice):
-        """Tests if every tile of a written VArray is read with its slice of the subset data."""
+    def test_read_array_data_of_existing_arrays(
+        self, inserted_varray: VArray, array_data: np.ndarray, index_exp: Slice
+    ):
+        """Tests if every Array of a written VArray is read with its slice of the subset data."""
         vsubset: VSubset = inserted_varray[index_exp]
         expected = array_data[index_exp]
         for array_pos in vsubset._VSubset__arrays:
@@ -882,8 +886,8 @@ class TestVSubsetArrayWorkers:
             assert np.array_equal(np.asarray(data), np.asarray(expected)[data_slice])
 
     @pytest.mark.parametrize("index_exp", [np.index_exp[:], np.index_exp[0:5, 0:5, 0:5], np.index_exp[2, 3:9, 1]])
-    def test_read_array_data_of_missing_tiles(self, varray: VArray, index_exp: Slice):
-        """Tests if a missing tile is read as its fill value with the shape of its bounds."""
+    def test_read_array_data_of_missing_arrays(self, varray: VArray, index_exp: Slice):
+        """Tests if a missing Array is read as its fill value with the shape of its bounds."""
         varray._adapter.create(varray)
         vsubset: VSubset = varray[index_exp]
         for array_pos in vsubset._VSubset__arrays:
@@ -894,15 +898,15 @@ class TestVSubsetArrayWorkers:
 
     @pytest.mark.parametrize("bounds", [(99, 0, 0), (0, 99, 0), (0, 0, -99)])
     def test_read_array_data_raises_on_wrong_bounds(self, inserted_varray: VArray, bounds: tuple):
-        """Tests if an index outside the tile is rejected."""
+        """Tests if an index outside the Array is rejected."""
         vsubset: VSubset = inserted_varray[:]
         array_pos = vsubset._VSubset__arrays[0]
         wrong = ArrayPosition(array_pos.vposition, bounds, array_pos.data_slice)
         with pytest.raises(IndexError):
             vsubset._VSubset__read_array_data(wrong)
 
-    def test_update_array_data_creates_missing_tile(self, varray: VArray):
-        """Tests if updating a missing tile creates it with the data."""
+    def test_update_array_data_creates_missing_array(self, varray: VArray):
+        """Tests if updating a missing Array creates it with the data."""
         varray._adapter.create(varray)
         vsubset: VSubset = varray[:]
         array_pos = vsubset._VSubset__arrays[0]
@@ -913,8 +917,8 @@ class TestVSubsetArrayWorkers:
         assert array is not None
         assert np.array_equal(array[:].read(), data)
 
-    def test_update_array_data_updates_existing_tile(self, inserted_varray: VArray):
-        """Tests if an existing tile is updated in place."""
+    def test_update_array_data_updates_existing_array(self, inserted_varray: VArray):
+        """Tests if an existing Array is updated in place."""
         vsubset: VSubset = inserted_varray[:]
         array_pos = vsubset._VSubset__arrays[-1]
         data = np.full(inserted_varray.arrays_shape, -1.0, dtype=inserted_varray.dtype)
@@ -940,10 +944,10 @@ class TestVSubsetArrayWorkers:
             ([("a", 4), ("b", 4), ("c", 2), ("t", 8)], (2, 2, 1, 4), 3),
         ],
     )
-    def test_update_array_data_sets_time_attribute_of_new_tiles(self, client: Client, dimensions, vgrid, time_index):
-        """Tests if every new tile starts where its first cell is on the VArray time axis.
+    def test_update_array_data_sets_time_attribute_of_new_arrays(self, client: Client, dimensions, vgrid, time_index):
+        """Tests if every new Array starts where its first cell is on the VArray time axis.
 
-        The tile attribute is ``start + step * tile_size * position``, so a tile's own time axis
+        The Array attribute is ``start + step * array_size * position``, so an Array's own time axis
         is the matching piece of the VArray time axis, whatever the number of dimensions and the grid.
         """
         step = timedelta(hours=1)
@@ -958,20 +962,20 @@ class TestVSubsetArrayWorkers:
             vgrid=vgrid,
             attributes=[AttributeSchema(name="start", dtype=datetime, primary=False)],
         )
-        collection = client.create_collection(f"tiles_time_{len(dimensions)}d_{'_'.join(map(str, vgrid))}", schema)
+        collection = client.create_collection(f"arrays_time_{len(dimensions)}d_{'_'.join(map(str, vgrid))}", schema)
         try:
             start = datetime(2024, 1, 1, tzinfo=timezone.utc)
             varray = collection.create(custom_attributes={"start": start})
             vsubset: VSubset = varray[:]
-            tile_size = varray.arrays_shape[time_index]
+            array_size = varray.arrays_shape[time_index]
             assert len(vsubset._VSubset__arrays) == np.prod(vgrid)
             for array_pos in vsubset._VSubset__arrays:
                 data = np.zeros(varray.arrays_shape, dtype=varray.dtype)
                 vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
-                tile = vsubset._create_array_from_vposition(array_pos.vposition)
-                expected = start + step * tile_size * array_pos.vposition[time_index]
-                assert tile.custom_attributes["parent.start"] == expected
-                assert tile.dimensions[time_index].start_value == expected
+                array = vsubset._create_array_from_vposition(array_pos.vposition)
+                expected = start + step * array_size * array_pos.vposition[time_index]
+                assert array.custom_attributes["parent.start"] == expected
+                assert array.dimensions[time_index].start_value == expected
         finally:
             collection.delete()
 
@@ -985,8 +989,8 @@ class TestVSubsetArrayWorkers:
             ([("a", 4), ("b", 4), ("c", 2), ("t", 8)], (2, 2, 1, 4), 3),
         ],
     )
-    def test_tiles_time_axes_match_the_varray_time_axis(self, client: Client, dimensions, vgrid, time_index):
-        """Tests if the time axis of every tile, read as an Array, is the matching piece of the VArray time axis."""
+    def test_arrays_time_axes_match_the_varray_time_axis(self, client: Client, dimensions, vgrid, time_index):
+        """Tests if the time axis of every Array, read as an Array, is the matching piece of the VArray time axis."""
         step = timedelta(minutes=30)
         schema = VArraySchema(
             dtype=float,
@@ -999,19 +1003,19 @@ class TestVSubsetArrayWorkers:
             vgrid=vgrid,
             attributes=[AttributeSchema(name="start", dtype=datetime, primary=False)],
         )
-        collection = client.create_collection(f"tiles_axis_{len(dimensions)}d_{'_'.join(map(str, vgrid))}", schema)
+        collection = client.create_collection(f"arrays_axis_{len(dimensions)}d_{'_'.join(map(str, vgrid))}", schema)
         try:
             varray = collection.create(custom_attributes={"start": datetime(2024, 6, 1, tzinfo=timezone.utc)})
             varray[:].update(np.zeros(varray.shape, dtype=varray.dtype))
             time_name = dimensions[time_index][0]
             varray_axis = varray[:].describe()[time_name]
-            tile_size = varray.arrays_shape[time_index]
-            tiles = [tile for tile in collection.arrays if tile._vid == varray.id]
-            assert len(tiles) == np.prod(vgrid)
-            for tile in tiles:
-                position = tile.primary_attributes["v_position"][time_index]
-                first_cell = position * tile_size
-                assert tile[:].describe()[time_name] == varray_axis[first_cell : first_cell + tile_size]
+            array_size = varray.arrays_shape[time_index]
+            arrays = [array for array in collection.arrays if array._vid == varray.id]
+            assert len(arrays) == np.prod(vgrid)
+            for array in arrays:
+                position = array.primary_attributes["v_position"][time_index]
+                first_cell = position * array_size
+                assert array[:].describe()[time_name] == varray_axis[first_cell : first_cell + array_size]
         finally:
             collection.delete()
 
@@ -1024,32 +1028,32 @@ class TestVSubsetArrayWorkers:
         ],
     )
     def test_update_array_data_raises_on_wrong_data(self, inserted_varray: VArray, data, error):
-        """Tests if data that does not fit the tile is rejected."""
+        """Tests if data that does not fit the Array is rejected."""
         vsubset: VSubset = inserted_varray[:]
         array_pos = vsubset._VSubset__arrays[0]
         with pytest.raises(error):
             vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
 
-    def test_clear_array_deletes_fully_covered_tile(self, inserted_varray: VArray):
-        """Tests if a tile fully covered by the subset is deleted."""
+    def test_clear_array_deletes_fully_covered_array(self, inserted_varray: VArray):
+        """Tests if an Array fully covered by the subset is deleted."""
         vsubset: VSubset = inserted_varray[:]
         array_pos = vsubset._VSubset__arrays[0]
         vsubset._VSubset__clear_array(array_pos)
         assert vsubset._create_array_from_vposition(array_pos.vposition) is None
 
-    def test_clear_array_clears_partially_covered_tile(self, inserted_varray: VArray, array_data: np.ndarray):
-        """Tests if a tile partially covered by the subset is cleared only inside the bounds and kept."""
+    def test_clear_array_clears_partially_covered_array(self, inserted_varray: VArray, array_data: np.ndarray):
+        """Tests if an Array partially covered by the subset is cleared only inside the bounds and kept."""
         vsubset: VSubset = inserted_varray[0:2, 0:2, 0:2]
         array_pos = vsubset._VSubset__arrays[0]
         vsubset._VSubset__clear_array(array_pos)
         array = vsubset._create_array_from_vposition(array_pos.vposition)
         assert array is not None
-        tile = array[:].read()
-        assert np.all(np.isnan(tile[0:2, 0:2, 0:2]))
-        assert np.array_equal(tile[2:, 2:, 2:], array_data[2:5, 2:5, 2:5])
+        read = array[:].read()
+        assert np.all(np.isnan(read[0:2, 0:2, 0:2]))
+        assert np.array_equal(read[2:, 2:, 2:], array_data[2:5, 2:5, 2:5])
 
-    def test_clear_array_ignores_missing_tile(self, varray: VArray):
-        """Tests if clearing a tile that was never written does nothing and raises nothing."""
+    def test_clear_array_ignores_missing_array(self, varray: VArray):
+        """Tests if clearing an Array that was never written does nothing and raises nothing."""
         varray._adapter.create(varray)
         vsubset: VSubset = varray[:]
         array_pos = vsubset._VSubset__arrays[0]
@@ -1694,7 +1698,7 @@ class TestVSubsetSteps:
     def test_update_into_an_empty_varray(
         self, stepped_varray_collection: Collection, stepped_data: np.ndarray, index_exp: Slice
     ):
-        """Tests if a stepped write creates only the tiles it touches and leaves the other cells empty."""
+        """Tests if a stepped write creates only the Arrays it touches and leaves the other cells empty."""
         varray = stepped_varray_collection.create()
         try:
             vsubset = varray[index_exp]
@@ -1734,7 +1738,7 @@ class DatasetAccessLog:
 
     @property
     def data_reads(self) -> int:
-        """Number of reads of the ``data`` datasets of the tiles."""
+        """Number of reads of the ``data`` datasets of the Arrays."""
         return self.reads.count("/data")
 
 
@@ -1766,14 +1770,14 @@ def access(mocker: MockerFixture) -> Iterator[DatasetAccessLog]:
 
 
 @pytest.fixture
-def tiled_varray(client: Client) -> Iterator[VArray]:
-    """A VArray of shape (15, 10) split into three tiles (5, 10) along the first axis, with data in every cell."""
+def split_varray(client: Client) -> Iterator[VArray]:
+    """A VArray of shape (15, 10) split into three Arrays (5, 10) along the first axis, with data in every cell."""
     schema = VArraySchema(
         dtype=float,
         dimensions=[DimensionSchema(name="x", size=15), DimensionSchema(name="y", size=10)],
         vgrid=(3, 1),
     )
-    collection = client.create_collection("tiled_varray_reads", schema)
+    collection = client.create_collection("split_varray_reads", schema)
     try:
         varray = collection.create()
         varray[:].update(np.arange(1, 151, dtype=float).reshape(15, 10))
@@ -1782,53 +1786,53 @@ def tiled_varray(client: Client) -> Iterator[VArray]:
         collection.delete()
 
 
-# Subsets of the (15, 10) VArray and the number of tiles they cover only partially
-TILE_COVERAGE_CASES = [
+# Subsets of the (15, 10) VArray and the number of Arrays they cover only partially
+ARRAY_COVERAGE_CASES = [
     pytest.param(np.index_exp[:], 0, id="whole-varray"),
-    pytest.param(np.index_exp[0:5], 0, id="first-tile-whole"),
-    pytest.param(np.index_exp[5:15], 0, id="last-two-tiles-whole"),
-    pytest.param(np.index_exp[2:15], 1, id="first-tile-partial-rest-whole"),
-    pytest.param(np.index_exp[0:7], 1, id="first-tile-whole-second-partial"),
-    pytest.param(np.index_exp[2:7], 2, id="two-tiles-partial"),
-    pytest.param(np.index_exp[:, 0:5], 3, id="every-tile-partial"),
-    pytest.param(np.index_exp[3], 1, id="one-row-of-the-first-tile"),
-    pytest.param(np.index_exp[4:11], 2, id="outer-tiles-partial-middle-whole"),
+    pytest.param(np.index_exp[0:5], 0, id="first-Array-whole"),
+    pytest.param(np.index_exp[5:15], 0, id="last-two-Arrays-whole"),
+    pytest.param(np.index_exp[2:15], 1, id="first-Array-partial-rest-whole"),
+    pytest.param(np.index_exp[0:7], 1, id="first-Array-whole-second-partial"),
+    pytest.param(np.index_exp[2:7], 2, id="two-Arrays-partial"),
+    pytest.param(np.index_exp[:, 0:5], 3, id="every-Array-partial"),
+    pytest.param(np.index_exp[3], 1, id="one-row-of-the-first-Array"),
+    pytest.param(np.index_exp[4:11], 2, id="outer-Arrays-partial-middle-whole"),
 ]
 
 
-class TestVSubsetTileReads:
-    """A write or a clear reads a tile only when it covers the tile partially; a fully covered tile is replaced."""
+class TestVSubsetArrayReads:
+    """A write or a clear reads an Array only when it covers the Array partially; a fully covered Array is replaced."""
 
-    @pytest.mark.parametrize(("index_exp", "partial_tiles"), TILE_COVERAGE_CASES)
-    def test_update_reads_only_partially_covered_tiles(
-        self, tiled_varray: VArray, access: DatasetAccessLog, index_exp: Slice, partial_tiles: int
+    @pytest.mark.parametrize(("index_exp", "partial_arrays"), ARRAY_COVERAGE_CASES)
+    def test_update_reads_only_partially_covered_arrays(
+        self, split_varray: VArray, access: DatasetAccessLog, index_exp: Slice, partial_arrays: int
     ):
-        before = tiled_varray[:].read()
+        before = split_varray[:].read()
         data = np.full(before[index_exp].shape, -1.0)
-        reads_before = access.data_reads  # the tiles read by the line above
+        reads_before = access.data_reads  # the Arrays read by the line above
 
-        tiled_varray[index_exp].update(data)
+        split_varray[index_exp].update(data)
         reads = access.data_reads - reads_before
 
         expected = before.copy()
         expected[index_exp] = data
-        assert np.array_equal(tiled_varray[:].read(), expected)
-        assert reads == partial_tiles
+        assert np.array_equal(split_varray[:].read(), expected)
+        assert reads == partial_arrays
 
-    @pytest.mark.parametrize(("index_exp", "partial_tiles"), TILE_COVERAGE_CASES)
-    def test_clear_reads_only_partially_covered_tiles(
-        self, tiled_varray: VArray, access: DatasetAccessLog, index_exp: Slice, partial_tiles: int
+    @pytest.mark.parametrize(("index_exp", "partial_arrays"), ARRAY_COVERAGE_CASES)
+    def test_clear_reads_only_partially_covered_arrays(
+        self, split_varray: VArray, access: DatasetAccessLog, index_exp: Slice, partial_arrays: int
     ):
-        before = tiled_varray[:].read()
-        reads_before = access.data_reads  # the tiles read by the line above
+        before = split_varray[:].read()
+        reads_before = access.data_reads  # the Arrays read by the line above
 
-        tiled_varray[index_exp].clear()
+        split_varray[index_exp].clear()
         reads = access.data_reads - reads_before
 
         expected = before.copy()
         expected[index_exp] = np.nan
-        assert np.array_equal(tiled_varray[:].read(), expected, equal_nan=True)
-        assert reads == partial_tiles
+        assert np.array_equal(split_varray[:].read(), expected, equal_nan=True)
+        assert reads == partial_arrays
 
 
 if __name__ == "__main__":

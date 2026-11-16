@@ -20,7 +20,7 @@ import os
 import pkgutil
 import warnings
 
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from functools import wraps
@@ -49,7 +49,16 @@ from deker.integrity import IntegrityChecker
 from deker.log import SelfLoggerMixin, format_string, set_logging_level
 from deker.schemas import ArraySchema, VArraySchema
 from deker.tools import convert_human_memory_to_bytes
-from deker.types import ArrayLockMeta, CollectionLockMeta, LocksExtensions, LocksTypes, StorageSize
+from deker.types import (
+    DEFAULT_INTEGRITY_CHECKS,
+    ArrayLockMeta,
+    CollectionLockMeta,
+    IntegrityCheck,
+    IntegrityReport,
+    LocksExtensions,
+    LocksTypes,
+    StorageSize,
+)
 from deker.uri import Uri
 from deker.warnings import DekerWarning
 
@@ -138,9 +147,9 @@ class Client(SelfLoggerMixin):
         * type of a storage adapter (optional); default is ``HDF5StorageAdapter``
 
     - ``get_collection``: returns an object of ``Collection`` by a given name if such exists, otherwise - ``None``
-    - ``check_integrity``: checks the integrity of embedded storage database at different levels;
+    - ``check_integrity``: runs the named integrity checks of the storage and returns the report;
 
-      Either performs all checks and prints found errors or exit on the first error.
+      Collects every finding or stops at the first one, repairs what can be repaired if asked.
       The final report may be saved to file.
 
     - ``calculate_storage_size``: calculates size of the whole storage or of a defined ``Collection``;
@@ -638,31 +647,47 @@ class Client(SelfLoggerMixin):
     @_open_client_only
     def check_integrity(
         self,
-        level: int = 1,
-        stop_on_error: bool = True,
-        to_file: bool | Path | str = False,
         collection: str | None = None,
-    ) -> None:
-        """Run storage integrity check at one of 4 levels.
+        checks: Iterable[IntegrityCheck] = DEFAULT_INTEGRITY_CHECKS,
+        stop_on_error: bool = False,
+        repair: bool = False,
+        workers: int = 1,
+        to_file: bool | Path | str = False,
+    ) -> IntegrityReport:
+        """Check the integrity of the storage and, if asked, repair what can be repaired.
 
-        1. checks ``Collections`` integrity.  If no collection name was passed, iterates over all the
-           ``Collections`` and initialises them one by one
-        2. checks ``Arrays``/``VArrays`` initialization and lockfiles
-        3. checks if ``Arrays``/``VArrays`` paths are valid, including symlinks
-        4. checks if stored data is consistent with file-by-file one point reading
+        The checks, from the cheapest to the most expensive:
 
-        :param collection: Name of a ``Collection``. If passed - checks only passed collection, else checks
-          every collection in the storage
-        :param level: Check-level
-        :param stop_on_error: Flag to stop on first path or data error
-        :param to_file: Dump errors in file; accepts ``True``/``False`` or a path to file. If ``True`` - dump errors
-          into a default filename in the current directory; if a ``path`` to file is passed - dump errors to the file
-          with a specified name and path.
+        - ``collections``: every collection initialises and has its lock file, every lock file has its collection;
+          a collection file of an older metadata version is reported, it is never rewritten
+        - ``markers``: no markers of VArray writes are left by Deker < 2
+        - ``arrays``: every main file initialises an ``Array`` or a ``VArray``; an ``Array`` of a VArray
+          collection refers to an existing ``VArray``, has its ``v_position`` inside the ``vgrid`` and carries
+          the time attributes of its ``v_position``
+        - ``links``: main files and symlinks point at each other, one array per primary attributes
+        - ``data``: one cell of every ``Array`` reads back with the dtype of the collection
+        - ``counters``: the counter of empty cells of every ``Array`` equals the fill values in its data
+
+        The default set is the first four: metadata and symlinks, no data is read. The report is logged and
+        returned; its text goes to a file if ``to_file`` is set. Repairs and several workers are safe only
+        when nobody else works with the storage.
+
+        :param collection: name of the only ``Collection`` to check, every collection if ``None``
+        :param checks: the checks to run
+        :param stop_on_error: raise ``DekerIntegrityError`` at the first finding instead of collecting them all
+        :param repair: repair the repairable findings: missing or broken symlinks, lock files, markers,
+          time attributes of Arrays of VArrays, counters of empty cells
+        :param workers: threads to check the arrays of a collection with
+        :param to_file: write the report to a file: ``True`` for a default-named file in the current directory,
+          or the path of the file
+        :returns: the report of the findings
+        :raises DekerIntegrityError: at the first finding if ``stop_on_error`` is set
         """
-        errors: str = IntegrityChecker(self, self.root_path, stop_on_error, level).check(collection)
-        if not errors:
+        report = IntegrityChecker(self, checks, stop_on_error, repair, workers).check(collection)
+        if report.ok:
             self.logger.info("Integrity check found no errors")
-            return
+            return report
+        text = str(report)
         if to_file:
             if isinstance(to_file, Path):
                 filename = to_file
@@ -672,9 +697,10 @@ class Client(SelfLoggerMixin):
                 filename = Path(".") / f"deker_integrity_report_{datetime.now().isoformat(timespec='seconds')}.txt"
             is_path_valid(filename.parent.absolute())
             with filename.open("w") as f:
-                f.write(errors)
-            errors += f"\n\nIntegrity check logged errors in {filename.absolute()}"
-        self.logger.error(errors)
+                f.write(text)
+            text += f"\n\nIntegrity check logged errors in {filename.absolute()}"
+        self.logger.error(text)
+        return report
 
     def __iter__(self) -> Generator[Collection]:
         """Iterate over all collections in the storage."""

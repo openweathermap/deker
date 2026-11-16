@@ -29,4 +29,4 @@ from .schema import (
     create_dimensions_schema,
     get_default_fill_value,
 )
-from .time import convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime
+from .time import array_time_attributes, convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime

@@ -128,8 +128,8 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
     """Write lock for Array: an exclusive flock on the main file, held from acquire to release.
 
     The writer waits for the readers of the file to leave and keeps everybody out while it writes.
-    A VArray writes its tiles through this lock, one tile at a time, so two VArray writers of different
-    tiles never wait for each other and a writer that dies holds nothing and leaves no file behind.
+    A VArray writes its Arrays through this lock, one Array at a time, so two VArray writers of different
+    Arrays never wait for each other and a writer that dies holds nothing and leaves no file behind.
     """
 
     ALLOWED_TYPES = ["LocalArrayAdapter"]
@@ -174,16 +174,16 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         raise DekerLockError(f"Array {self.array} is locked with read locks")
 
 
-class TileCreationLock:
-    """Lock held while a missing tile (inner ``Array``) of a VArray is created.
+class ArrayCreationLock:
+    """Lock held while a missing ``Array`` of a ``VArray`` is created.
 
-    Two writers of a fresh VArray would otherwise both find the tile missing and create two files for one
+    Two writers of a fresh VArray would otherwise both find the Array missing and create two files for one
     position. The lock is an exclusive flock on the main file of the VArray, so it works across processes and
     containers on one storage and dies with its holder; the threads of one process queue on a thread lock
     first, so only one of them holds the flock at a time. Creation is short, so the flock is polled often.
 
     :param adapter: VArray adapter; the lock is a no-op for the server adapters, the server keeps its own order
-    :param varray: the VArray whose tile is created
+    :param varray: the VArray whose Array is created
     :param collection: collection of the VArray
     """
 
@@ -218,7 +218,7 @@ class TileCreationLock:
         self.flock = flock
         return True
 
-    def __enter__(self) -> "TileCreationLock":
+    def __enter__(self) -> "ArrayCreationLock":
         if self.path is None:  # the server keeps its own order of creation
             return self
         with self._thread_locks_guard:
@@ -227,7 +227,7 @@ class TileCreationLock:
         if not wait_for_unlock(self._try_acquire, (self.path,), self.timeout, self.POLL_INTERVAL):
             self.thread_lock.release()
             self.thread_lock = None
-            raise DekerLockError(f"VArray {self.path} is locked for the creation of its tiles")
+            raise DekerLockError(f"VArray {self.path} is locked for the creation of its Arrays")
         return self
 
     def __exit__(self, *exc_info: Any) -> None:

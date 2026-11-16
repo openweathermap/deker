@@ -15,10 +15,10 @@ from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.errors import DekerLockError, DekerMemoryError
 from deker.locks import (
+    ArrayCreationLock,
     CollectionLock,
     Flock,
     ReadArrayLock,
-    TileCreationLock,
     WriteArrayLock,
 )
 from deker.schemas import ArraySchema, DimensionSchema
@@ -359,8 +359,8 @@ class TestCollectionLock:
         assert lock.lock is None
 
 
-class TestTileCreationLock:
-    """The exclusive flock on the main file of a VArray while one of its tiles is created."""
+class TestArrayCreationLock:
+    """The exclusive flock on the main file of a VArray while one of its Arrays is created."""
 
     @pytest.fixture
     def main_file(self, inserted_varray: VArray) -> Path:
@@ -371,7 +371,7 @@ class TestTileCreationLock:
 
     def test_lock_holds_the_main_file_while_entered(self, inserted_varray: VArray, main_file: Path):
         collection = inserted_varray._VArray__collection
-        lock = TileCreationLock(inserted_varray._adapter, inserted_varray, collection)
+        lock = ArrayCreationLock(inserted_varray._adapter, inserted_varray, collection)
         assert lock.path == main_file
         with lock:
             assert lock.flock is not None
@@ -380,7 +380,7 @@ class TestTileCreationLock:
                 Flock(main_file).acquire()
         assert lock.flock is None
         assert lock.thread_lock is None
-        assert not TileCreationLock._thread_locks[main_file].locked()
+        assert not ArrayCreationLock._thread_locks[main_file].locked()
         other = Flock(main_file)
         other.acquire()
         other.release()
@@ -394,14 +394,14 @@ class TestTileCreationLock:
         timeout = config.write_lock_timeout
         config.write_lock_timeout = 1
         try:
-            lock = TileCreationLock(inserted_varray._adapter, inserted_varray, collection)
+            lock = ArrayCreationLock(inserted_varray._adapter, inserted_varray, collection)
             assert lock._try_acquire(main_file) is False
             assert lock.flock is None
-            with pytest.raises(DekerLockError, match="locked for the creation of its tiles"):
+            with pytest.raises(DekerLockError, match="locked for the creation of its Arrays"):
                 with lock:
                     pass
             assert lock.thread_lock is None
-            assert not TileCreationLock._thread_locks[main_file].locked()
+            assert not ArrayCreationLock._thread_locks[main_file].locked()
         finally:
             config.write_lock_timeout = timeout
             holder.release()
@@ -410,7 +410,7 @@ class TestTileCreationLock:
         """The server adapters keep their own order of creation: no path, no flock, no thread lock."""
         collection = inserted_varray._VArray__collection
         adapter = SimpleNamespace(ctx=inserted_varray._adapter.ctx)
-        lock = TileCreationLock(adapter, inserted_varray, collection)
+        lock = ArrayCreationLock(adapter, inserted_varray, collection)
         assert lock.path is None
         with lock as entered:
             assert entered is lock

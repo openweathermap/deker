@@ -616,8 +616,8 @@ invalid_index_params = [
 # Shapes of the arrays of the step tests, by the number of dimensions
 STEP_SHAPES: dict[int, tuple[int, ...]] = {1: (24,), 2: (12, 10), 3: (12, 10, 8), 4: (6, 5, 4, 6)}
 
-# Grids of the varrays of the step tests: one tile, uneven tiles along every axis (sizes that do not divide evenly
-# by the steps), and a tile of one cell on the first axis (smaller than any step)
+# Grids of the varrays of the step tests: one Array, uneven Arrays along every axis (sizes that do not divide evenly
+# by the steps), and an Array of one cell on the first axis (smaller than any step)
 STEP_VGRIDS: dict[int, list[tuple[int, ...]]] = {
     1: [(1,), (3,), (24,)],
     2: [(1, 1), (3, 5), (12, 1)],

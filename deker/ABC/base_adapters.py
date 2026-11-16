@@ -154,6 +154,35 @@ class BaseStorageAdapter(ABC, Generic[OptionsT]):
         """
         pass
 
+    @abstractmethod
+    def read_empty_cells(self, path: Path) -> int:
+        """Read the stored counter of empty cells of an array.
+
+        :param path: path to the file
+        :returns: the counter as stored
+        """
+        pass
+
+    @abstractmethod
+    def count_empty_cells(self, path: Path, array_shape: tuple[int, ...], fill_value: Numeric) -> int:
+        """Count the empty cells of an array in its data, whatever the stored counter says.
+
+        :param path: path to the file
+        :param array_shape: array shape
+        :param fill_value: array fill_value
+        :returns: number of cells holding the fill value
+        """
+        pass
+
+    @abstractmethod
+    def write_empty_cells(self, path: Path, empty_cells: int) -> None:
+        """Replace the stored counter of empty cells of an array.
+
+        :param path: path to the file
+        :param empty_cells: the new value of the counter
+        """
+        pass
+
 
 class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
     """Base interface for collection adapters.

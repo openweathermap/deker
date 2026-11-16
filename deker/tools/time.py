@@ -20,7 +20,9 @@ from typing import TYPE_CHECKING, Any
 from deker.errors import DekerValidationError
 
 if TYPE_CHECKING:
+    from deker.arrays import VArray
     from deker.dimensions import TimeDimension
+    from deker.schemas import ArraySchema
 
 
 def get_start_datetime(dimension: "TimeDimension") -> datetime:
@@ -75,3 +77,32 @@ def convert_iso_attrs_to_datetime(attrs: dict | None) -> dict | None:
                 new_attrs[key] = value
         return new_attrs
     return attrs
+
+
+def array_time_attributes(
+    varray: "VArray", vposition: tuple[int, ...], array_schema: "ArraySchema"
+) -> dict[str, datetime]:
+    """Calculate the time attributes of an ``Array`` of a ``VArray`` from its position.
+
+    Every time dimension of the Arrays that starts at an attribute (``"$parent.<name>"``) starts where
+    the first cell of the Array is on the time axis of the VArray:
+    ``VATD.start_value + VATD.step * ATD.size * vpos[vpos.index(ATD)]``
+    (ATD - Array time dimension, VATD - VArray time dimension, vpos - v_position).
+
+    :param varray: the VArray
+    :param vposition: ``v_position`` of the Array in the ``vgrid``
+    :param array_schema: schema of the Arrays of the collection
+    :returns: the attributes by their names
+    """
+    from deker.dimensions import TimeDimension
+    from deker.schemas import TimeDimensionSchema
+
+    attributes = {}
+    for n, dim_schema in enumerate(array_schema.dimensions):
+        if isinstance(dim_schema, TimeDimensionSchema) and isinstance(dim_schema.start_value, str):
+            dim = varray.dimensions[n]
+            if not isinstance(dim, TimeDimension):  # pragma: no cover
+                raise DekerValidationError(f"Dimension {dim.name} is not a TimeDimension")
+            first_cell = vposition[n] * varray.arrays_shape[n]
+            attributes[dim_schema.start_value[1:]] = get_start_datetime(dim) + dim.step * first_cell
+    return attributes

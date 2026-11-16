@@ -288,6 +288,45 @@ class TestFileCreation:
             assert json.loads(f["meta"][()]) == {"id": "test"}
 
 
+class TestEmptyCellsCounterAccess:
+    """The counter of empty cells is read, counted from the data and written for the integrity check."""
+
+    def test_new_file_counter_and_data_agree(self, adapter, array_file):
+        assert adapter.read_empty_cells(array_file) == TOTAL
+        assert adapter.count_empty_cells(array_file, SHAPE, FILL) == TOTAL
+
+    def test_written_file_counter_and_data_agree(self, adapter, array_file):
+        write(adapter, array_file, np.index_exp[0:30], np.ones(30))
+        assert adapter.read_empty_cells(array_file) == TOTAL - 30
+        assert adapter.count_empty_cells(array_file, SHAPE, FILL) == TOTAL - 30
+
+    @pytest.mark.parametrize("stored", [0, 5, 1000])
+    def test_drifted_counter_is_read_as_stored_and_counted_from_the_data(self, adapter, array_file, stored: int):
+        write(adapter, array_file, np.index_exp[0:30], np.ones(30))
+        with h5py.File(array_file, "r+", locking=False) as f:
+            f["empty_cells"][()] = stored
+        assert adapter.read_empty_cells(array_file) == stored
+        assert adapter.count_empty_cells(array_file, SHAPE, FILL) == TOTAL - 30
+
+    def test_write_empty_cells_replaces_the_counter_only(self, adapter, array_file):
+        write(adapter, array_file, np.index_exp[0:30], np.ones(30))
+        adapter.write_empty_cells(array_file, 42)
+        assert adapter.read_empty_cells(array_file) == 42
+        assert real_values(array_file) == 30  # the data is untouched
+
+    def test_non_nan_fill_value_is_counted(self, adapter, tmp_path):
+        path = tmp_path / "zeros.hdf5"
+        adapter.create(path, SHAPE, {"id": "test"})
+        adapter.update_data(path, np.index_exp[0:10], np.ones(10), DTYPE, SHAPE, 0.0, None)
+        assert adapter.count_empty_cells(path, SHAPE, 0.0) == TOTAL - 10
+
+    def test_file_without_counter_raises(self, adapter, array_file):
+        with h5py.File(array_file, "r+", locking=False) as f:
+            del f["empty_cells"]
+        with pytest.raises(DekerArrayError):
+            adapter.read_empty_cells(array_file)
+
+
 class TestMetaDataset:
     """The ``meta`` dataset is sized exactly to its UTF-8 payload and survives non-ASCII content."""
 

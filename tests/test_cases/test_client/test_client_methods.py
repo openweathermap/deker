@@ -4,8 +4,8 @@ import os
 import shutil
 import string
 
+from collections.abc import Iterator
 from datetime import datetime, timezone
-from json import JSONDecodeError
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -22,6 +22,7 @@ from tests.parameters.common import random_string
 from tests.parameters.schemas_params import ArraySchemaParamsNoTime
 from tests.parameters.uri import embedded_uri
 
+from deker.arrays import Array
 from deker.client import Client
 from deker.collection import Collection
 from deker.ctx import CTX
@@ -37,7 +38,7 @@ from deker.errors import (
 from deker.log import set_logging_level
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_symlink_path
-from deker.types import LocksExtensions
+from deker.types import IntegrityCheck, IntegrityFindingKind, IntegrityReport, LocksExtensions
 from deker.types.private.enums import LocksTypes
 from deker.warnings import DekerWarning
 
@@ -398,133 +399,114 @@ class TestClientMethods:
     def test_client_check_integrity_ok(
         self, client: Client, array_schema: ArraySchema, deker_log: pytest.LogCaptureFixture
     ) -> None:
-        """Tests if method raises no exceptions by default and reports no errors to the log."""
+        """Tests if method returns an empty report by default and reports no errors to the log."""
         collections = [client.create_collection(i, array_schema) for i in ["test_col1", "test_col2"]]
         try:
             [col.create() for _ in range(20) for col in collections]
-            client.check_integrity(2)
+            report = client.check_integrity()
+            assert isinstance(report, IntegrityReport)
+            assert report.ok
             assert "Integrity check is running..." in deker_log.messages
             assert "Integrity check found no errors" in deker_log.messages
         finally:
             for col in collections:
                 col.delete()
 
-    @pytest.mark.parametrize("as_type", [Path, str], ids=["path", "string"])
-    def test_client_check_integrity_logfile(
-        self, client: Client, array_collection_with_attributes: Collection, tmp_path: Path, as_type: type
-    ) -> None:
-        """Tests if method logs errors to a file given as a Path or as a string."""
+    @pytest.fixture
+    def unlinked_array(self, array_collection_with_attributes: Collection) -> Iterator[Array]:
+        """An array whose symlink is removed; the array and its collection are deleted afterwards."""
         array = array_collection_with_attributes.create(
             primary_attributes={"primary_attribute": 11},
             custom_attributes={"time_attr_name": datetime.now(timezone.utc)},
         )
-        try:
-            symlink_path = get_symlink_path(
-                path_to_symlink_dir=array._Array__collection.path / array._adapter.symlinks_dir,
-                primary_attributes_schema=array._Array__collection.array_schema.primary_attributes,
-                primary_attributes=array.primary_attributes,
-            )
-            files = os.listdir(symlink_path)
-            Path.unlink(symlink_path / files[0])
+        symlink_path = get_symlink_path(
+            path_to_symlink_dir=array._Array__collection.path / array._adapter.symlinks_dir,
+            primary_attributes_schema=array._Array__collection.array_schema.primary_attributes,
+            primary_attributes=array.primary_attributes,
+        )
+        Path.unlink(symlink_path / os.listdir(symlink_path)[0])
+        yield array
+        array.delete()
 
-            filename = f"deker_integrity_report_{datetime.now().isoformat(timespec='seconds')}.txt"
-            path = tmp_path / filename
-
-            client.check_integrity(4, False, as_type(path))
-
-            with open(path) as f:
-                assert f.read() == (
-                    f"Collection {array_collection_with_attributes.name} arrays integrity errors:"
-                    f"\n\t- Symlink {symlink_path} not found\n"
-                )
-        finally:
-            array.delete()
-            array_collection_with_attributes.delete()
+    @pytest.mark.parametrize("as_type", [Path, str], ids=["path", "string"])
+    def test_client_check_integrity_logfile(
+        self, client: Client, unlinked_array: Array, tmp_path: Path, as_type: type
+    ) -> None:
+        """Tests if method writes the report to a file given as a Path or as a string."""
+        filename = f"deker_integrity_report_{datetime.now().isoformat(timespec='seconds')}.txt"
+        path = tmp_path / filename
+        report = client.check_integrity(checks=[IntegrityCheck.links], to_file=as_type(path))
+        assert [finding.kind for finding in report.findings] == [IntegrityFindingKind.symlink_missing]
+        assert report.findings[0].array_id == unlinked_array.id
+        with open(path) as f:
+            assert f.read() == str(report)
+        assert str(report).startswith(f"Collection {unlinked_array.collection}, links:\n\t- Symlink ")
 
     def test_client_check_integrity_without_a_file_only_logs(
         self,
         client: Client,
-        array_collection_with_attributes: Collection,
+        unlinked_array: Array,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         deker_log: pytest.LogCaptureFixture,
     ) -> None:
-        """Tests if ``to_file=False`` logs the errors and writes no report anywhere."""
+        """Tests if ``to_file=False`` logs the report and writes it nowhere."""
         monkeypatch.chdir(tmp_path)
-        array = array_collection_with_attributes.create(
-            primary_attributes={"primary_attribute": 11},
-            custom_attributes={"time_attr_name": datetime.now(timezone.utc)},
-        )
-        try:
-            symlink_path = get_symlink_path(
-                path_to_symlink_dir=array._Array__collection.path / array._adapter.symlinks_dir,
-                primary_attributes_schema=array._Array__collection.array_schema.primary_attributes,
-                primary_attributes=array.primary_attributes,
-            )
-            Path.unlink(symlink_path / os.listdir(symlink_path)[0])
-
-            client.check_integrity(4, False, False)
-
-            assert not list(tmp_path.glob("deker_integrity_report_*.txt"))
-            errors = [record for record in deker_log.records if record.levelno == logging.ERROR]
-            assert len(errors) == 1
-            assert errors[0].getMessage() == (
-                f"Collection {array_collection_with_attributes.name} arrays integrity errors:"
-                f"\n\t- Symlink {symlink_path} not found\n"
-            )
-        finally:
-            array.delete()
-            array_collection_with_attributes.delete()
+        report = client.check_integrity(checks=[IntegrityCheck.links], to_file=False)
+        assert not list(tmp_path.glob("deker_integrity_report_*.txt"))
+        errors = [record for record in deker_log.records if record.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert errors[0].getMessage() == str(report)
 
     def test_client_check_integrity_default_logfile(
         self,
         client: Client,
-        array_collection_with_attributes: Collection,
+        unlinked_array: Array,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
         deker_log: pytest.LogCaptureFixture,
     ) -> None:
         """Tests if ``to_file=True`` writes a default-named report to the current directory and logs it."""
         monkeypatch.chdir(tmp_path)
-        array = array_collection_with_attributes.create(
-            primary_attributes={"primary_attribute": 11},
-            custom_attributes={"time_attr_name": datetime.now(timezone.utc)},
-        )
-        try:
-            symlink_path = get_symlink_path(
-                path_to_symlink_dir=array._Array__collection.path / array._adapter.symlinks_dir,
-                primary_attributes_schema=array._Array__collection.array_schema.primary_attributes,
-                primary_attributes=array.primary_attributes,
-            )
-            Path.unlink(symlink_path / os.listdir(symlink_path)[0])
+        report = client.check_integrity(checks=[IntegrityCheck.links], to_file=True)
+        reports = list(tmp_path.glob("deker_integrity_report_*.txt"))
+        assert len(reports) == 1
+        assert reports[0].read_text() == str(report)
+        errors = [record for record in deker_log.records if record.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert errors[0].getMessage() == f"{report!s}\n\nIntegrity check logged errors in {reports[0].absolute()}"
 
-            client.check_integrity(4, False, True)
+    def test_client_check_integrity_stop_on_error(self, client: Client, unlinked_array: Array) -> None:
+        """Tests if ``stop_on_error`` raises the report of the first finding instead of returning it."""
+        with pytest.raises(DekerIntegrityError) as info:
+            client.check_integrity(checks=[IntegrityCheck.links], stop_on_error=True)
+        assert "Symlink" in str(info.value)
 
-            reports = list(tmp_path.glob("deker_integrity_report_*.txt"))
-            assert len(reports) == 1
-            expected = (
-                f"Collection {array_collection_with_attributes.name} arrays integrity errors:"
-                f"\n\t- Symlink {symlink_path} not found\n"
-            )
-            assert reports[0].read_text() == expected
-            errors = [record for record in deker_log.records if record.levelno == logging.ERROR]
-            assert len(errors) == 1
-            assert errors[0].getMessage() == f"{expected}\n\nIntegrity check logged errors in {reports[0].absolute()}"
-        finally:
-            array.delete()
-            array_collection_with_attributes.delete()
+    def test_client_check_integrity_repair(self, client: Client, unlinked_array: Array) -> None:
+        """Tests if ``repair`` fixes the findings and reports them as repaired."""
+        report = client.check_integrity(unlinked_array.collection, checks=[IntegrityCheck.links], repair=True)
+        assert [finding.repaired for finding in report.findings] == [True]
+        assert client.check_integrity(unlinked_array.collection).ok
+
+    def test_client_check_integrity_workers(self, client: Client, unlinked_array: Array) -> None:
+        """Tests if the check runs with several threads."""
+        report = client.check_integrity(unlinked_array.collection, workers=4)
+        assert [finding.kind for finding in report.findings] == [IntegrityFindingKind.symlink_missing]
 
     @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
-    def test_client_check_integrity_raises_on_empty_file(
+    def test_client_check_integrity_reports_an_empty_collection_file(
         self, client: Client, params: dict, collection_adapter: LocalCollectionAdapter
     ) -> None:
-        """Tests if method raises exception on empty file initialization."""
+        """Tests if an empty collection file is a finding, not an exception."""
         collection = client.create_collection(**params)
         filename = collection.path / (collection.name + collection_adapter.file_ext)
         open(filename, "w").close()
-        with pytest.raises(JSONDecodeError):
-            client.check_integrity(2)
-        collection.delete()
+        try:
+            report = client.check_integrity()
+            assert [finding.kind for finding in report.findings] == [IntegrityFindingKind.collection_unreadable]
+            assert report.findings[0].collection == collection.name
+        finally:
+            collection.delete()
 
     @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
     def test_client_check_integrity_collection(
@@ -534,7 +516,7 @@ class TestClientMethods:
         array_schema: ArraySchema,
         collection_adapter: LocalCollectionAdapter,
     ) -> None:
-        """Tests if method raises exception only for collection name."""
+        """Tests if only the named collection is checked."""
         collection_1 = client.create_collection(**params)
         collection_2 = client.create_collection("test_collection_2", array_schema)
         filenames = [
@@ -549,21 +531,19 @@ class TestClientMethods:
                 json.dump(data, f, indent=4)
                 f.truncate()
         try:
-            client.check_integrity(2, stop_on_error=False, collection=collection_1.name)
-        except Exception as e:
-            assert str(e) == f"Collection \"{collection_1.name}\" metadata is invalid/corrupted: 'test'"
-        collection_1.delete()
-        collection_2.delete()
-        for root, _, files in os.walk(os.path.curdir):
-            for file in files:
-                if file.startswith("deker_integrity_report_"):
-                    os.remove(os.path.join(root, file))
+            report = client.check_integrity(collection_1.name)
+            assert [finding.collection for finding in report.findings] == [collection_1.name]
+            assert report.findings[0].kind == IntegrityFindingKind.collection_unreadable
+            assert "'test'" in report.findings[0].message
+        finally:
+            collection_1.delete()
+            collection_2.delete()
 
     @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
     def test_client_check_integrity_raises_on_init(
         self, client: Client, params: dict, collection_adapter: LocalCollectionAdapter
     ) -> None:
-        """Tests if method raises exception on collection initialization."""
+        """Tests if method raises exception on collection initialization when told to stop on the first error."""
         collection = client.create_collection(**params)
         filename = collection.path / (collection.name + collection_adapter.file_ext)
         with open(filename, "r+") as f:
@@ -572,9 +552,11 @@ class TestClientMethods:
             f.seek(0)
             json.dump(data, f, indent=4)
             f.truncate()
-        with pytest.raises(DekerIntegrityError):
-            client.check_integrity(1)
-        collection.delete()
+        try:
+            with pytest.raises(DekerIntegrityError):
+                client.check_integrity(stop_on_error=True)
+        finally:
+            collection.delete()
 
     @pytest.mark.parametrize(
         "options",
@@ -908,9 +890,9 @@ class TestStorageSizeCalculation:
 
 
 def legacy_marker(filepath: Path, pid: int, token: str) -> Path:
-    """Path of a VArray write marker as Deker < 2 made it next to the main file of a tile.
+    """Path of a VArray write marker as Deker < 2 made it next to the main file of an Array.
 
-    :param filepath: main file of the tile
+    :param filepath: main file of the Array
     :param pid: PID of the writing process
     :param token: token of the writing process
     :returns: path of the marker
@@ -1016,7 +998,7 @@ class TestGetLocks:
         assert not [lock for lock in client._get_locks() if lock["Type"] != LocksTypes.collection_lock.value]
 
     def test_client_get_locks_lists_nothing_after_a_varray_write(self, client: Client, inserted_varray):
-        """Tests a VArray write leaves no lock files to list: the tiles are held in the kernel."""
+        """Tests a VArray write leaves no lock files to list: the Arrays are held in the kernel."""
         inserted_varray[:].update(1.0)
         assert not client._get_locks(collection_name=inserted_varray.collection)
 

@@ -309,7 +309,7 @@ Step
 
 The ``step`` of a slice works as it does in NumPy, for both ``Array`` and ``VArray``:
 ``array[::2]`` takes every other cell, ``array[::-1]`` reverses the axis, ``array[10:2:-2]`` walks
-backwards. A ``VArray`` splits the selection over its inner ``Arrays`` itself, whatever the grid::
+backwards. A ``VArray`` splits the selection over its ``Arrays`` itself, whatever the ``vgrid``::
 
    varray[::3, 5, ::-1]          # every third row, one column, the last axis reversed
    varray[::2].update(data)      # data has the shape of the selection
@@ -500,7 +500,7 @@ If your ``Array`` or ``VArray`` is utterly empty, ``Subset`` or ``VSubset`` will
 ``numpy.ndarray`` of the ``Array`` shape filled with the ``fill_value`` from the ``Collection``
 schema and than, using the indicated bounds, it will insert the data provided by you in this array.
 Afterwards it will be dumped to the storage. In the scope of ``VArray`` it will work in the same
-manner, except that only corresponding affected inner ``Array`` will be created.
+manner, except that only corresponding affected ``Array`` of the ``VArray`` will be created.
 
 If there is some data in your ``Array`` or ``VArray`` and you provide some new values by this
 method, the old values in the affected bounds will be substituted with new ones::
@@ -665,21 +665,21 @@ wait: it gets ``DekerLockError`` at once.
 .. note::
    Reading data from an ``Array``, which is locked for writing, is impossible.
 
-A ``VArray`` has no lock of its own. Its write goes tile by tile: every inner ``Array`` is held
-exclusively only while its part of the data is written, as a plain ``Array`` write holds it. So
-several processes may write into one ``VArray`` at the same time: the writers of different tiles
-never wait for each other, and the writers of one tile queue on it, each waiting for the previous
-one as it waits for readers. The parts of the tile they write do not get mixed; when they write the
-same cells, the last writer wins. If a tile is still held when ``write_lock_timeout`` is over, the
-``VArray`` update reports it in ``DekerVSubsetError``, with the tiles written meanwhile left as
-they are.
+A ``VArray`` has no lock of its own. Its write goes ``Array`` by ``Array``: every ``Array`` of it
+is held exclusively only while its part of the data is written, as a plain ``Array`` write holds
+it. So several processes may write into one ``VArray`` at the same time: the writers of different
+Arrays never wait for each other, and the writers of one Array queue on it, each waiting for the
+previous one as it waits for readers. The parts of the Array they write do not get mixed; when they
+write the same cells, the last writer wins. If an Array is still held when ``write_lock_timeout``
+is over, the ``VArray`` update reports it in ``DekerVSubsetError``, with the Arrays written
+meanwhile left as they are.
 
-A tile of a ``VArray`` that does not exist yet is created by the first writer to reach it. The
-creation of an ``Array`` with primary attributes (a tile has them: the ``VArray`` id and the
-position) holds the directory of its symlink exclusively, so two creators of one tile, through a
+An Array of a ``VArray`` that does not exist yet is created by the first writer to reach it. The
+creation of an ``Array`` with primary attributes (an Array has them: the ``VArray`` id and the
+position) holds the directory of its symlink exclusively, so two creators of one Array, through a
 ``VArray`` or through the ``arrays`` manager, never create two files for one position: the second
-one learns that the tile exists. The writers of one fresh ``VArray`` also take a short lock on the
-``VArray`` file while they create its tiles, so the later writers find the tile and update it
+one learns that the Array exists. The writers of one fresh ``VArray`` also take a short lock on the
+``VArray`` file while they create its Arrays, so the later writers find the Array and update it
 instead of failing.
 
 The locks live in the kernel: a process that dies in the middle of a read or a write releases its
@@ -695,7 +695,61 @@ stays afterwards as the marker of the collection, which ``check_integrity`` reli
    that writes into it; the ``deker-server`` is the way to give other machines access to it.
 
 .. note::
-   DEKER™ before 2.0.0 marked the tiles a ``VArray`` was writing with ``.varraylock`` files, which
+   DEKER™ before 2.0.0 marked the Arrays a ``VArray`` was writing with ``.varraylock`` files, which
    a crashed writer left behind. The new versions neither make nor respect them. Call
    ``client.clear_locks()`` once after the upgrade to remove the leftovers of the old versions; the
    method is deprecated and will be removed in 3.0.0.
+
+Integrity check
+================
+``client.check_integrity()`` walks a local storage and returns an ``IntegrityReport`` with
+everything it has found. The checks are named by the ``IntegrityCheck`` enum, from the cheapest to
+the most expensive:
+
+- ``collections``: every collection initialises and has its lock file, every lock file has its
+  collection; a collection file of an older metadata version is reported with the fields a rewrite
+  in the current format would add, remove or change, as it opens with the defaults of the current
+  version and is never rewritten;
+- ``markers``: no markers of ``VArray`` writes are left by DEKER™ before 2.0.0;
+- ``arrays``: every main file initialises an ``Array`` or a ``VArray``; an ``Array`` of a VArray
+  collection refers to an existing ``VArray``, has its ``v_position`` inside the ``vgrid`` and
+  carries the time attributes of its ``v_position``;
+- ``links``: main files and symlinks point at each other, with one array per directory of primary
+  attributes;
+- ``data``: one cell of every ``Array`` reads back with the dtype of the collection;
+- ``counters``: the counter of empty cells of every ``Array`` equals the number of fill values in
+  its data.
+
+The default set is the first four: they read metadata and symlinks only. ``data`` reads one cell of
+every array and ``counters`` reads every array whole, so they run on request only.
+
+.. code-block:: python
+
+   from deker import Client
+   from deker.types import IntegrityCheck
+
+   with Client("file:///tmp/deker") as client:
+       report = client.check_integrity()                       # every collection, the default checks
+       report = client.check_integrity("weather", checks=[IntegrityCheck.links])
+       report = client.check_integrity(checks=IntegrityCheck)  # everything, the data included
+
+       if not report.ok:
+           for finding in report.findings:
+               print(finding.check, finding.kind, finding.collection, finding.array_id, finding.path)
+               print(finding.message, finding.repairable)
+
+A finding tells which check made it, what exactly was found (``IntegrityFindingKind``), the
+collection, the array and the file it is about, and whether it can be repaired. ``str(report)`` is
+the same text that goes to the log and, with ``to_file``, to a file. ``stop_on_error=True`` raises
+``DekerIntegrityError`` at the first finding instead of collecting them all.
+
+``repair=True`` repairs the findings that can be repaired once their collection is checked: a
+missing symlink is created, a broken or misplaced one is removed with the empty directories above
+it, a missing lock file is created and an orphaned one removed, the markers of the old versions are
+removed, the time attributes of an ``Array`` of a ``VArray`` are calculated from its ``v_position`` again, the counter of
+empty cells is counted again. What cannot be repaired stays in the report: unreadable metadata,
+corrupted data, two arrays with the same primary attributes (the checker cannot tell which one is
+right), a plain file among the symlinks. ``report.unrepaired`` lists what is left.
+
+``workers`` sets the number of threads that check the arrays of a collection. Repairs and several
+workers are safe only when nobody else works with the storage.

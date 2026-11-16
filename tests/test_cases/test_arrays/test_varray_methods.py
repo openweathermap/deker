@@ -216,7 +216,7 @@ class TestVArrayMethods:
             / array_adapter.data_dir
             / inserted_varray.id
         ).exists()
-        # the symlinks of the tiles live under the VArray id; the collection is shared with other tests
+        # the symlinks of the Arrays live under the VArray id; the collection is shared with other tests
         assert not (
             inserted_varray._VArray__collection.path  # type: ignore[attr-defined]
             / array_adapter.symlinks_dir
@@ -776,7 +776,7 @@ class TestVArrayMethods:
         assert array.custom_attributes == varray_with_attributes.custom_attributes
 
 
-# Described dimensions used by the step tests, split into tiles along every axis
+# Described dimensions used by the step tests, split into Arrays along every axis
 STEP_START = datetime(2024, 1, 1, tzinfo=timezone.utc)
 STEP_LABELS = ["a", "b", "c", "d", "e"]
 
