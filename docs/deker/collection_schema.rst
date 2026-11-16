@@ -573,7 +573,7 @@ and NumPy data types:
         - 64
         - 8
         - -1.7976931348623157*10^308 ... |br| 1.7976931348623157*10^308
-      * - ``numpy.float128`` |br| ``numpy.longdouble``
+      * - ``numpy.float128`` |br| ``numpy.longdouble`` [#f1]_
         - 128
         - 16
         - -1.189731495357231765*10^4932 ... |br| 1.189731495357231765*10^4932
@@ -604,10 +604,14 @@ and NumPy data types:
         - 16
         - -1.189731495357231765*10^4932-1.189731495357231765*10^4932j ... |br|
           1.189731495357231765*10^4932+1.189731495357231765*10^4932j
-      * - ``numpy.complex256`` |br| ``numpy.clongdouble``
+      * - ``numpy.complex256`` |br| ``numpy.clongdouble`` [#f1]_
         - 256
         - 32
         - `even more`
+
+.. [#f1] Not available on Apple silicon macOS and on Windows: NumPy has no ``float128`` and
+   ``complex256`` there. DEKER™ works there without them; a collection created with one of them
+   elsewhere cannot be opened there.
 
 
 Python ``int``, ``float`` and ``complex`` are correspondingly converted to ``numpy.int64``,

@@ -5,8 +5,15 @@ from typing import Any
 import numpy as np
 import pytest
 
+from deker_local_adapters import LocalCollectionAdapter
+from deker_local_adapters.factory import AdaptersFactory
+
+from tests.parameters.fresh_copy import load_fresh_copy
+
 from deker.ABC.base_adapters import IArrayAdapter
-from deker.errors import DekerArrayTypeError
+from deker.errors import DekerArrayTypeError, DekerMetaDataError
+from deker.tools import schema as schema_module
+from deker.types.private import enums as enums_module
 
 # Python numbers are converted to the array dtype when every value fits it; the result equals the input.
 # (dtype, data, expected values)
@@ -196,3 +203,47 @@ class TestProcessData:
     def test_rejection_message_names_the_dtype(self, dtype: type, data: Any):
         with pytest.raises(DekerArrayTypeError, match=dtype.__name__):
             IArrayAdapter._process_data(dtype, _shape_of(data), data)
+
+
+class TestCreateCollectionFromMeta:
+    METADATA = {
+        "name": "long_double",
+        "metadata_version": "0.2",
+        "storage_adapter": "HDF5StorageAdapter",
+        "type": "array",
+        "options": None,
+        "schema": {
+            "dtype": "numpy.float128",
+            "fill_value": None,
+            "attributes": [],
+            "dimensions": [{"type": "generic", "name": "x", "size": 3, "labels": None, "scale": None}],
+        },
+    }
+
+    def test_dtype_absent_on_this_platform_raises_a_clear_error(
+        self, collection_adapter: LocalCollectionAdapter, factory: AdaptersFactory, monkeypatch: pytest.MonkeyPatch
+    ):
+        """A collection written with float128 elsewhere is not corrupted: the error names the platform."""
+        monkeypatch.delattr(np, "float128", raising=False)
+        enums = load_fresh_copy(enums_module, "deker.types.private.enums_without_long_types")
+        monkeypatch.setattr(schema_module, "DTypeEnum", enums.DTypeEnum)
+        with pytest.raises(DekerMetaDataError, match="numpy.float128 is not available") as info:
+            collection_adapter.create_collection_from_meta(self.METADATA, factory)
+        assert "invalid/corrupted" not in str(info.value)
+
+    def test_dtype_present_in_numpy_reads_the_collection(
+        self, collection_adapter: LocalCollectionAdapter, factory: AdaptersFactory, monkeypatch: pytest.MonkeyPatch
+    ):
+        """With float128 in NumPy (Linux, Intel macOS) the metadata reads like any other."""
+        monkeypatch.setattr(np, "float128", np.longdouble, raising=False)
+        enums = load_fresh_copy(enums_module, "deker.types.private.enums_with_long_types")
+        monkeypatch.setattr(schema_module, "DTypeEnum", enums.DTypeEnum)
+        collection = collection_adapter.create_collection_from_meta(self.METADATA, factory)
+        assert collection.array_schema.dtype is np.longdouble
+
+    def test_unknown_dtype_is_corrupted_metadata(
+        self, collection_adapter: LocalCollectionAdapter, factory: AdaptersFactory
+    ):
+        metadata = {**self.METADATA, "schema": {**self.METADATA["schema"], "dtype": "numpy.int128"}}
+        with pytest.raises(DekerMetaDataError, match="invalid/corrupted"):
+            collection_adapter.create_collection_from_meta(metadata, factory)

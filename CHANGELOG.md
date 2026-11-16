@@ -94,6 +94,10 @@ updated at once, and the satellite packages are released together with it: `deke
 
 ### Fixed
 
+- DEKER™ installs and works on Apple silicon macOS and on Windows: `float128` and `complex256` are taken
+  from NumPy only where NumPy provides them, instead of failing at import. These two dtypes are not
+  available there, and a collection created with one of them elsewhere cannot be opened there:
+  `DekerMetaDataError` says that the dtype is not available on the platform.
 - A writer could start writing a file that was still being read: the reader released its lock
   after the header and marked the read with a file created later. The window is gone with the
   marker files.

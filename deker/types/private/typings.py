@@ -16,6 +16,9 @@
 
 """Module for using in type annotations. Not for direct initialization."""
 
+import functools
+import operator
+
 from datetime import datetime
 from types import EllipsisType, NoneType
 from typing import TYPE_CHECKING, TypeVar, Union
@@ -71,58 +74,67 @@ NumericDtypes = [
     np.clongdouble,
     np.float64,
     np.double,
-    np.float128,
     np.longdouble,
     np.longdouble,
     np.complex64,
     np.csingle,
     np.complex128,
     np.complex128,
-    np.complex256,
     np.clongdouble,
 ]
+# NumPy has the 128-bit types only where long double is 128 bits wide: Linux and Intel macOS,
+# not Apple silicon or Windows
+if hasattr(np, "float128"):
+    NumericDtypes.append(np.float128)
+if hasattr(np, "complex256"):
+    NumericDtypes.append(np.complex256)
 
-Numeric = Union[
-    int,
-    float,
-    complex,
-    np.int8,
-    np.byte,
-    np.int16,
-    np.short,
-    np.int32,
-    np.intc,
-    np.int64,
-    np.intp,
-    np.int_,  # alias for np.compat.long, deprecated in numpy version 1.25, equals to np.int64
-    np.longlong,
-    np.uint,
-    np.uint8,
-    np.ubyte,
-    np.uint16,
-    np.ushort,
-    np.uint32,
-    np.uintc,
-    np.uint64,
-    np.uintp,
-    np.ulonglong,
-    np.float16,
-    np.cdouble,
-    np.cdouble,
-    np.float32,
-    np.clongdouble,
-    np.float64,
-    np.double,
-    np.float128,
-    np.longdouble,
-    np.longdouble,
-    np.complex64,
-    np.csingle,
-    np.complex128,
-    np.complex128,
-    np.complex256,
-    np.clongdouble,
-]
+if TYPE_CHECKING:
+    # the full union for the type checker; at runtime it is built from NumericDtypes, which has
+    # the 128-bit types only where NumPy provides them
+    Numeric = Union[
+        int,
+        float,
+        complex,
+        np.int8,
+        np.byte,
+        np.int16,
+        np.short,
+        np.int32,
+        np.intc,
+        np.int64,
+        np.intp,
+        np.int_,  # alias for np.compat.long, deprecated in numpy version 1.25, equals to np.int64
+        np.longlong,
+        np.uint,
+        np.uint8,
+        np.ubyte,
+        np.uint16,
+        np.ushort,
+        np.uint32,
+        np.uintc,
+        np.uint64,
+        np.uintp,
+        np.ulonglong,
+        np.float16,
+        np.cdouble,
+        np.cdouble,
+        np.float32,
+        np.clongdouble,
+        np.float64,
+        np.double,
+        np.float128,
+        np.longdouble,
+        np.longdouble,
+        np.complex64,
+        np.csingle,
+        np.complex128,
+        np.complex128,
+        np.complex256,
+        np.clongdouble,
+    ]
+else:
+    Numeric = functools.reduce(operator.or_, NumericDtypes)
 
 Data = Union[list, tuple, np.ndarray, Numeric]
 

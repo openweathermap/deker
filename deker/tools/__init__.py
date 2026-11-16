@@ -27,6 +27,7 @@ from .schema import (
     create_attributes_schema,
     create_dimensions,
     create_dimensions_schema,
+    dtype_from_name,
     get_default_fill_value,
 )
 from .time import array_time_attributes, convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime

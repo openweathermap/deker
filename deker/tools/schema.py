@@ -22,8 +22,9 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerInvalidSchemaError, DekerValidationError
+from deker.errors import DekerInvalidSchemaError, DekerMetaDataError, DekerValidationError
 from deker.types import DTypeEnum, Numeric
+from deker.types.private.enums import PLATFORM_DEPENDENT_DTYPES
 from deker.validators import process_time_dimension_attrs
 
 if TYPE_CHECKING:
@@ -87,6 +88,24 @@ def create_dimensions(
     return tuple(dimensions)
 
 
+def dtype_from_name(name: str) -> type:
+    """Return the type stored in the metadata under a name, as ``DTypeEnum.get_name`` writes it.
+
+    :param name: the name: ``int``, ``string``, ``numpy.int8``, ``numpy.float128``, ...
+    :returns: the type
+    :raises DekerMetaDataError: if NumPy does not provide the type on this platform (``float128`` and
+      ``complex256`` are absent on Apple silicon and Windows): the data written with it elsewhere cannot be read here
+    :raises KeyError: if the name is unknown
+    """
+    short_name = name.split("numpy.")[-1]
+    if short_name in PLATFORM_DEPENDENT_DTYPES and short_name not in DTypeEnum.__members__:
+        raise DekerMetaDataError(
+            f"The dtype {name} is not available: NumPy does not provide it on this platform "
+            f"(Apple silicon, Windows), so the data written with it elsewhere cannot be read here"
+        )
+    return DTypeEnum[short_name].value
+
+
 def create_attributes_schema(attributes_schemas: list[dict]) -> tuple["AttributeSchema", ...]:
     """Create AttributeSchema instances from a list of dictionaries.
 
@@ -96,13 +115,14 @@ def create_attributes_schema(attributes_schemas: list[dict]) -> tuple["Attribute
     :param attributes_schemas: a list of attributes' schemas dictionaries
     :returns: attribute schemas
     :raises DekerInvalidSchemaError: if a dictionary is not a valid attribute schema
+    :raises DekerMetaDataError: if a dtype is not available on this platform
     """
     from deker.schemas import AttributeSchema
 
     attributes = []
     try:
         for params in attributes_schemas:
-            dtype = DTypeEnum[params["dtype"].split("numpy.")[-1]].value
+            dtype = dtype_from_name(params["dtype"])
             attr_schema = AttributeSchema(**{**params, "dtype": dtype})
             attributes.append(attr_schema)
         return tuple(attributes)

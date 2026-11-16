@@ -40,9 +40,8 @@ from deker.errors import (
 )
 from deker.log import SelfLoggerMixin
 from deker.schemas import SchemaTypeEnum
-from deker.tools import create_attributes_schema, create_dimensions_schema
+from deker.tools import create_attributes_schema, create_dimensions_schema, dtype_from_name
 from deker.tools.decorators import check_ctx_state
-from deker.types import DTypeEnum
 from deker.types.private.classes import ArrayMeta
 from deker.types.private.typings import ArrayT, Data, Numeric, Slice
 from deker.validators import is_valid_uuid
@@ -267,7 +266,8 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
         :param collection_data: dict with information about Collection (schemas, vgrid, etc)
         :param factory: adapters factory instance
         :returns: the ``Collection`` object; nothing is written to the storage
-        :raises DekerMetaDataError: if the metadata is invalid or corrupted
+        :raises DekerMetaDataError: if the metadata is invalid or corrupted, or its dtype is not available on this
+          platform (``float128`` and ``complex256`` are absent on Apple silicon and Windows)
         """
         from deker.collection import Collection
 
@@ -278,7 +278,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
         schema_class = SchemaTypeEnum[collection_data["type"]].value
 
         try:
-            dtype = DTypeEnum[data["dtype"].split("numpy.")[-1]].value
+            dtype = dtype_from_name(data["dtype"])
             fill_value = dtype(data["fill_value"]) if data["fill_value"] is not None else data["fill_value"]
             # Create schema
             schema = schema_class(
