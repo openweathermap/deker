@@ -110,6 +110,41 @@ class TestClientMethods:
             client.collection_from_dict(metadata)
         assert client.get_collection(metadata["name"]) is None
 
+    @pytest.mark.parametrize(
+        ("missing", "expected"),
+        [
+            ("fill_value", {"fill_value": np.iinfo(np.int8).min, "attributes": ()}),
+            ("attributes", {"fill_value": -1, "attributes": ()}),
+        ],
+    )
+    def test_collection_from_old_metadata_gets_one_missing_schema_field(
+        self, client: Client, missing: str, expected: dict
+    ):
+        """A schema of an older version may lack a single field: only that one gets its default."""
+        name = random_string()
+        schema = {
+            "dtype": "numpy.int8",
+            "fill_value": -1,
+            "attributes": [],
+            "dimensions": [{"type": "generic", "name": "x", "size": 3, "labels": None, "scale": None}],
+        }
+        del schema[missing]
+        collection = client.collection_from_dict(
+            {
+                "name": name,
+                "metadata_version": "0.1",
+                "storage_adapter": "HDF5StorageAdapter",
+                "type": "array",
+                "options": None,
+                "schema": schema,
+            }
+        )
+        try:
+            assert collection.array_schema.fill_value == expected["fill_value"]
+            assert collection.array_schema.attributes == expected["attributes"]
+        finally:
+            collection.delete()
+
     def test_collection_from_old_metadata_gets_the_defaults(self, client: Client):
         """Metadata of older versions has no options, no attributes, no fill_value and bare dimensions."""
         name = random_string()
@@ -751,6 +786,10 @@ class TestStorageSizeCalculation:
             assert size_before > 0
             stray = client.root_path / collection.name / "notes.txt"
             stray.write_text("x" * 4096)
+            assert client.calculate_storage_size(collection.name).bytes == size_before
+            # a stray file among the symlinks, which are walked, is not counted either
+            among_symlinks = client.root_path / collection.name / "array_symlinks" / "notes.txt"
+            among_symlinks.write_text("x" * 4096)
             assert client.calculate_storage_size(collection.name).bytes == size_before
         finally:
             collection.delete()

@@ -327,10 +327,11 @@ omit = [
 directory = "tests/code_coverage"
 
 [tool.coverage.report]
-fail_under=96
+fail_under=100
 exclude_lines = [
     "no cov",
     "pragma: no cover",
+    "@overload",  # typing stubs: an overload body is never run
     "if typing.TYPE_CHECKING:",
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",

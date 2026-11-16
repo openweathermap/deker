@@ -940,6 +940,23 @@ class TestArrayStepIndexing:
         with pytest.raises(IndexError):
             described_array[index_exp]
 
+    @pytest.mark.parametrize(
+        ("step", "message"),
+        [
+            (True, "step shall not be a boolean"),
+            (False, "step shall not be a boolean"),
+            (0, "step shall not be zero"),
+        ],
+    )
+    def test_convert_step_rejects_booleans_and_zero_itself(self, described_array: Array, step, message: str):
+        """Tests the step converter refuses a boolean or a zero step on its own, before any slice check."""
+        with pytest.raises(IndexError, match=message):
+            described_array._convert_step(step, described_array.dimensions[0])
+
+    @pytest.mark.parametrize("step", [None, 1, -3])
+    def test_convert_step_keeps_integers(self, described_array: Array, step):
+        assert described_array._convert_step(step, described_array.dimensions[0]) == step
+
 
 if __name__ == "__main__":
     pytest.main()

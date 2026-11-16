@@ -74,10 +74,9 @@ class TestReadArrayLock:
             def mock(self, *args, **kwargs):
                 pass
 
-        with pytest.raises(TypeError):
-            mock = Mock()
-            lock = ReadArrayLock(mock())
-            lock.instance = mock
+        lock = ReadArrayLock()
+        lock.instance = Mock()
+        with pytest.raises(TypeError, match="Mock lock is not supported"):
             lock.check_type()
 
     def test_read_array_lock_path_is_the_main_file(
@@ -171,10 +170,9 @@ class TestWriteArrayLock:
             def mock(self, *args, **kwargs):
                 pass
 
-        with pytest.raises(TypeError):
-            mock = Mock()
-            lock = WriteArrayLock(mock())
-            lock.instance = mock
+        lock = WriteArrayLock()
+        lock.instance = Mock()
+        with pytest.raises(TypeError, match="Mock lock is not supported"):
             lock.check_type()
 
     def test_write_array_lock_lock_path(

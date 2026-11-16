@@ -499,13 +499,12 @@ class Client(SelfLoggerMixin):
         :param collection_data: Dictionary with collection metadata
         :returns: validated ``Collection`` instance
         """
-        self._validate_collection_metadata_version(collection_data)
-        # TODO: add tests for update logic, edge cases for ifs
+        self._validate_collection_metadata_version(collection_data)  # fills the scale of the generic dimensions
         default_fields: dict = {
             "schema": {
                 "fill_value": None,
                 "attributes": [],
-                "dimensions": {"labels": None, "scale": None},
+                "dimensions": {"labels": None},
             },
             "options": None,
         }
@@ -518,11 +517,8 @@ class Client(SelfLoggerMixin):
                 for k in default_fields[key]:
                     if k == "dimensions":
                         for n, dim in enumerate(collection_data[key][k]):
-                            if dim["type"] != "time":
-                                if "labels" not in dim:
-                                    collection_data[key][k][n]["labels"] = None
-                                if "scale" not in dim:
-                                    collection_data[key][k][n]["scale"] = None
+                            if dim["type"] != "time" and "labels" not in dim:
+                                collection_data[key][k][n]["labels"] = None
 
                     elif k not in collection_data[key]:
                         collection_data[key][k] = default_fields[key][k]

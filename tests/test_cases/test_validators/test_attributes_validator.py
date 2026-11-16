@@ -19,6 +19,25 @@ from deker.validators import is_valid_uuid
 class TestNoVgridValidateAttributes:
     """Tests for deker.validators.process_attributes."""
 
+    @pytest.mark.parametrize("missing", ["first", "second"])
+    def test_one_of_two_primary_attributes_missing(self, client: Client, missing: str):
+        """Tests a present primary attribute does not cover for a missing one: the missing one is named."""
+        schema = ArraySchema(
+            dtype=int,
+            dimensions=[DimensionSchema(name="x", size=2)],
+            attributes=[
+                AttributeSchema(name="first", dtype=int, primary=True),
+                AttributeSchema(name="second", dtype=int, primary=True),
+            ],
+        )
+        collection = client.create_collection("one_primary_attribute_missing", schema)
+        try:
+            present = "second" if missing == "first" else "first"
+            with pytest.raises(DekerValidationError, match=f"Key attribute missing: {missing}"):
+                collection.create(primary_attributes={present: 1})
+        finally:
+            collection.delete()
+
     @pytest.mark.parametrize(
         ("primary_attributes", "custom_attributes"),
         [
