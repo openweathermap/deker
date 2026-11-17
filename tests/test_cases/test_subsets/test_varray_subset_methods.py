@@ -257,6 +257,25 @@ class TestVArraySubset:
         assert vsubset_described.call_count > 0
         assert any("data read" in record.message for record in deker_log.records)
 
+    @pytest.mark.parametrize(
+        ("index_exp", "bounds"),
+        [(0, "[0]"), ((slice(0, 2), 1), "[0:2, 1]"), ((slice(None), slice(None, None, 2)), "[:, ::2]")],
+    )
+    def test_repr_names_the_bounds_the_shape_and_the_varray(
+        self, inserted_varray: VArray, index_exp: Slice, bounds: str
+    ):
+        """The repr of a VSubset carries its bounds, its shape and the id of its VArray."""
+        vsubset = inserted_varray[index_exp]
+        assert repr(vsubset) == f"VSubset(bounds={bounds}, shape={vsubset.shape}, array={inserted_varray.id})"
+
+    @pytest.mark.parametrize(
+        ("index_exp", "bounds"),
+        [(0, "[0]"), ((slice(0, 2), 1), "[0:2, 1]"), ((slice(None), slice(None, None, 2)), "[:, ::2]")],
+    )
+    def test_str_is_the_varray_with_the_bounds(self, inserted_varray: VArray, index_exp: Slice, bounds: str):
+        """The str of a VSubset is the str of its VArray followed by the bounds."""
+        assert str(inserted_varray[index_exp]) == f"{inserted_varray!s}{bounds}"
+
     def test_vsubset_update_and_read_data(self, varray: VArray):
         """Test vsubset update and read methods."""
         find = varray._VArray__collection.filter({"id": varray.id})  # type: ignore[attr-defined]
@@ -594,8 +613,8 @@ class HeldStorageCall:
         return self.original(path, *args, **kwargs)
 
 
-class TestFindArrayForWriting:
-    """A writer looks for an Array waiting for a writer of another process to leave it."""
+class TestFindArray:
+    """A VSubset finds the Arrays of its VArray by their position in the vgrid, without reading their metadata."""
 
     @pytest.fixture
     def held_array(self, inserted_varray: VArray) -> Iterator[tuple[tuple[int, ...], Flock]]:
@@ -606,19 +625,71 @@ class TestFindArrayForWriting:
         with Flock(array_main_file(array)) as flock:
             yield vpos, flock
 
-    def test_try_find_array_reports_a_array_held_by_another_writer(self, inserted_varray: VArray, held_array):
-        vpos, flock = held_array
+    def test_find_array_does_not_read_the_metadata(self, inserted_varray: VArray, mocker: MockerFixture):
         subset = inserted_varray[:]
-        found: list = []
-        assert subset._try_find_array(vpos, found) is False
-        assert found == []
-        flock.release()
-        assert subset._try_find_array(vpos, found) is True
-        assert len(found) == 1 and found[0] is not None and found[0]._v_position == vpos
+        adapter = subset._VSubset__array_adapter
+        read_meta = mocker.spy(adapter, "read_meta")
+        storage_read_meta = mocker.spy(adapter.storage_adapter, "read_meta")
+        array = subset._create_array_from_vposition(subset._VSubset__arrays[0].vposition)
+        assert array is not None
+        assert read_meta.call_count == 0
+        assert storage_read_meta.call_count == 0
 
-    def test_find_array_for_writing_times_out_on_a_array_held_by_another_writer(
-        self, inserted_varray: VArray, held_array
-    ):
+    def test_found_array_equals_the_one_built_from_the_metadata(self, inserted_varray: VArray):
+        """The Array built from the VArray has the id, the attributes and the dimensions of the one on disk."""
+        subset = inserted_varray[:]
+        vpos = subset._VSubset__arrays[-1].vposition
+        array = subset._create_array_from_vposition(vpos)
+        from_meta = inserted_varray._VArray__collection.arrays.filter(
+            {"vid": inserted_varray.id, "v_position": vpos}
+        ).last()
+        assert array is not None and from_meta is not None
+        assert array.as_dict == from_meta.as_dict
+        assert array._vid == inserted_varray.id
+        assert array._v_position == vpos
+
+    def test_found_array_of_a_timed_varray_gets_its_time_attributes(self, inserted_varray_with_attributes: VArray):
+        """The start of the time dimension of an inner Array is computed from the position, as on creation."""
+        subset = inserted_varray_with_attributes[:]
+        vpos = subset._VSubset__arrays[-1].vposition
+        array = subset._create_array_from_vposition(vpos)
+        from_meta = inserted_varray_with_attributes._VArray__collection.arrays.filter(
+            {"vid": inserted_varray_with_attributes.id, "v_position": vpos}
+        ).last()
+        assert array is not None and from_meta is not None
+        assert array.custom_attributes == from_meta.custom_attributes
+        assert [d.as_dict for d in array.dimensions] == [d.as_dict for d in from_meta.dimensions]
+
+    def test_find_array_returns_none_for_a_missing_position(self, varray_collection: Collection):
+        varray = varray_collection.create()
+        try:
+            subset = varray[:]
+            assert subset._create_array_from_vposition(subset._VSubset__arrays[0].vposition) is None
+        finally:
+            varray.delete()
+
+    def test_find_array_ignores_a_writer_of_another_process(self, inserted_varray: VArray, held_array):
+        """The search does not touch the file, so a writer holding the Array does not stop it."""
+        vpos, _ = held_array
+        subset = inserted_varray[:]
+        array = subset._create_array_from_vposition(vpos)
+        assert array is not None
+        assert array._v_position == vpos
+
+    def test_update_waits_for_the_writer_of_another_process_to_leave(self, inserted_varray: VArray, held_array):
+        """The write lock of the Array waits for the writer, and the data are written once it leaves."""
+        vpos, flock = held_array
+        data = np.full(inserted_varray.shape, 7, dtype=inserted_varray.dtype)
+        with ThreadPoolExecutor(1) as executor:
+            writing = executor.submit(inserted_varray[:].update, data)
+            time.sleep(0.5)
+            assert not writing.done()
+            flock.release()
+            writing.result(timeout=30)
+        assert (inserted_varray[:].read() == data).all()
+
+    def test_update_times_out_on_an_array_held_by_another_writer(self, inserted_varray: VArray, held_array):
+        """When the writer does not leave in time, that Array fails and the error names the lock."""
         vpos, _ = held_array
         subset = inserted_varray[:]
         config = subset._VSubset__adapter.ctx.config
@@ -626,20 +697,13 @@ class TestFindArrayForWriting:
         config.write_lock_timeout, config.write_lock_check_interval = 1, 1
         try:
             started = time.monotonic()
-            with pytest.raises(DekerLockError) as info:
-                subset._find_array_for_writing(vpos)
-            assert str(info.value) == f"Array {vpos} of {inserted_varray} is locked for update operation"
+            with pytest.raises(DekerVSubsetError) as info:
+                subset.update(np.ones(inserted_varray.shape, dtype=inserted_varray.dtype))
             assert time.monotonic() - started >= 1
+            assert f"1 of {len(subset._VSubset__arrays)} Arrays failed" in str(info.value)
+            assert any("DekerLockError" in cause for cause in info.value.args[1])
         finally:
             config.write_lock_timeout, config.write_lock_check_interval = timeout, interval
-
-    def test_find_array_for_writing_returns_a_free_array(self, inserted_varray: VArray):
-        subset = inserted_varray[:]
-        vpos = subset._VSubset__arrays[0].vposition
-        array = subset._find_array_for_writing(vpos)
-        assert array is not None
-        assert array._v_position == vpos
-        assert array._vid == inserted_varray.id
 
 
 @pytest.mark.timeout(60)

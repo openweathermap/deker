@@ -26,8 +26,8 @@ from deker_tools.slices import create_shape_from_slice, positive_bounds
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
-from deker.errors import DekerArrayError, DekerLockError, DekerSubsetError, DekerVSubsetError
-from deker.locks import ArrayCreationLock, wait_for_unlock
+from deker.errors import DekerArrayError, DekerVSubsetError
+from deker.locks import ArrayCreationLock
 from deker.tools import not_deleted
 from deker.tools.time import array_time_attributes
 from deker.types.private.classes import ArrayPosition, ArrayPositionedData
@@ -321,55 +321,36 @@ class VSubset(BaseSubset["VArray"]):
     def _create_array_from_vposition(self, vpos: tuple[int, ...]) -> Optional["Array"]:
         """Find the ``Array`` of the ``VArray`` at the position.
 
+        The ``VArray`` knows everything about its ``Arrays`` but their ids: the schema, the primary attributes (its
+        own id and the position) and the time attributes computed from the position, as on creation. So only the
+        id is asked from the adapter, and the file of the ``Array`` is not opened until its data are read.
+
         :param vpos: ``v_position`` of the Array in the ``vgrid``
         :returns: the Array, ``None`` if there is no Array at the position yet
-        :raises DekerLockError: if a writer holds the Array
         """
         from deker.arrays import Array
 
-        array = self.__collection.arrays.filter({"vid": self.__array.id, "v_position": vpos}).last()
-        if not array:
+        primary_attributes = {"vid": self.__array.id, "v_position": vpos}
+        schema = self.__collection.array_schema
+        id_ = self.__array_adapter.get_id_by_primary_attributes(primary_attributes, schema)
+        if id_ is None:
             self.logger.debug("Array for v_position %s not found", vpos)
             return None
-        if not isinstance(array, Array):  # pragma: no cover
-            raise DekerSubsetError(f"Arrays manager returned {type(array)} for v_position {vpos}")
-        self.logger.debug("Created Array from meta for v_position %s: %s", vpos, array.id)
-        return array
-
-    def _try_find_array(self, vpos: tuple[int, ...], found: list[Optional["Array"]]) -> bool:
-        """Try to find the Array once; an Array held by a writer of another process cannot be read yet.
-
-        :param vpos: ``v_position`` of the Array in the ``vgrid``
-        :param found: list to put the Array (or ``None`` for a missing one) into
-        :returns: ``True`` if the search is over, ``False`` if the Array is held by a writer
-        """
-        try:
-            found.append(self._create_array_from_vposition(vpos))
-        except DekerLockError:
-            return False
-        return True
-
-    def _find_array_for_writing(self, vpos: tuple[int, ...]) -> Optional["Array"]:
-        """Find the Array as a writer does: waiting for a writer of another process to leave it.
-
-        :param vpos: ``v_position`` of the Array in the ``vgrid``
-        :returns: the Array, ``None`` if there is no Array at the position
-        :raises DekerLockError: if the Array is still held when the write lock timeout is over
-        """
-        found: list[Optional["Array"]] = []
-        config = self.__adapter.ctx.config
-        if not wait_for_unlock(
-            self._try_find_array, (vpos, found), config.write_lock_timeout, config.write_lock_check_interval
-        ):
-            raise DekerLockError(f"Array {vpos} of {self.__array} is locked for update operation")
-        return found[0]
+        self.logger.debug("Array for v_position %s found: %s", vpos, id_)
+        return Array(
+            collection=self.__collection,
+            adapter=self.__array_adapter,
+            id_=id_,
+            primary_attributes=primary_attributes,
+            custom_attributes=array_time_attributes(self.__array, vpos, schema),
+        )
 
     def __clear_array(self, array_pos: ArrayPosition) -> None:
         """Clear the part of one ``Array`` of the ``VArray`` covered by the subset; a fully covered one is deleted.
 
         :param array_pos: position and bounds of the inner Array
         """
-        array = self._find_array_for_writing(array_pos.vposition)
+        array = self._create_array_from_vposition(array_pos.vposition)
         if array:
             subset = array[array_pos.bounds]
             if subset.shape == array.shape:
@@ -469,11 +450,13 @@ class VSubset(BaseSubset["VArray"]):
 
         :param array_data: position and bounds of the inner Array and the data for it
         """
-        array = self._find_array_for_writing(array_data.vposition)
+        array = self._create_array_from_vposition(array_data.vposition)
         if not array:
             with ArrayCreationLock(self.__adapter, self.__array, self.__collection):
                 # another writer may have created the Array while this one waited for the lock
-                array = self._find_array_for_writing(array_data.vposition) or self.__create_array(array_data.vposition)
+                array = self._create_array_from_vposition(array_data.vposition) or self.__create_array(
+                    array_data.vposition
+                )
         subset = array[array_data.bounds]
         subset.update(array_data.data)
 

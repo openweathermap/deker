@@ -518,6 +518,42 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         """
         pass
 
+    @staticmethod
+    def _check_primary_attributes(attributes: dict, schema: "BaseArraysSchema") -> dict:
+        """Check that the attributes are exactly all the primary attributes of the schema.
+
+        The values are returned in the order of the schema, the datetimes converted to UTC: the order decides
+        the path of the symlink of an array and the node of a cluster that holds it.
+
+        :param attributes: the values by the names of the attributes
+        :param schema: Array or VArray schema
+        :returns: the values in the order of the schema
+        :raises DekerFilterError: if the schema has no primary attributes, one of them is missing or there are
+          attributes the schema does not have
+        :raises DekerValidationError: if a datetime attribute is neither a datetime nor an ISO string
+        """
+        error_message = "Filtering is possible by the id or by all the primary attributes of the schema only"
+        if not schema.primary_attributes:
+            raise DekerFilterError(error_message)
+
+        ordered = {}
+        for primary_attr in schema.primary_attributes:
+            value = attributes.get(primary_attr.name)
+            if value is None:
+                raise DekerFilterError(f"{error_message}; {primary_attr.name} is missing")
+            if primary_attr.dtype == datetime.datetime:
+                if not isinstance(value, (str, datetime.datetime)):
+                    raise DekerValidationError(
+                        f"Invalid type passed for {primary_attr.name} filtering: {type(value)}; "
+                        f"only datetime.datetime or datetime iso-string are allowed"
+                    )
+                value = get_utc(value)
+            ordered[primary_attr.name] = value
+
+        if len(attributes) > len(ordered):
+            raise DekerFilterError("Some arguments don't exist in schema")
+        return ordered
+
     def filter(
         self,
         filters: dict,
@@ -545,29 +581,7 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
             array = self.get_by_id(filters["id"], collection, array_adapter, varray_adapter)
             return [array] if array else []
 
-        primary_attribute_filters = {}
-        error_message = "Filtering is possible by the id or by all the primary attributes of the schema only"
-        # If there are no primary attributes in the schema
-        if not schema.primary_attributes:
-            raise DekerFilterError(error_message)
-
-        for primary_attr in schema.primary_attributes:
-            value = filters.get(primary_attr.name)
-            # If any of key attrs wasn't passed, use simple filter
-            if value is None:
-                raise DekerFilterError(f"{error_message}; {primary_attr.name} is missing")
-            if primary_attr.dtype == datetime.datetime:
-                if not isinstance(value, (str, datetime.datetime)):
-                    raise DekerValidationError(
-                        f"Invalid type passed for {primary_attr.name} filtering: {type(value)}; "
-                        f"only datetime.datetime or datetime iso-string are allowed"
-                    )
-                value = get_utc(value)
-            primary_attribute_filters[primary_attr.name] = value
-
-        # If extra args were passed
-        if len(filters.keys()) > len(primary_attribute_filters.keys()):
-            raise DekerFilterError("Some arguments don't exist in schema")
+        primary_attribute_filters = self._check_primary_attributes(filters, schema)
 
         # Filter by primary attributes
 
@@ -613,6 +627,24 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         :param array_adapter: Arrays' adapter
         :param varray_adapter: VArrays' adapter
         :returns: the array, or ``None`` if nothing matches the attributes
+        :raises DekerFilterError: if the attributes are not exactly the primary attributes of the schema; the
+          implementations check them with ``_check_primary_attributes`` first
+        """
+        pass
+
+    @abstractmethod
+    def get_id_by_primary_attributes(self, primary_attributes: dict, schema: "BaseArraysSchema") -> str | None:
+        """Find the id of the array with the primary attributes without reading its metadata.
+
+        A ``VArray`` finds its ``Arrays`` this way: it knows their schema and attributes already and needs the id
+        only, so the file of the ``Array`` is opened once, for the data.
+
+        The implementations check the attributes with ``_check_primary_attributes`` first.
+
+        :param primary_attributes: the values of all the primary attributes of the schema
+        :param schema: Array or VArray schema
+        :returns: the id, or ``None`` if there is no array with the attributes
+        :raises DekerFilterError: if the attributes are not exactly the primary attributes of the schema
         """
         pass
 

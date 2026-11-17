@@ -97,7 +97,6 @@ def test_uri_path_params(uri: str, path: str, params: str):
     assert result.params == params
 
 
-@pytest.mark.xfail
 @pytest.mark.parametrize(
     "uri_str",
     [

@@ -36,17 +36,22 @@ updated at once, and the satellite packages are released together with it: `deke
   all strings or all floats, without duplicates. Integers, booleans, dicts and mixed labels are
   rejected.
 - Filtering by anything but the id or all the primary attributes raises `DekerFilterError` instead of
-  `NotImplementedError`.
+  `NotImplementedError`; the adapters check the attributes themselves too, so a search without a criterion
+  never returns an arbitrary array.
 - `Client.check_integrity` has a new signature: `check_integrity(collection=None, checks=
   DEFAULT_INTEGRITY_CHECKS, stop_on_error=False, repair=False, workers=1, to_file=False)` and
   returns an `IntegrityReport`. The `level` argument is gone, `stop_on_error` is off by default.
 - The types are precise. `Collection[Array]` and `Collection[VArray]` are distinct types,
   `Client.create_collection` picks one by the schema and `Client.get_collection` returns one of them
   or `None`. The adapter interfaces are generic over the path type (`Path` or `Uri`), the array type
-  and the storage options; `create()` of an adapter returns the created array. Code implementing
-  the adapter interfaces must follow.
+  and the storage options; `create()` of an adapter returns the created array, and the array adapters
+  implement `get_id_by_primary_attributes(primary_attributes, schema)`: the id of an array without its
+  metadata. Code implementing the adapter interfaces must follow.
 - A closed client raises `DekerClientError` from every method; the adapters of a closed context
   raise `DekerAdapterClosedError`.
+- `deker.validators.validate_custom_attributes_update(schema, primary_attributes, custom_attributes,
+  attributes)` lost its `dimensions` argument: the start of a `$`-time dimension left out of an update
+  is taken from the current custom attributes, which hold it anyway.
 - The dependencies are pinned to the new majors: `deker-tools>=2,<3`, `deker-local-adapters>=2,<3`
   and, in the extras, `deker-server-adapters>=2,<3` and `deker-shell>=2,<3`.
 
@@ -69,11 +74,15 @@ updated at once, and the satellite packages are released together with it: `deke
 
 ### Changed
 
+- A VArray finds its Arrays without reading their metadata: it knows their schema, attributes and time
+  attributes already and asks the adapter for the id only, so the file of an Array is opened once, for
+  the data, instead of twice. A writer holding an Array no longer stops the search for it: the write
+  lock of the Array waits for the writer, as it does for the readers.
 - Reading and writing cost less: the free memory of the machine is queried only for a request above 1% of
   the memory limit of the client (a smaller one fits anyway, and the query read the system tables on every
   access), the dimensions of an array are built once instead of on every access, and the messages of the
-  log are formatted only when they are written. Reading one Array through a VArray takes about a third
-  less, reading an Array directly about 40% less.
+  log are formatted only when they are written. Together with the search without the metadata, reading
+  one Array through a VArray takes about half of what it took, reading an Array directly about 40% less.
 - Creating a missing Array inside a VArray is serialised: between processes by a lock on the
   file of the VArray, between threads by a thread lock; the loser writes into the Array the winner
   created. Creating an Array or a VArray with primary attributes holds a lock on the directory of

@@ -665,9 +665,12 @@ wait: it gets ``DekerLockError`` at once.
 .. note::
    Reading data from an ``Array``, which is locked for writing, is impossible.
 
-A ``VArray`` has no lock of its own. Its write goes ``Array`` by ``Array``: every ``Array`` of it
-is held exclusively only while its part of the data is written, as a plain ``Array`` write holds
-it. So several processes may write into one ``VArray`` at the same time: the writers of different
+A ``VArray`` has no lock of its own. It finds its ``Arrays`` without touching their files: it
+knows their schema and attributes already, and the storage gives it the id of the ``Array`` at a
+position. So the file of an ``Array`` is opened once, for the data, and a writer holding it does
+not stop the search. A ``VArray`` write goes ``Array`` by ``Array``: every ``Array`` of it is held
+exclusively only while its part of the data is written, as a plain ``Array`` write holds it. So
+several processes may write into one ``VArray`` at the same time: the writers of different
 Arrays never wait for each other, and the writers of one Array queue on it, each waiting for the
 previous one as it waits for readers. The parts of the Array they write do not get mixed; when they
 write the same cells, the last writer wins. If an Array is still held when ``write_lock_timeout``

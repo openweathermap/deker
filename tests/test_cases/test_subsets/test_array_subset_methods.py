@@ -47,6 +47,23 @@ class TestArraySubsetMethods:
         assert described.call_count > 0
         assert any("data read" in record.message for record in deker_log.records)
 
+    @pytest.mark.parametrize(
+        ("index_exp", "bounds"),
+        [(0, "[0]"), ((slice(0, 2), 1), "[0:2, 1]"), ((slice(None), slice(None, None, 2)), "[:, ::2]")],
+    )
+    def test_repr_names_the_bounds_the_shape_and_the_array(self, inserted_array: Array, index_exp: Slice, bounds: str):
+        """The repr of a Subset carries its bounds, its shape and the id of its Array."""
+        subset = inserted_array[index_exp]
+        assert repr(subset) == f"Subset(bounds={bounds}, shape={subset.shape}, array={inserted_array.id})"
+
+    @pytest.mark.parametrize(
+        ("index_exp", "bounds"),
+        [(0, "[0]"), ((slice(0, 2), 1), "[0:2, 1]"), ((slice(None), slice(None, None, 2)), "[:, ::2]")],
+    )
+    def test_str_is_the_array_with_the_bounds(self, inserted_array: Array, index_exp: Slice, bounds: str):
+        """The str of a Subset is the str of its Array followed by the bounds."""
+        assert str(inserted_array[index_exp]) == f"{inserted_array!s}{bounds}"
+
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
     def test_subset_read(self, inserted_array: Array, array_data: ndarray, index_exp: Slice):
         """Tests if subset reads correctly.

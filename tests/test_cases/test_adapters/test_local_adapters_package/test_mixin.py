@@ -14,7 +14,7 @@ from pytest_mock import MockerFixture
 
 from deker.arrays import Array, VArray
 from deker.collection import Collection
-from deker.errors import DekerLockError, DekerValidationError
+from deker.errors import DekerFilterError, DekerLockError, DekerValidationError
 from deker.flock import Flock
 from deker.tools import get_paths
 from deker.tools.path import get_symlink_path
@@ -265,3 +265,160 @@ class TestSymlinkDirectoryLock:
             adapter.create(twin(array))
         with Flock(get_paths(array, adapter.collection_path).symlink):
             pass
+
+
+class TestGetIdByPrimaryAttributes:
+    """The id of an array by its primary attributes, without reading its metadata: a VArray finds its Arrays so."""
+
+    def test_finds_the_id_of_an_array(
+        self, array_collection_with_attributes: Collection, inserted_array_with_attributes: Array
+    ):
+        adapter = inserted_array_with_attributes._adapter
+        found = adapter.get_id_by_primary_attributes(
+            inserted_array_with_attributes.primary_attributes, array_collection_with_attributes.array_schema
+        )
+        assert found == inserted_array_with_attributes.id
+
+    def test_finds_the_id_of_a_varray(
+        self, varray_collection_with_attributes: Collection, inserted_varray_with_attributes: VArray
+    ):
+        adapter = inserted_varray_with_attributes._adapter
+        found = adapter.get_id_by_primary_attributes(
+            inserted_varray_with_attributes.primary_attributes, varray_collection_with_attributes.varray_schema
+        )
+        assert found == inserted_varray_with_attributes.id
+
+    def test_finds_the_id_of_an_array_of_a_varray(self, inserted_varray: VArray):
+        """The Arrays of a VArray are found by its id and the position in the vgrid."""
+        subset = inserted_varray[:]
+        vposition = subset._VSubset__arrays[0].vposition
+        collection = inserted_varray._VArray__collection
+        array = collection.arrays.filter({"vid": inserted_varray.id, "v_position": vposition}).last()
+        found = subset._VSubset__array_adapter.get_id_by_primary_attributes(
+            {"vid": inserted_varray.id, "v_position": vposition}, collection.array_schema
+        )
+        assert found == array.id
+
+    def test_does_not_read_the_metadata(
+        self,
+        array_collection_with_attributes: Collection,
+        inserted_array_with_attributes: Array,
+        mocker: MockerFixture,
+    ):
+        adapter = inserted_array_with_attributes._adapter
+        read_meta = mocker.spy(adapter, "read_meta")
+        storage_read_meta = mocker.spy(adapter.storage_adapter, "read_meta")
+        adapter.get_id_by_primary_attributes(
+            inserted_array_with_attributes.primary_attributes, array_collection_with_attributes.array_schema
+        )
+        assert read_meta.call_count == 0
+        assert storage_read_meta.call_count == 0
+
+    def test_returns_none_without_an_array(
+        self, array_collection_with_attributes: Collection, array_with_attributes: Array
+    ):
+        """An array that was never created has no symlink directory; an empty directory is the same."""
+        adapter = array_with_attributes._adapter
+        schema = array_collection_with_attributes.array_schema
+        attributes = array_with_attributes.primary_attributes
+        assert adapter.get_id_by_primary_attributes(attributes, schema) is None
+        symlinks_path = get_symlink_path(
+            path_to_symlink_dir=array_collection_with_attributes.path / adapter.symlinks_dir,
+            primary_attributes_schema=schema.primary_attributes,
+            primary_attributes=attributes,
+        )
+        symlinks_path.mkdir(parents=True, exist_ok=True)
+        assert adapter.get_id_by_primary_attributes(attributes, schema) is None
+
+    def test_returns_none_after_the_array_is_deleted(
+        self, array_collection_with_attributes: Collection, inserted_array_with_attributes: Array
+    ):
+        adapter = inserted_array_with_attributes._adapter
+        schema = array_collection_with_attributes.array_schema
+        attributes = inserted_array_with_attributes.primary_attributes
+        inserted_array_with_attributes.delete()
+        assert adapter.get_id_by_primary_attributes(attributes, schema) is None
+
+    def test_a_broken_symlink_raises(self, array_collection_with_attributes: Collection, array_with_attributes: Array):
+        adapter = array_with_attributes._adapter
+        schema = array_collection_with_attributes.array_schema
+        symlinks_path = get_symlink_path(
+            path_to_symlink_dir=array_collection_with_attributes.path / adapter.symlinks_dir,
+            primary_attributes_schema=schema.primary_attributes,
+            primary_attributes=array_with_attributes.primary_attributes,
+        )
+        symlinks_path.mkdir(parents=True, exist_ok=True)
+        target = symlinks_path / "target.hdf5"
+        target.write_text("gone")
+        os.symlink(target, symlinks_path / "link.hdf5")
+        target.unlink()
+        with pytest.raises(DekerBrokenSymlinkError):
+            adapter.get_id_by_primary_attributes(array_with_attributes.primary_attributes, schema)
+
+    def test_finds_the_same_array_as_the_filter(
+        self, array_collection_with_attributes: Collection, inserted_array_with_attributes: Array
+    ):
+        """Both ways of looking an array up agree: the id and the whole array found by the primary attributes."""
+        adapter = inserted_array_with_attributes._adapter
+        schema = array_collection_with_attributes.array_schema
+        attributes = inserted_array_with_attributes.primary_attributes
+        found = adapter.get_by_primary_attributes(attributes, schema, array_collection_with_attributes, adapter, None)
+        assert found is not None
+        assert adapter.get_id_by_primary_attributes(attributes, schema) == found.id
+
+    def test_a_schema_without_primary_attributes_is_refused(self, array_collection: Collection, inserted_array: Array):
+        """Without primary attributes nothing identifies an array: the first file of the directory is not the answer."""
+        adapter = inserted_array._adapter
+        with pytest.raises(DekerFilterError, match="primary attributes"):
+            adapter.get_id_by_primary_attributes({}, array_collection.array_schema)
+
+    @pytest.mark.parametrize(
+        ("attributes", "message"),
+        [
+            pytest.param({}, "primary_attribute is missing", id="missing"),
+            pytest.param({"primary_attribute": 1, "extra": 2}, "don't exist in schema", id="extra"),
+        ],
+    )
+    def test_incomplete_or_extra_attributes_are_refused(
+        self,
+        array_collection_with_attributes: Collection,
+        inserted_array_with_attributes: Array,
+        attributes: dict,
+        message: str,
+    ):
+        adapter = inserted_array_with_attributes._adapter
+        with pytest.raises(DekerFilterError, match=message):
+            adapter.get_id_by_primary_attributes(attributes, array_collection_with_attributes.array_schema)
+
+
+class TestGetByPrimaryAttributesChecksTheAttributes:
+    """The whole-array search refuses an empty, incomplete or oversized set of attributes, like filter does."""
+
+    def test_a_schema_without_primary_attributes_is_refused(self, array_collection: Collection, inserted_array: Array):
+        adapter = inserted_array._adapter
+        with pytest.raises(DekerFilterError, match="primary attributes"):
+            adapter.get_by_primary_attributes({}, array_collection.array_schema, array_collection, adapter, None)
+
+    @pytest.mark.parametrize(
+        ("attributes", "message"),
+        [
+            pytest.param({}, "primary_attribute is missing", id="missing"),
+            pytest.param({"primary_attribute": 1, "extra": 2}, "don't exist in schema", id="extra"),
+        ],
+    )
+    def test_incomplete_or_extra_attributes_are_refused(
+        self,
+        array_collection_with_attributes: Collection,
+        inserted_array_with_attributes: Array,
+        attributes: dict,
+        message: str,
+    ):
+        adapter = inserted_array_with_attributes._adapter
+        with pytest.raises(DekerFilterError, match=message):
+            adapter.get_by_primary_attributes(
+                attributes,
+                array_collection_with_attributes.array_schema,
+                array_collection_with_attributes,
+                adapter,
+                None,
+            )

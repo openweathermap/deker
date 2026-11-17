@@ -80,7 +80,7 @@ To install DEKER™ run:
    ```bash
    pip install deker
    ```
-Please refer to documentation for advanced topics such as running on Apple silicone or using Xarray
+Please refer to documentation for advanced topics such as the data types on Apple silicon or using Xarray
 with DEKER™ API.
 
 ### First Steps

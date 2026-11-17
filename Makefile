@@ -7,10 +7,13 @@ PY_FILES      = $(wildcard $(shell git ls-files '*.py'))
 TARGET_PYTHON := py310
 # the supported Pythons and the next one, for test-matrix
 PYTHONS      ?= 3.10 3.11 3.12 3.13 3.14 3.15
+# the lowest NumPy of pyproject.toml on every supported Python (an old NumPy has no wheels for a new Python), as
+# python:numpy pairs, for test-numpy-floor; CI tests the same pairs (numpy-floors of the workflows)
+NUMPY_FLOORS ?= 3.10:1.26.4 3.11:1.26.4 3.12:1.26.4 3.13:2.1.0 3.14:2.3.2
 # the sibling packages of [tool.uv.sources], built as wheels for install-matrix until they are released
 SIBLINGS     := ../deker-local-adapters ../deker-server-adapters ../deker-tools
 
-.PHONY: help install format lint typecheck docstrings docs-lint check test test-matrix install-matrix coverage ci pre-commit clean
+.PHONY: help install format lint typecheck docstrings docs-lint check test test-matrix test-numpy-floor install-matrix coverage ci pre-commit clean
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -47,6 +50,18 @@ test-matrix:  ## Run the tests on every Python of PYTHONS in a temporary environ
 	@for py in $(PYTHONS); do \
 	  echo "=== Python $$py"; \
 	  uv run --isolated --python $$py pytest --random-order $(PYTEST_ARGS) || exit 1; \
+	done
+
+test-numpy-floor:  ## Run the tests on the lowest supported NumPy of every Python of NUMPY_FLOORS, in a temporary environment each, as CI does
+	@for pair in $(NUMPY_FLOORS); do \
+	  py=$${pair%%:*}; np=$${pair#*:}; \
+	  echo "=== Python $$py, NumPy $$np"; \
+	  tmp=$$(mktemp -d); \
+	  uv venv --quiet --python $$py $$tmp/venv \
+	  && uv pip install --quiet --python $$tmp/venv/bin/python --editable . --group dev "numpy==$$np" \
+	  && $$tmp/venv/bin/python -c "import importlib.metadata as m; v = {d.metadata['Name'].lower(): d.version for d in m.distributions()}; print(*(f'{p} {v[p]}' for p in ('numpy', 'pandas', 'xarray', 'h5py') if p in v))" \
+	  && $$tmp/venv/bin/python -m pytest --random-order $(PYTEST_ARGS); \
+	  status=$$?; rm -rf $$tmp; [ $$status -eq 0 ] || exit $$status; \
 	done
 
 install-matrix:  ## Check the package installs from wheels only, as a user without a compiler would, on every Python of PYTHONS

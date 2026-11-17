@@ -1,5 +1,6 @@
 import os
 
+import h5py
 import hdf5plugin
 import numpy as np
 import pytest
@@ -12,6 +13,11 @@ from tests.parameters.uri import embedded_uri
 from deker.client import Client
 from deker.errors import DekerValidationError
 from deker.schemas import ArraySchema, DimensionSchema
+
+# the szip filter is not in every build of HDF5: its cases are expected to fail where it is missing
+SZIP_REQUIRED = pytest.mark.xfail(
+    not h5py.h5z.filter_avail(h5py.h5z.FILTER_SZIP), reason="The szip filter is not available in this HDF5"
+)
 
 
 class TestOptions:
@@ -167,7 +173,6 @@ class TestOptions:
                 collection.delete()
                 compressed.delete()
 
-    @pytest.mark.xfail(reason="Compression filter is unavailable")
     @pytest.mark.parametrize(
         ("chunks", "compression", "level"),
         [
@@ -180,16 +185,16 @@ class TestOptions:
             ((1, 1, 1), None, None),
             (None, "gzip", 1),
             (None, "lzf", None),
-            (None, "szip", ("ec", 2)),
+            pytest.param(None, "szip", ("ec", 2), marks=SZIP_REQUIRED),
             (True, "gzip", 9),
             (True, "lzf", None),
-            (True, "szip", ("nn", 6)),
+            pytest.param(True, "szip", ("nn", 6), marks=SZIP_REQUIRED),
             ((2, 2, 2), "gzip", 1),
             ((2, 2, 2), "lzf", None),
-            ((2, 2, 2), "szip", ("nn", 2)),
+            pytest.param((2, 2, 2), "szip", ("nn", 2), marks=SZIP_REQUIRED),
             ((1, 10, 10), "gzip", 6),
             ((1, 10, 10), "lzf", None),
-            ((1, 10, 10), "szip", ("ec", 16)),
+            pytest.param((1, 10, 10), "szip", ("ec", 16), marks=SZIP_REQUIRED),
         ],
     )
     def test_collection_built_in_options(

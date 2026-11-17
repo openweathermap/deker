@@ -154,3 +154,4 @@ tmp/
 build
 .ruff_cache/
 dist/
+scripts/
