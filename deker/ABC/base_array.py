@@ -271,6 +271,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         "__adapter",
         "__id",
         "__is_deleted",
+        "__dimensions",
         "custom_attributes",
         "primary_attributes",
     )
@@ -337,6 +338,8 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
             custom_attributes,
             self.schema.attributes or (),
         )
+        # the dimensions are built on the first access and rebuilt after an update of the custom attributes
+        self.__dimensions: tuple[Dimension | TimeDimension, ...] = ()
 
     def __del__(self) -> None:
         del self.__adapter
@@ -388,11 +391,17 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
 
     @property
     def dimensions(self) -> tuple[Dimension | TimeDimension, ...]:
-        """Get array dimensions, built from the schema and the attributes the time dimensions refer to."""
-        return create_dimensions(
-            self.schema.dimensions,
-            {**self.primary_attributes, **self.custom_attributes},
-        )
+        """Get array dimensions, built from the schema and the attributes the time dimensions refer to.
+
+        The dimensions are built once and kept: the schema and the primary attributes never change, and an
+        update of the custom attributes, which a time dimension may refer to, drops the kept ones.
+        """
+        if not self.__dimensions:
+            self.__dimensions = create_dimensions(
+                self.schema.dimensions,
+                {**self.primary_attributes, **self.custom_attributes},
+            )
+        return self.__dimensions
 
     @property
     def shape(self) -> tuple[int, ...]:
@@ -430,7 +439,8 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         )
         self._adapter.update_meta_custom_attributes(self, attributes)
         self.custom_attributes = attributes
-        self.logger.info(f"{self!s} custom attributes updated: {attributes}")
+        self.__dimensions = ()
+        self.logger.info("%s custom attributes updated: %s", self, attributes)
 
     def _create_meta(self) -> str:
         """Serialize the array into its metadata JSON string: id, primary and custom attributes.
@@ -459,7 +469,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         :returns: the metadata: id, primary and custom attributes
         """
         meta = self._adapter.read_meta(self)
-        self.logger.info(f"{self!s} meta data read: {meta}")
+        self.logger.info("%s meta data read: %s", self, meta)
         return meta
 
     def delete(self) -> None:
@@ -468,7 +478,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         The deletion waits for the readers and the writers of the array.
         """
         self._adapter.delete(self)
-        self.logger.info(f"{self!s} deleted")
+        self.logger.info("%s deleted", self)
 
     @staticmethod
     def _check_position(element: slice | int | EllipsisType, dim: TimeDimension | Dimension) -> None:
@@ -606,7 +616,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
             else:
                 bounds.append(i)
         subset = self._create_subset(tuple(bounds), shape)
-        self.logger.debug(f"Created subset: {subset}")
+        self.logger.debug("Created subset: %s", subset)
         return subset
 
     def __repr__(self) -> str:

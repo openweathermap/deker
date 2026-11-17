@@ -35,6 +35,18 @@ class TestArraySubsetMethods:
         assert subset
         assert subset.shape == array_data[index_exp].shape
 
+    def test_read_does_not_describe_the_subset_when_the_log_is_off(self, inserted_array: Array, mocker):
+        """The messages of the log are built only when they are written: no subset string at the ERROR level."""
+        described = mocker.spy(Subset, "__str__")
+        inserted_array[0].read()
+        assert described.call_count == 0
+
+    def test_read_describes_the_subset_when_the_log_is_on(self, inserted_array: Array, deker_log, mocker):
+        described = mocker.spy(Subset, "__str__")
+        inserted_array[0].read()
+        assert described.call_count > 0
+        assert any("data read" in record.message for record in deker_log.records)
+
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
     def test_subset_read(self, inserted_array: Array, array_data: ndarray, index_exp: Slice):
         """Tests if subset reads correctly.

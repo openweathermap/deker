@@ -69,6 +69,11 @@ updated at once, and the satellite packages are released together with it: `deke
 
 ### Changed
 
+- Reading and writing cost less: the free memory of the machine is queried only for a request above 1% of
+  the memory limit of the client (a smaller one fits anyway, and the query read the system tables on every
+  access), the dimensions of an array are built once instead of on every access, and the messages of the
+  log are formatted only when they are written. Reading one Array through a VArray takes about a third
+  less, reading an Array directly about 40% less.
 - Creating a missing Array inside a VArray is serialised: between processes by a lock on the
   file of the VArray, between threads by a thread lock; the loser writes into the Array the winner
   created. Creating an Array or a VArray with primary attributes holds a lock on the directory of

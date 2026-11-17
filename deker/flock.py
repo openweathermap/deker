@@ -49,7 +49,7 @@ class Flock(SelfLoggerMixin):
         :raises FileNotFoundError: if the file does not exist; only a collection lock file is created on the way
         """
         # a collection lock file is created on the way; any other path (a data file, a directory) is locked as it is
-        self.logger.debug(f"Trying to acquire lock for {self.file}")
+        self.logger.debug("Trying to acquire lock for %s", self.file)
         if str(self.file).endswith(LocksExtensions.collection_lock.value):
             if not self.file.exists():
                 self.file.parent.mkdir(parents=True, exist_ok=True)
@@ -57,24 +57,24 @@ class Flock(SelfLoggerMixin):
         else:
             flags = os.O_RDONLY
         fd = os.open(self.file, flags)
-        self.logger.debug(f"Opened descriptor for {self.file}")
+        self.logger.debug("Opened descriptor for %s", self.file)
         try:
             fcntl.flock(fd, (fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)
         except BlockingIOError:
             os.close(fd)
-            self.logger.debug(f"Closed descriptor for {self.file} due to BlockingIOError")
+            self.logger.debug("Closed descriptor for %s due to BlockingIOError", self.file)
             raise DekerLockError(f"{self.file} is locked")
         self.fd = fd
-        self.logger.debug(f"{self.file} acquired {'shared' if self.shared else 'exclusive'} lock")
+        self.logger.debug("%s acquired %s lock", self.file, "shared" if self.shared else "exclusive")
 
     def release(self) -> None:
         """Unlock the file and close its descriptor."""
-        self.logger.debug(f"trying to release lock for {self.file}")
+        self.logger.debug("trying to release lock for %s", self.file)
         if self.fd is not None:
             fcntl.flock(self.fd, fcntl.LOCK_UN)
             os.close(self.fd)
             self.fd = None
-            self.logger.debug(f"{self.file} released lock")
+            self.logger.debug("%s released lock", self.file)
 
     def __enter__(self) -> "Flock":
         """Acquire the lock.

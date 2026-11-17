@@ -104,7 +104,7 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
     def get_path(self) -> Path:
         """Get path to the main file of the array, which is the file the shared lock is taken on."""
         path = self.dir_path / (self.array_id + self.instance.file_ext)
-        self.logger.debug(f"Got path for array.id {self.array_id} lock file: {path}")
+        self.logger.debug("Got path for array.id %s lock file: %s", self.array_id, path)
         return path
 
     def acquire(self, path: Path | None) -> None:
@@ -121,7 +121,7 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
         except DekerLockError:
             raise DekerLockError(f"Array {self.array_id} is locked for update operation, cannot be read.")
         self.lock = lock
-        self.logger.debug(f"Acquired shared lock for {path}")
+        self.logger.debug("Acquired shared lock for %s", path)
 
 
 class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
@@ -137,7 +137,7 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
     def get_path(self) -> Path:
         """Get path to the main file of the array, which is the file the exclusive lock is taken on."""
         path = self.dir_path / (self.array_id + self.instance.file_ext)
-        self.logger.debug(f"Got path for array.id {self.array.id} lock file: {path}")
+        self.logger.debug("Got path for array.id %s lock file: %s", self.array.id, path)
         return path
 
     def _try_acquire(self, path: Path) -> bool:
@@ -261,7 +261,7 @@ class UpdateMetaAttributeLock(WriteArrayLock):
     def get_path(self) -> Path:
         """Get the directory of the main file of the VArray, which is the directory the exclusive lock is taken on."""
         path = self.dir_path
-        self.logger.debug(f"Got path for array.id {self.array_id} lock directory: {path}")
+        self.logger.debug("Got path for array.id %s lock directory: %s", self.array_id, path)
         return path
 
 
@@ -278,7 +278,7 @@ class CollectionLock(BaseLock):
         """Get path to the ``<collection>.lock`` file next to the directory of the collection."""
         collection = self.args[1]
         path = self.instance.collections_resource / (collection.name + ".lock")
-        self.logger.debug(f"Got path for collection {collection.name} lock file: {path}")
+        self.logger.debug("Got path for collection %s lock file: %s", collection.name, path)
         return path
 
     def release(self, e: Exception | None = None) -> None:

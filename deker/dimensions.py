@@ -159,7 +159,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         self.__step: int = 1  # step attribute kept for further usage unification
         self.__labels: IndexLabels | None = IndexLabels(labels) if labels else None
         self.__scale: Scale | None = Scale(**scale) if isinstance(scale, dict) else scale
-        self.logger.debug(f"Dimension {name} instantiated")
+        self.logger.debug("Dimension %s instantiated", name)
 
     @property
     def step(self) -> int:
@@ -254,7 +254,7 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         self.__size: int = size
         self.__step: datetime.timedelta = step
         self.__start_value: datetime.datetime | str = start_value
-        self.logger.debug(f"dimension {name} instantiated")
+        self.logger.debug("dimension %s instantiated", name)
 
     def _validate(
         self,

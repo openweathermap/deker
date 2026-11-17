@@ -58,7 +58,7 @@ class AttributeSchema(SelfLoggerMixin, BaseAttributeSchema):
 
         if not isinstance(self.primary, bool):
             raise DekerValidationError(f"Invalid primary value {self.primary}; boolean expected")
-        self.logger.debug(f"{self.name} instantiated")
+        self.logger.debug("%s instantiated", self.name)
 
     @property
     def as_dict(self) -> dict:
@@ -171,7 +171,7 @@ class DimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
                     if not isinstance(value, float):
                         raise DekerValidationError(f"Scale attribute '{attr}' value shall be float")
 
-        self.logger.debug(f"{self.name} instantiated")
+        self.logger.debug("%s instantiated", self.name)
 
     @property
     def as_dict(self) -> dict:
@@ -241,7 +241,7 @@ class TimeDimensionSchema(SelfLoggerMixin, BaseDimensionSchema):
                 "or an iso-format datetime.datetime string "
                 "or a reference to an attribute name starting with `$`"
             )
-        self.logger.debug(f"{self.name} instantiated")
+        self.logger.debug("%s instantiated", self.name)
 
     @property
     def as_dict(self) -> dict:

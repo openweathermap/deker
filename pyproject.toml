@@ -205,7 +205,7 @@ disallow_untyped_defs = false
 # N      - pep8-naming
 # PT     - flake8-pytest-style
 # TID251 - flake8-tidy-imports banned-api: no `from __future__ import annotations`
-select = ["E", "W", "F", "C90", "B", "D", "I", "N", "PT", "TID251"]
+select = ["E", "W", "F", "C90", "B", "D", "I", "N", "PT", "TID251", "G"]
 ignore = [
     "B9",  # flake8-bugbear "opinionated" rules: opt-in in flake8, were never enabled
     "B012",

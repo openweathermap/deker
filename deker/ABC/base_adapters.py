@@ -304,7 +304,7 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
                 storage_adapter=storage_adapter,
             )
 
-            self.logger.debug(f"Collection {collection.name} read")
+            self.logger.debug("Collection %s read", collection.name)
             return collection
         except (KeyError, ValueError, TypeError, AttributeError) as e:
             self.logger.exception(e)  # noqa: TRY401

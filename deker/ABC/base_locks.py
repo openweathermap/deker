@@ -86,7 +86,7 @@ class BaseLock(SelfLoggerMixin, ABC):
             lock = Flock(path)
             lock.acquire()  # a refused lock is not kept: the next attempt starts afresh
             self.lock = lock
-            self.logger.debug(f"Set flock for {path}")
+            self.logger.debug("Set flock for %s", path)
 
     def release(self, e: Exception | None = None) -> None:  # noqa: ARG002
         """Release Flock.
@@ -95,7 +95,7 @@ class BaseLock(SelfLoggerMixin, ABC):
         """
         if self.lock:
             self.lock.release()
-            self.logger.debug(f"Released lock for {self.lock.file}")
+            self.logger.debug("Released lock for %s", self.lock.file)
             self.lock = None
 
     def get_result(self, func: Callable, args: Any, kwargs: Any) -> Any:

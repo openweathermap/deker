@@ -826,10 +826,10 @@ class IntegrityChecker(SelfLoggerMixin):
                 self.strategies[finding.check].repair(finding)
             except Exception as e:  # noqa: BLE001  # a failed repair is reported, the others go on
                 finding.repair_error = str(e)
-                self.logger.warning(f"Repair of {finding.kind.value} failed: {e!s}")
+                self.logger.warning("Repair of %s failed: %s", finding.kind.value, e)
             else:
                 finding.repaired = True
-                self.logger.info(f"Repaired: {finding.message}")
+                self.logger.info("Repaired: %s", finding.message)
 
     def _init_collection(self, name: str, storage: StorageFiles, named: bool) -> None:
         """Initialise a collection into the storage files, keeping the reason if it fails.
@@ -990,6 +990,6 @@ class IntegrityChecker(SelfLoggerMixin):
         with ThreadPoolExecutor(max_workers=self.workers) as pool:
             collections = tqdm.tqdm(storage.collections, desc="Integrity check", leave=False)
             for item in collections:
-                self.logger.info(f"Integrity check of collection {item.name}")
+                self.logger.info("Integrity check of collection %s", item.name)
                 self._check_collection(item, pool, report)
         return report

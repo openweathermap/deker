@@ -27,7 +27,7 @@ from deker.collection import Collection
 from deker.errors import DekerArrayError, DekerLockError, DekerSubsetError, DekerVSubsetError
 from deker.flock import Flock
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
-from deker.subset import VSubset, _array_positions, _ArrayBounds, _split_axis
+from deker.subset import Subset, VSubset, _array_positions, _ArrayBounds, _split_axis
 from deker.tools import get_main_path
 from deker.types.private.classes import ArrayPosition, ArrayPositionedData
 from deker.types.private.typings import Slice
@@ -242,6 +242,20 @@ class TestVArraySubset:
 
         assert varray[slice_]._VSubset__arrays == result
         new_collection.delete()
+
+    def test_read_does_not_describe_the_subsets_when_the_log_is_off(self, inserted_varray: VArray, mocker):
+        """Neither the VSubset nor the Subsets of its Arrays are turned into strings at the ERROR level."""
+        vsubset_described = mocker.spy(VSubset, "__str__")
+        subset_described = mocker.spy(Subset, "__str__")
+        inserted_varray[0].read()
+        assert vsubset_described.call_count == 0
+        assert subset_described.call_count == 0
+
+    def test_read_describes_the_subsets_when_the_log_is_on(self, inserted_varray: VArray, deker_log, mocker):
+        vsubset_described = mocker.spy(VSubset, "__str__")
+        inserted_varray[0].read()
+        assert vsubset_described.call_count > 0
+        assert any("data read" in record.message for record in deker_log.records)
 
     def test_vsubset_update_and_read_data(self, varray: VArray):
         """Test vsubset update and read methods."""

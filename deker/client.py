@@ -493,7 +493,7 @@ class Client(SelfLoggerMixin):
         )
 
         self._adapter.create(collection)
-        self.logger.debug(f"Collection {collection.name} created")
+        self.logger.debug("Collection %s created", collection.name)
         return collection
 
     @_open_client_only
@@ -514,10 +514,10 @@ class Client(SelfLoggerMixin):
             collection_data: dict = self._adapter.read(name)
             self._validate_collection_metadata_version(collection_data)
             collection = self._adapter.create_collection_from_meta(collection_data, self._factory)
-            self.logger.debug(f"Collection {name} read from meta")
+            self.logger.debug("Collection %s read from meta", name)
             return collection
         except DekerCollectionNotExistsError:
-            self.logger.info(f"Collection {name} not found")
+            self.logger.info("Collection %s not found", name)
             return None
 
     def _validate_collection(self, collection_data: dict) -> Collection:
@@ -567,7 +567,7 @@ class Client(SelfLoggerMixin):
         """
         collection = self._validate_collection(collection_data)
         self._adapter.create(collection)
-        self.logger.debug(f"Collection {collection.name} created from dict")
+        self.logger.debug("Collection %s created from dict", collection.name)
         return collection
 
     # TODO: remove in 3.0.0 with clear_locks: the markers are not made since 2.0.0
@@ -674,7 +674,7 @@ class Client(SelfLoggerMixin):
             file.unlink()
             files_count += 1
 
-        self.logger.info(f"{files_count} lock files removed")
+        self.logger.info("%s lock files removed", files_count)
 
     @_open_client_only
     def check_integrity(

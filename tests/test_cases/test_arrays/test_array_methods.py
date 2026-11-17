@@ -28,6 +28,7 @@ from deker.dimensions import TimeDimension
 from deker.errors import DekerCollectionAlreadyExistsError, DekerMemoryError, DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema
 from deker.tools import get_paths
+from deker.tools.schema import create_dimensions
 from deker.types import ArrayMeta
 from deker.types.private.typings import FancySlice, NumericDtypes, Slice
 from deker.types.public.classes import Scale
@@ -189,6 +190,28 @@ class TestArrayMethods:
         inserted_array[index_exp].update(update)
         data = inserted_array[index_exp].read()
         assert (data == update).all()
+
+    def test_dimensions_are_built_once(self, inserted_array_with_attributes: Array):
+        """The dimensions of an array are built on the first access and then reused."""
+        first = inserted_array_with_attributes.dimensions
+        assert inserted_array_with_attributes.dimensions is first
+        fresh = create_dimensions(
+            inserted_array_with_attributes.schema.dimensions,
+            {**inserted_array_with_attributes.primary_attributes, **inserted_array_with_attributes.custom_attributes},
+        )
+        assert [d.as_dict for d in first] == [d.as_dict for d in fresh]
+
+    def test_dimensions_are_rebuilt_after_an_update_of_the_custom_attributes(
+        self, inserted_array_with_attributes: Array
+    ):
+        """A time dimension starting at a custom attribute follows the attribute after an update."""
+        before = inserted_array_with_attributes.dimensions
+        new_start = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        inserted_array_with_attributes.update_custom_attributes({"time_attr_name": new_start})
+        after = inserted_array_with_attributes.dimensions
+        assert after is not before
+        assert [d.start_value for d in after if isinstance(d, TimeDimension)] == [new_start]
+        assert [d.start_value for d in before if isinstance(d, TimeDimension)] != [new_start]
 
     def test_update_custom_attributes(self, inserted_array_with_attributes: Array):
         """Tests array update_custom_attributes method.

@@ -277,7 +277,7 @@ class VArray(BaseArray[VSubset]):
         """Delete the ``VArray`` from the storage: first every ``Array`` it is made of, then the ``VArray`` itself."""
         self.__array_adapter.delete_all_by_vid(self.id, self.__collection)
         self._adapter.delete(self)
-        self.logger.debug(f"VArray {self.id} is deleted")
+        self.logger.debug("VArray %s is deleted", self.id)
 
     @property
     def schema(self) -> VArraySchema:

@@ -67,10 +67,17 @@ def convert_human_memory_to_bytes(memory_limit: int | str) -> int:
         raise DekerValidationError(error)
 
 
+# the share of the limit of the client a request may take without a query of the free memory of the machine:
+# a query costs a read of the system tables on every read or write, and a small request fits anyway
+UNCHECKED_SHARE_OF_LIMIT = 0.01
+
+
 def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> None:
     """Check that the data of the shape and dtype fit the memory.
 
-    The limit is the smaller of the limit of the client and the memory free on the machine right now.
+    The limit is the smaller of the limit of the client and the memory free on the machine right now. The
+    free memory is queried only for a request above ``UNCHECKED_SHARE_OF_LIMIT`` of the limit of the client:
+    a smaller one fits anyway, and the query is not free.
 
     :param shape: array or subset shape
     :param dtype: array or subset values dtype
@@ -79,16 +86,25 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
     """
     array_values = calculate_total_cells_in_array(shape)
     array_size_bytes = np.dtype(dtype).itemsize * array_values
+    if array_size_bytes <= mem_limit_from_settings * UNCHECKED_SHARE_OF_LIMIT:
+        return
     array_size_human = convert_size_to_human(array_size_bytes)
+    config_human_limit = convert_size_to_human(mem_limit_from_settings)
+    deker_limit = f"{config_human_limit} ({mem_limit_from_settings} bytes). "
+    if array_size_bytes > mem_limit_from_settings:
+        raise DekerMemoryError(
+            f"Can not allocate {array_size_human} for array/subset with shape {shape} and dtype {dtype}. "
+            f"Deker Client memory usage is limited to {deker_limit}"
+            f"Reduce your schema or the `shape` of your subset or increase the value of Deker Client memory limit."
+        )
 
-    total_machine_mem = virtual_memory().total + swap_memory().total
+    virtual, swap = virtual_memory(), swap_memory()
+    total_machine_mem = virtual.total + swap.total
     total_human_mem = convert_size_to_human(total_machine_mem)
-    current_limit = virtual_memory().available + swap_memory().free
+    current_limit = virtual.available + swap.free
     limit = min(mem_limit_from_settings, current_limit)
     limit_human = convert_size_to_human(limit)
-    config_human_limit = convert_size_to_human(mem_limit_from_settings)
 
-    deker_limit = f"{config_human_limit} ({mem_limit_from_settings} bytes). "
     limit_message = "Deker Client memory usage is limited to the total memory available on this machine: " + deker_limit
     advise = ""
     if total_machine_mem > mem_limit_from_settings:

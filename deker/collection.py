@@ -202,7 +202,7 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
         )
 
         self.__manager: DataManager[ArrayT] = DataManager(self, array_adapter, varray_adapter)
-        self.logger.debug(f"Collection {self.__name} initialized")
+        self.logger.debug("Collection %s initialized", self.__name)
 
     def __del__(self) -> None:
         """Drop the references to the adapter and the managers."""
@@ -298,15 +298,19 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
         """
         array = self.__manager.create(primary_attributes, custom_attributes, id_)
         self.logger.debug(
-            f"{array.__class__.__name__} id={array.id} {primary_attributes=}, {custom_attributes=} created"
+            "%s id=%s primary_attributes=%r, custom_attributes=%r created",
+            array.__class__.__name__,
+            array.id,
+            primary_attributes,
+            custom_attributes,
         )
         return array
 
     def delete(self) -> None:
         """Remove ``Collection`` and all its contents from the database."""
-        self.logger.debug(f"Removing collection {self.__name} from database")
+        self.logger.debug("Removing collection %s from database", self.__name)
         self.__adapter.delete(self)
-        self.logger.debug(f"Collection {self.__name} deleted OK")
+        self.logger.debug("Collection %s deleted OK", self.__name)
 
     @not_deleted
     def clear(self) -> None:
@@ -314,9 +318,9 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
         :raises DekerInstanceNotExistsError: if the collection was deleted
         """
-        self.logger.debug(f"Clearing data from collection {self.__name}")
+        self.logger.debug("Clearing data from collection %s", self.__name)
         self.__adapter.clear(self)
-        self.logger.debug(f"Collection {self.__name} cleared OK")
+        self.logger.debug("Collection %s cleared OK", self.__name)
 
     def filter(self, filters: dict) -> FilteredManager[ArrayT]:
         """Filter ``Arrays`` or ``VArrays`` by provided conditions.
@@ -361,7 +365,7 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
         adapter = varray_adapter if varray_adapter else array_adapter
 
-        self.logger.debug(f"Iterating over collection {self.name}")
+        self.logger.debug("Iterating over collection %s", self.name)
         # the schema decides the kind of arrays, the same way it decides the collection's type parameter
         for meta in adapter:
             if varray_adapter:

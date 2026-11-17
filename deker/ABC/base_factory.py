@@ -50,7 +50,7 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
         else:
             self.executor = self.ctx.executor
             self._own_executor = False
-        self.logger.debug(f"{self.__class__.__name__} instantiated")
+        self.logger.debug("%s instantiated", self.__class__.__name__)
 
     def __del__(self) -> None:
         """Close the factory when it is dropped."""

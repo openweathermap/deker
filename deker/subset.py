@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import numpy as np
 
-from deker_tools.slices import create_shape_from_slice, positive_bounds, slice_converter
+from deker_tools.slices import create_shape_from_slice, positive_bounds
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
@@ -107,7 +107,7 @@ class Subset(BaseSubset["Array"]):
         self.__array = array
         self.__adapter = adapter
         super().__init__(slice_expression, shape, array, adapter)
-        self.logger.debug(f"{self.__str__} instantiated")
+        self.logger.debug("%s instantiated", self)
 
     @not_deleted
     def read(self) -> Numeric | np.ndarray:
@@ -117,9 +117,9 @@ class Subset(BaseSubset["Array"]):
         :raises DekerLockError: if a writer holds the ``Array``
         :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
         """
-        self.logger.debug(f"Trying to read data from {self.__array.id} bounds={slice_converter[self.__bounds]}")
+        self.logger.debug("Trying to read data from %s", self)
         data = self.__adapter.read_data(self.__array, self.__bounds)
-        self.logger.info(f"{self!s} data read")
+        self.logger.info("%s data read", self)
         return data
 
     @not_deleted
@@ -139,11 +139,11 @@ class Subset(BaseSubset["Array"]):
         :raises DekerLockError: if the ``Array`` is not released within the timeout
         :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
         """
-        self.logger.debug(f"Trying to update data for {self.__array.id} bounds={slice_converter[self.__bounds]}")
+        self.logger.debug("Trying to update data for %s", self)
         if data is None:
             raise DekerArrayError("Updating data shall not be None")
         self.__adapter.update(self.__array, self.__bounds, data)
-        self.logger.info(f"{self!s} data updated")
+        self.logger.info("%s data updated", self)
 
     @not_deleted
     def clear(self) -> None:
@@ -154,9 +154,9 @@ class Subset(BaseSubset["Array"]):
         :raises DekerLockError: if the ``Array`` is not released within the timeout
         :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
         """
-        self.logger.debug(f"Trying to clear data for {self.__array.id} bounds={slice_converter[self.__bounds]}")
+        self.logger.debug("Trying to clear data for %s", self)
         self.__adapter.clear(self.__array, self.__bounds)
-        self.logger.info(f"{self!s} data cleared")
+        self.logger.info("%s data cleared", self)
 
 
 class _ArrayBounds(NamedTuple):
@@ -316,7 +316,7 @@ class VSubset(BaseSubset["VArray"]):
         self.__arrays: Arrays = _array_positions(forward, array.shape, array.arrays_shape)
         self.__collection: "Collection" = collection
         super().__init__(slice_expression, shape, array, varray_adapter)
-        self.logger.debug(f"{self.__str__} instantiated")
+        self.logger.debug("%s instantiated", self)
 
     def _create_array_from_vposition(self, vpos: tuple[int, ...]) -> Optional["Array"]:
         """Find the ``Array`` of the ``VArray`` at the position.
@@ -329,11 +329,11 @@ class VSubset(BaseSubset["VArray"]):
 
         array = self.__collection.arrays.filter({"vid": self.__array.id, "v_position": vpos}).last()
         if not array:
-            self.logger.debug(f"Array for v_position {vpos} not found")
+            self.logger.debug("Array for v_position %s not found", vpos)
             return None
         if not isinstance(array, Array):  # pragma: no cover
             raise DekerSubsetError(f"Arrays manager returned {type(array)} for v_position {vpos}")
-        self.logger.debug(f"Created Array from meta for v_position {vpos}: {array.id}")
+        self.logger.debug("Created Array from meta for v_position %s: %s", vpos, array.id)
         return array
 
     def _try_find_array(self, vpos: tuple[int, ...], found: list[Optional["Array"]]) -> bool:
@@ -386,10 +386,10 @@ class VSubset(BaseSubset["VArray"]):
         :raises DekerLockError: if an ``Array`` is not released within the timeout
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
         """
-        self.logger.debug(f"Trying to clear data for {self.__str__()}")
+        self.logger.debug("Trying to clear data for %s", self)
         results = self.__adapter.executor.map(self.__clear_array, self.__arrays)
         list(results)
-        self.logger.info(f"{self!s} data cleared")
+        self.logger.info("%s data cleared", self)
 
     def __sum_results(self, arrays_data: Iterator) -> np.ndarray:
         """Arrange data from arrays into VSubset shape.
@@ -434,10 +434,10 @@ class VSubset(BaseSubset["VArray"]):
         :raises DekerLockError: if a writer holds one of the ``Arrays``
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
         """
-        self.logger.debug(f"Trying to read data from {self!s}")
+        self.logger.debug("Trying to read data from %s", self)
         arrays_data = self.__adapter.executor.map(self.__read_array_data, self.__arrays)
         data = self.__sum_results(arrays_data)
-        self.logger.info(f"{self!s} data read")
+        self.logger.info("%s data read", self)
         return data
 
     def __create_array(self, vposition: tuple[int, ...]) -> "Array":
@@ -496,7 +496,7 @@ class VSubset(BaseSubset["VArray"]):
         :raises DekerVSubsetError: if one or more ``Arrays`` could not be written: the lock timeout among the reasons
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
         """
-        self.logger.debug(f"Trying to update data for {self!s}")
+        self.logger.debug("Trying to update data for %s", self)
         if data is None:
             raise DekerArrayError("Updating data shall not be None")
 
@@ -528,4 +528,4 @@ class VSubset(BaseSubset["VArray"]):
                 exceptions,
             )
 
-        self.logger.info(f"{self!s} data updated OK")
+        self.logger.info("%s data updated OK", self)
