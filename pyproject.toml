@@ -37,7 +37,7 @@ dependencies = [
     "typing-extensions>=4.4.0,<5",
     "tqdm>=4.64.1,<5",
     "psutil>=5.9.5,<8",
-    "deker-local-adapters>=1.2.0,<2",
+    "deker-local-adapters>=2.0.0b0,<3",
 ]
 
 [project.optional-dependencies]
@@ -45,14 +45,14 @@ xarray = [
     "xarray>=2024.6.0",
 ]
 server-adapters = [
-    "deker-server-adapters>=1.2.0,<2",
+    "deker-server-adapters>=2.0.0b0,<3",
 ]
 shell = [
-    "deker-shell>=1.2.0,<2",
+    "deker-shell>=2.0.0b0,<3",
 ]
 all = [
-    "deker-shell>=1.2.0,<2",
-    "deker-server-adapters>=1.2.0,<2",
+    "deker-shell>=2.0.0b0,<3",
+    "deker-server-adapters>=2.0.0b0,<3",
     "xarray>=2024.6.0",
 ]
 
@@ -89,6 +89,7 @@ default-groups = ["dev", "docs"]
 [tool.uv.sources]
 deker-local-adapters = { path = "../deker-local-adapters", editable = true }
 deker-server-adapters = { path = "../deker-server-adapters", editable = true }
+deker-shell = { path = "../deker-shell", editable = true }
 deker-tools = { path = "../deker-tools", editable = true }
 
 

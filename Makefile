@@ -11,7 +11,7 @@ PYTHONS      ?= 3.10 3.11 3.12 3.13 3.14 3.15
 # python:numpy pairs, for test-numpy-floor; CI tests the same pairs (numpy-floors of the workflows)
 NUMPY_FLOORS ?= 3.10:1.26.4 3.11:1.26.4 3.12:1.26.4 3.13:2.1.0 3.14:2.3.2
 # the sibling packages of [tool.uv.sources], built as wheels for install-matrix until they are released
-SIBLINGS     := ../deker-local-adapters ../deker-server-adapters ../deker-tools
+SIBLINGS     := ../deker-local-adapters ../deker-server-adapters ../deker-shell ../deker-tools
 
 .PHONY: help install format lint typecheck docstrings docs-lint check test test-matrix test-numpy-floor install-matrix coverage ci pre-commit clean
 

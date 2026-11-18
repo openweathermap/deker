@@ -19,7 +19,7 @@ jobs:
       python-version: '3.10'
       ref: ${{ inputs.ref }}
       version: ${{ inputs.version }}
-      siblings: '["deker-local-adapters", "deker-server-adapters", "deker-tools"]'
+      siblings: '["deker-local-adapters", "deker-server-adapters", "deker-shell", "deker-tools"]'
 
   publish_docs:
     needs: build_docs
