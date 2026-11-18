@@ -1,3 +1,4 @@
+import errno
 import os
 
 from concurrent.futures import ThreadPoolExecutor
@@ -206,6 +207,127 @@ class TestMixinEdges:
         os.remove(paths.main / (inserted_array.id + local_array_adapter.file_ext))
         local_array_adapter.delete(inserted_array)  # the target is already gone, the symlink is removed anyway
         assert not (paths.symlink / (inserted_array.id + local_array_adapter.file_ext)).exists()
+
+
+class TestDeleteOfNeighbouringArrays:
+    """Two Arrays whose ids share the first characters share the directories of the data tree.
+
+    Deleting them at once from two threads is a race on those directories: the one that loses the removal
+    of a shared directory must still remove the directories of its own symlink.
+    """
+
+    REPEATS = 50
+
+    @staticmethod
+    def _neighbours(array_collection: Collection, local_array_adapter: LocalArrayAdapter) -> tuple[Array, Array]:
+        """Create two Arrays whose main files share the directories of the data tree.
+
+        :param array_collection: the collection
+        :param local_array_adapter: the adapter of the collection
+        :returns: the Arrays
+        """
+        arrays = tuple(
+            Array(array_collection, local_array_adapter, id_=f"8c{tail}0000-0000-4000-8000-{n:012d}")
+            for n, tail in enumerate(("aa", "bb"))
+        )
+        for array in arrays:
+            local_array_adapter.create(array)
+        return arrays
+
+    @staticmethod
+    def _directories_left(array_collection: Collection, local_array_adapter: LocalArrayAdapter) -> list[Path]:
+        """List every directory under the data and the symlinks directories of the collection.
+
+        :param array_collection: the collection
+        :param local_array_adapter: the adapter of the collection
+        :returns: the directories, empty when the deletion was clean
+        """
+        return [
+            Path(dirpath) / name
+            for directory in (local_array_adapter.data_dir, local_array_adapter.symlinks_dir)
+            for dirpath, dirnames, _ in os.walk(array_collection.path / directory)
+            for name in dirnames
+        ]
+
+    def test_two_threads_leave_no_directories(
+        self, array_collection: Collection, local_array_adapter: LocalArrayAdapter
+    ):
+        """Whatever the order of the two threads, nothing stays under the data and the symlinks directories."""
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            for _ in range(self.REPEATS):
+                arrays = self._neighbours(array_collection, local_array_adapter)
+                list(executor.map(local_array_adapter.delete, arrays))
+                assert self._directories_left(array_collection, local_array_adapter) == []
+
+    def test_a_directory_removed_by_the_neighbour_is_skipped(
+        self, array_collection: Collection, local_array_adapter: LocalArrayAdapter, mocker: MockerFixture
+    ):
+        """A shared directory that is gone by the time of rmdir was removed by the other thread: the climb goes on."""
+        first, second = self._neighbours(array_collection, local_array_adapter)
+        shared = array_collection.path / local_array_adapter.data_dir / "8" / "c"
+        local_array_adapter.delete(first)
+        assert shared.exists()
+        real_rmdir = os.rmdir
+
+        def rmdir_lost_to_the_neighbour(path: str | os.PathLike, **kwargs: object) -> None:
+            real_rmdir(path, **kwargs)
+            if Path(path) == shared:
+                raise FileNotFoundError(2, "the neighbour was first", str(path))
+
+        mocker.patch("deker_local_adapters.mixin.os.rmdir", rmdir_lost_to_the_neighbour)
+        local_array_adapter.delete(second)
+        assert self._directories_left(array_collection, local_array_adapter) == []
+
+    def test_a_directory_filled_meanwhile_is_left(
+        self, array_collection: Collection, local_array_adapter: LocalArrayAdapter, mocker: MockerFixture
+    ):
+        """A directory that is not empty anymore at rmdir (something was created in it) stays, without an error."""
+        first, second = self._neighbours(array_collection, local_array_adapter)
+        shared = array_collection.path / local_array_adapter.data_dir / "8" / "c"
+        local_array_adapter.delete(first)
+        real_rmdir = os.rmdir
+
+        def rmdir_of_a_filled_directory(path: str | os.PathLike, **kwargs: object) -> None:
+            if Path(path) == shared:
+                (shared / "newcomer").mkdir()
+                raise OSError(errno.ENOTEMPTY, "Directory not empty", str(path))
+            real_rmdir(path, **kwargs)
+
+        mocker.patch("deker_local_adapters.mixin.os.rmdir", rmdir_of_a_filled_directory)
+        local_array_adapter.delete(second)
+        assert (shared / "newcomer").exists()
+        left = [shared.parent, shared, shared / "newcomer"]
+        assert self._directories_left(array_collection, local_array_adapter) == left
+        symlink = array_collection.path / local_array_adapter.symlinks_dir / (second.id + local_array_adapter.file_ext)
+        assert not symlink.exists()
+
+    def test_other_errors_of_rmdir_are_raised(
+        self, array_collection: Collection, local_array_adapter: LocalArrayAdapter, mocker: MockerFixture
+    ):
+        """Any other failure of rmdir is an error of the deletion, as before."""
+        array = array_collection.create()
+        mocker.patch("deker_local_adapters.mixin.os.rmdir", side_effect=PermissionError(errno.EACCES, "no"))
+        with pytest.raises(PermissionError):
+            local_array_adapter.delete(array)
+
+    def test_a_data_file_removed_meanwhile_is_not_an_error(
+        self, array_collection: Collection, local_array_adapter: LocalArrayAdapter, mocker: MockerFixture
+    ):
+        """The data file may disappear between the existence check and the removal: the symlink is still removed."""
+        array = array_collection.create()
+        paths = get_paths(array, array_collection.path)
+        file = array.id + local_array_adapter.file_ext
+        real_remove = os.remove
+
+        def remove_of_a_file_gone_meanwhile(path: str | os.PathLike, *args: object, **kwargs: object) -> None:
+            real_remove(path, *args, **kwargs)
+            raise FileNotFoundError(2, "gone meanwhile", str(path))
+
+        mocker.patch("deker_local_adapters.mixin.os.remove", remove_of_a_file_gone_meanwhile)
+        local_array_adapter.delete(array)
+        assert not (paths.main / file).exists()
+        assert not (paths.symlink / file).exists()
+        assert self._directories_left(array_collection, local_array_adapter) == []
 
 
 @pytest.mark.parametrize("array_", ["array_with_attributes", "varray_with_attributes"])
