@@ -10,7 +10,8 @@ import pytest
 from deker_local_adapters import HDF5CompressionOpts, HDF5Options
 from numpy import ndarray
 
-from tests.parameters.index_exp_params import valid_index_exp_params
+from tests.fixtures.collection import SteppedCollections
+from tests.parameters.index_exp_params import array_step_cases, valid_index_exp_params
 
 from deker import ArraySchema, AttributeSchema, DimensionSchema, Scale, TimeDimensionSchema
 from deker.arrays import Array
@@ -23,9 +24,7 @@ from deker.types.private.typings import Slice
 
 class TestArraySubsetMethods:
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_subset_shape_is_correct(
-        self, inserted_array: Array, array_data: ndarray, index_exp: Slice
-    ):
+    def test_subset_shape_is_correct(self, inserted_array: Array, array_data: ndarray, index_exp: Slice):
         """Tests if subset shape is correct.
 
         :param inserted_array: Pre created array
@@ -35,6 +34,35 @@ class TestArraySubsetMethods:
         subset = inserted_array[index_exp]
         assert subset
         assert subset.shape == array_data[index_exp].shape
+
+    def test_read_does_not_describe_the_subset_when_the_log_is_off(self, inserted_array: Array, mocker):
+        """The messages of the log are built only when they are written: no subset string at the ERROR level."""
+        described = mocker.spy(Subset, "__str__")
+        inserted_array[0].read()
+        assert described.call_count == 0
+
+    def test_read_describes_the_subset_when_the_log_is_on(self, inserted_array: Array, deker_log, mocker):
+        described = mocker.spy(Subset, "__str__")
+        inserted_array[0].read()
+        assert described.call_count > 0
+        assert any("data read" in record.message for record in deker_log.records)
+
+    @pytest.mark.parametrize(
+        ("index_exp", "bounds"),
+        [(0, "[0]"), ((slice(0, 2), 1), "[0:2, 1]"), ((slice(None), slice(None, None, 2)), "[:, ::2]")],
+    )
+    def test_repr_names_the_bounds_the_shape_and_the_array(self, inserted_array: Array, index_exp: Slice, bounds: str):
+        """The repr of a Subset carries its bounds, its shape and the id of its Array."""
+        subset = inserted_array[index_exp]
+        assert repr(subset) == f"Subset(bounds={bounds}, shape={subset.shape}, array={inserted_array.id})"
+
+    @pytest.mark.parametrize(
+        ("index_exp", "bounds"),
+        [(0, "[0]"), ((slice(0, 2), 1), "[0:2, 1]"), ((slice(None), slice(None, None, 2)), "[:, ::2]")],
+    )
+    def test_str_is_the_array_with_the_bounds(self, inserted_array: Array, index_exp: Slice, bounds: str):
+        """The str of a Subset is the str of its Array followed by the bounds."""
+        assert str(inserted_array[index_exp]) == f"{inserted_array!s}{bounds}"
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
     def test_subset_read(self, inserted_array: Array, array_data: ndarray, index_exp: Slice):
@@ -69,9 +97,7 @@ class TestArraySubsetMethods:
             subset: Subset = array[index_exp]
             data = subset.read()
             subset.clear()
-            paths = get_paths(
-                array, root_path / ctx.config.collections_directory / array.collection
-            )
+            paths = get_paths(array, root_path / ctx.config.collections_directory / array.collection)
             filename = paths.main / (array.id + ctx.storage_adapter.file_ext)
 
             with h5py.File(filename) as f:
@@ -88,9 +114,7 @@ class TestArraySubsetMethods:
             array.delete()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_update_subset(
-        self, array_collection: Collection, array_data: ndarray, index_exp: Slice
-    ):
+    def test_update_subset(self, array_collection: Collection, array_data: ndarray, index_exp: Slice):
         """Tests if subset updates itself correctly.
 
         :param array_collection: Pre created collection
@@ -152,6 +176,58 @@ class TestArraySubsetMethods:
             array.delete()
 
 
+# The described array of TestSubsetForXArray: dt 24 x 1h from 2023-01-01, y 721 x -0.25 from 90, x 1440 x 0.25
+# from -180, layers temp/pres/pcp
+def _hours(*positions: int) -> list[datetime]:
+    """Time coordinates of the described array at the given positions.
+
+    :param positions: indexes on the time axis
+    :returns: datetimes
+    """
+    return [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=n) for n in positions]
+
+
+# Integer steps: valid on the described and on the not described array alike
+stepped_description_params = [
+    pytest.param(
+        np.index_exp[::6],
+        {"dt": _hours(0, 6, 12, 18), "layers": ["temp", "pres", "pcp"]},
+        id="time-every-6th",
+    ),
+    pytest.param(
+        np.index_exp[::-6],
+        {"dt": _hours(23, 17, 11, 5), "layers": ["temp", "pres", "pcp"]},
+        id="time-backward-every-6th",
+    ),
+    pytest.param(
+        np.index_exp[2:10:3, 0:9:4, -4::1, ::2],
+        {
+            "dt": _hours(2, 5, 8),
+            "y": [90.0, 89.0, 88.0],
+            "x": [179.0, 179.25, 179.5, 179.75],
+            "layers": ["temp", "pcp"],
+        },
+        id="every-axis",
+    ),
+    pytest.param(
+        np.index_exp[5, ::-360, 1439:1430:-3, ::-1],
+        {"dt": _hours(5), "y": [-90.0, 0.0, 90.0], "x": [179.75, 179.0, 178.25], "layers": ["pcp", "pres", "temp"]},
+        id="backward-scales-and-labels",
+    ),
+]
+
+# Fancy steps: the described array only
+fancy_stepped_description_params = [
+    pytest.param(
+        np.index_exp[
+            datetime(2023, 1, 1, 20, tzinfo=timezone.utc) :: -timedelta(hours=10), 90.0:88.0:-1.0, :, "pcp":"temp":-1
+        ],
+        {"dt": _hours(20, 10, 0), "y": [90.0, 89.0], "layers": ["pcp", "pres"]},
+        id="fancy-steps",
+    ),
+]
+
+
 class TestSubsetForXArray:
     @pytest.fixture(scope="class")
     def full_described_array(self, client) -> Array:
@@ -163,12 +239,8 @@ class TestSubsetForXArray:
                 start_value=datetime(2023, 1, 1, tzinfo=timezone.utc),
                 step=timedelta(hours=1),
             ),
-            DimensionSchema(
-                name="y", size=721, scale=Scale(start_value=90.0, step=-0.25, name="lat")
-            ),
-            DimensionSchema(
-                name="x", size=1440, scale=Scale(start_value=-180.0, step=0.25, name="lon")
-            ),
+            DimensionSchema(name="y", size=721, scale=Scale(start_value=90.0, step=-0.25, name="lat")),
+            DimensionSchema(name="x", size=1440, scale=Scale(start_value=-180.0, step=0.25, name="lon")),
             DimensionSchema(name="layers", size=3, labels=["temp", "pres", "pcp"]),
         ]
 
@@ -213,9 +285,7 @@ class TestSubsetForXArray:
             col.delete()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_subset_description_on_read_xarray(
-        self, array_collection: Collection, index_exp: Slice
-    ):
+    def test_subset_description_on_read_xarray(self, array_collection: Collection, index_exp: Slice):
         array: Array = array_collection.create()
         subset = array[index_exp]
 
@@ -243,10 +313,7 @@ class TestSubsetForXArray:
                 np.index_exp[:],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
@@ -268,10 +335,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [90.0],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
@@ -282,10 +346,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": [-180],
                         "layers": ["temp", "pres", "pcp"],
@@ -296,10 +357,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, :, 1],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["pres"],
@@ -377,8 +435,7 @@ class TestSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(6, 12)
+                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(6, 12)
                         ],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
@@ -390,10 +447,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [88.5, 88.25, 88.0, 87.75, 87.5, 87.25],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres", "pcp"],
@@ -404,10 +458,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": [-178.5, -178.25, -178.0, -177.75, -177.5, -177.25],
                         "layers": ["temp", "pres", "pcp"],
@@ -418,10 +469,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, :, :2],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": np.around(np.arange(90, -91, -0.25), 2).tolist()[:721],
                         "x": np.around(np.arange(-180, 180, 0.25), 2).tolist()[:1440],
                         "layers": ["temp", "pres"],
@@ -489,10 +537,7 @@ class TestSubsetForXArray:
                 np.index_exp[:],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": list(range(1440)),
                         "layers": list(range(3)),
@@ -514,10 +559,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [0],
                         "x": list(range(1440)),
                         "layers": list(range(3)),
@@ -528,10 +570,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, 0],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": [0],
                         "layers": list(range(3)),
@@ -542,10 +581,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, :, 1],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": list(range(1440)),
                         "layers": [1],
@@ -623,8 +659,7 @@ class TestSubsetForXArray:
                 OrderedDict(
                     {
                         "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(6, 12)
+                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(6, 12)
                         ],
                         "y": list(range(721)),
                         "x": list(range(1440)),
@@ -636,10 +671,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": [6, 7, 8, 9, 10, 11],
                         "x": list(range(1440)),
                         "layers": list(range(3)),
@@ -650,10 +682,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, 6:12],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": [6, 7, 8, 9, 10, 11],
                         "layers": list(range(3)),
@@ -664,10 +693,7 @@ class TestSubsetForXArray:
                 np.index_exp[:, :, :, :2],
                 OrderedDict(
                     {
-                        "dt": [
-                            datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n
-                            for n in range(24)
-                        ],
+                        "dt": [datetime(2023, 1, 1, tzinfo=timezone.utc) + timedelta(hours=1) * n for n in range(24)],
                         "y": list(range(721)),
                         "x": list(range(1440)),
                         "layers": [0, 1],
@@ -725,8 +751,8 @@ class TestSubsetForXArray:
             np.index_exp[datetime(2023, 1, 1, 11, 0, tzinfo=timezone.utc), -3.5, "16.5", "pcp"],
             np.index_exp[datetime(2023, 1, 1, 11, 0, tzinfo=timezone.utc), -3.5, 16.5, 1.0],
             np.index_exp[0, 0, 0, 4],
-            np.index_exp[::-1],
-            np.index_exp[::2],
+            np.index_exp[::0],
+            np.index_exp[::True],
         ],
     )
     def test_described_subset_raises(self, full_described_array, index_exp):
@@ -743,13 +769,145 @@ class TestSubsetForXArray:
             np.index_exp[datetime(2023, 1, 1, 11, 0, tzinfo=timezone.utc), -3.5, "16.5", "pcp"],
             np.index_exp[datetime(2023, 1, 1, 11, 0, tzinfo=timezone.utc), -3.5, 16.5, 1.0],
             np.index_exp[0, 0, 0, 4],
-            np.index_exp[::-1],
-            np.index_exp[::2],
+            np.index_exp[::0],
+            np.index_exp[::True],
         ],
     )
     def test_not_described_subset_raises(self, not_described_array, index_exp):
         with pytest.raises(IndexError):
             assert not_described_array[index_exp]
+
+    @pytest.mark.parametrize(("index_exp", "expected"), stepped_description_params + fancy_stepped_description_params)
+    def test_described_subset(self, full_described_array: Array, index_exp: Slice, expected: dict):
+        description = full_described_array[index_exp].describe()
+        for name, values in expected.items():
+            assert description[name] == values, name
+        # the axes left out of the expression are described in full
+        assert len(description["x"]) == (len(expected["x"]) if "x" in expected else 1440)
+
+    @pytest.mark.parametrize(("index_exp", "expected"), stepped_description_params)
+    def test_not_described_subset(self, not_described_array: Array, index_exp: Slice, expected: dict):
+        """Tests if the axes without a scale or labels are described by their indexes."""
+        shape = not_described_array.shape
+        description = not_described_array[index_exp].describe()
+        for n, (name, size) in enumerate(zip(("dt", "y", "x", "layers"), shape)):
+            bound = index_exp[n] if n < len(index_exp) else slice(None)
+            positions = [bound] if isinstance(bound, int) else list(range(*bound.indices(size)))
+            if name == "dt":
+                assert description[name] == _hours(*positions)
+            else:
+                assert description[name] == positions
+
+    @pytest.mark.parametrize(("index_exp", "expected"), stepped_description_params + fancy_stepped_description_params)
+    def test_read_xarray(self, full_described_array: Array, index_exp: Slice, expected: dict):
+        """Tests if the coordinates of the xarray follow the stepped description."""
+        pytest.importorskip("xarray")
+        subset = full_described_array[index_exp]
+        xarray = subset.read_xarray()
+        # an integer index keeps its axis in the xarray, with a single coordinate
+        assert xarray.shape == tuple(len(values) for values in subset.describe().values())
+        assert np.array_equal(xarray.values.reshape(subset.shape), subset.read(), equal_nan=True)
+        for name, values in expected.items():
+            if name != "dt":  # time coordinates are converted by xarray, they are checked through describe()
+                assert list(xarray.coords[name].values) == values, name
+
+
+@pytest.fixture
+def stepped_data(stepped_array_collection: Collection) -> np.ndarray:
+    """Distinct values for every cell of the array of the collection."""
+    shape = stepped_array_collection.array_schema.shape
+    return np.arange(1, np.prod(shape, dtype=int) + 1, dtype=float).reshape(shape)
+
+
+@pytest.fixture
+def stepped_array(stepped_array_collection: Collection, stepped_data: np.ndarray) -> Array:
+    """An Array with data in every cell."""
+    array = stepped_array_collection.create()
+    array[:].update(stepped_data)
+    try:
+        yield array
+    finally:
+        array.delete()
+
+
+class TestSubsetSteps:
+    """Reading, writing and clearing a stepped subset of an Array gives exactly what numpy gives, in 1D to 4D."""
+
+    @pytest.mark.parametrize(
+        ("filled_stepped_array", "index_exp"), array_step_cases(), indirect=["filled_stepped_array"]
+    )
+    def test_read(self, filled_stepped_array: Array, index_exp: Slice):
+        subset = filled_stepped_array[index_exp]
+        expected = SteppedCollections.data(filled_stepped_array.shape)[index_exp]
+        assert subset.shape == expected.shape
+        assert np.array_equal(subset.read(), expected)
+
+    @pytest.mark.parametrize(
+        ("stepped_array_collection", "index_exp"), array_step_cases(), indirect=["stepped_array_collection"]
+    )
+    def test_update(self, stepped_array: Array, stepped_data: np.ndarray, index_exp: Slice):
+        subset = stepped_array[index_exp]
+        new_data = -1.0 - np.arange(np.prod(subset.shape, dtype=int), dtype=float).reshape(subset.shape)
+        expected = stepped_data.copy()
+        expected[index_exp] = new_data
+
+        subset.update(new_data)
+
+        assert np.array_equal(subset.read(), new_data)
+        assert np.array_equal(stepped_array[:].read(), expected)
+
+    @pytest.mark.parametrize(
+        ("stepped_array_collection", "index_exp"), array_step_cases(), indirect=["stepped_array_collection"]
+    )
+    def test_update_with_a_scalar(self, stepped_array: Array, stepped_data: np.ndarray, index_exp: Slice):
+        subset = stepped_array[index_exp]
+        expected = stepped_data.copy()
+        expected[index_exp] = -7.0
+
+        subset.update(-7.0)
+
+        assert np.array_equal(stepped_array[:].read(), expected)
+
+    @pytest.mark.parametrize(
+        ("stepped_array_collection", "index_exp"), array_step_cases(), indirect=["stepped_array_collection"]
+    )
+    def test_clear(self, stepped_array: Array, stepped_data: np.ndarray, index_exp: Slice):
+        subset = stepped_array[index_exp]
+        expected = stepped_data.copy()
+        expected[index_exp] = np.nan
+
+        subset.clear()
+
+        assert np.all(np.isnan(subset.read()))
+        assert np.array_equal(stepped_array[:].read(), expected, equal_nan=True)
+
+    @pytest.mark.parametrize(
+        ("stepped_array_collection", "index_exp"), array_step_cases(), indirect=["stepped_array_collection"]
+    )
+    def test_update_into_an_empty_array(
+        self, stepped_array_collection: Collection, stepped_data: np.ndarray, index_exp: Slice
+    ):
+        array = stepped_array_collection.create()
+        try:
+            subset = array[index_exp]
+            new_data = stepped_data[index_exp]
+            expected = np.full(array.shape, np.nan)
+            expected[index_exp] = new_data
+
+            subset.update(new_data)
+
+            assert np.array_equal(array[:].read(), expected, equal_nan=True)
+        finally:
+            array.delete()
+
+    @pytest.mark.parametrize(
+        ("stepped_array_collection", "index_exp"), array_step_cases(), indirect=["stepped_array_collection"]
+    )
+    def test_wrong_shape_raises(self, stepped_array: Array, index_exp: Slice):
+        subset = stepped_array[index_exp]
+        wrong = np.zeros(tuple(n + 1 for n in subset.shape))
+        with pytest.raises(IndexError):
+            subset.update(wrong)
 
 
 if __name__ == "__main__":

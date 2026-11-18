@@ -13,11 +13,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List
 
 
 class DekerBaseApplicationError(Exception):
-    """Base attribute exception."""
+    """Base exception of Deker: every Deker error is its subclass."""
 
 
 class DekerClientError(DekerBaseApplicationError, RuntimeError):
@@ -26,8 +25,16 @@ class DekerClientError(DekerBaseApplicationError, RuntimeError):
     pass
 
 
+class DekerAdapterClosedError(DekerClientError):
+    """If an adapter or a factory is used after the client context was closed.
+
+    It is a ``DekerClientError``: every object of a closed client answers with it,
+    while the client itself raises a plain ``DekerClientError``.
+    """
+
+
 class DekerArrayError(DekerBaseApplicationError):
-    """If something goes wrong in Array."""
+    """If something goes wrong in Array or VArray: a missing file, a creation of an array that exists."""
 
 
 class DekerArrayTypeError(DekerArrayError):
@@ -79,13 +86,13 @@ class DekerValidationError(DekerBaseApplicationError):
 
 
 class DekerIntegrityError(DekerBaseApplicationError):
-    """If something goes wrong during integrity check."""
+    """If the integrity check is asked to stop at the first finding and finds one."""
 
     pass
 
 
 class DekerLockError(DekerBaseApplicationError):
-    """If a Collection or a Array or VArray instance is locked."""
+    """If a lock cannot be taken: a reader meets a writer, or a writer does not get the file within the timeout."""
 
     pass
 
@@ -108,25 +115,23 @@ class DekerSubsetError(DekerArrayError):
 
 
 class DekerExceptionGroup(DekerBaseApplicationError):
-    """If one or more threads finished with any exception.
+    r"""If one or more threads finished with any exception.
 
     Name, message and reasonable tracebacks of all
     of these exceptions shall be collected in a list
-    and passed to this class along with some message.
+    and passed to this class along with some message::
 
-    ```
-    futures = [executor.submit(func, arg) for arg in iterable]
+        futures = [executor.submit(func, arg) for arg in iterable]
 
-    exceptions = []
-    for future in futures:
-        try:
-            future.result()
-        except Exception as e:
-            exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
-    ```
+        exceptions = []
+        for future in futures:
+            try:
+                future.result()
+            except Exception as e:
+                exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
     """
 
-    def __init__(self, message: str, exceptions: List[str]):
+    def __init__(self, message: str, exceptions: list[str]):
         self.message = message
         self.exceptions = exceptions
         super().__init__(message, exceptions)
@@ -144,7 +149,7 @@ class DekerMemoryError(DekerBaseApplicationError, MemoryError):
 class DekerVSubsetError(DekerSubsetError, DekerExceptionGroup):
     """If something goes wrong while VSubset managing.
 
-    Regarding that VSubset's inner Subsets' processing
-    is made in an Executor, this exception actually is
-    an `exceptions messages group`.
+    A ``VSubset`` reads, writes and clears the ``Arrays`` of its ``VArray`` one by one in an executor,
+    so this exception is a group of the messages of the ``Arrays`` that failed; the other ``Arrays``
+    are processed.
     """

@@ -1,5 +1,3 @@
-from typing import List
-
 import pytest
 
 from deker_local_adapters import LocalCollectionAdapter
@@ -36,9 +34,9 @@ class TestCollectionConcurrency:
         assert main_path.exists()
         assert symlink_path.exists()
 
-        clients: List[Client] = [Client(str(embedded_uri(root_path))) for _ in range(10)]
+        clients: list[Client] = [Client(str(embedded_uri(root_path))) for _ in range(10)]
         assert len({id(c) for c in clients}) == 10
-        colls: List[Collection] = [c.get_collection(array_collection.name) for c in clients]
+        colls: list[Collection] = [c.get_collection(array_collection.name) for c in clients]
         assert all(isinstance(c, Collection) for c in colls)
         for c in colls:
             c.clear()
@@ -54,9 +52,9 @@ class TestCollectionConcurrency:
         :param array_collection: pre created Collection instance
         :param root_path: collections root path
         """
-        clients: List[Client] = [Client(str(embedded_uri(root_path))) for _ in range(10)]  # type: ignore
+        clients: list[Client] = [Client(str(embedded_uri(root_path))) for _ in range(10)]  # type: ignore
         assert len({id(c) for c in clients}) == 10
-        colls: List[Collection] = [c.get_collection(array_collection.name) for c in clients]  # type: ignore
+        colls: list[Collection] = [c.get_collection(array_collection.name) for c in clients]  # type: ignore
         assert all(isinstance(c, Collection) for c in colls)
         for c in colls:
             c.delete()

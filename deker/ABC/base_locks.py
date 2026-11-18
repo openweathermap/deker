@@ -17,34 +17,49 @@
 """Abstract interfaces for locks."""
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable, Sequence
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Sequence, Union
+from typing import Any, ParamSpec, TypeVar
 
 from deker.flock import Flock
 from deker.log import SelfLoggerMixin
 
+P = ParamSpec("P")
+R = TypeVar("R")
+
 
 class BaseLock(SelfLoggerMixin, ABC):
-    """Base class for read/write locks."""
+    """Base class of the lock decorators of the adapter methods.
 
-    ALLOWED_TYPES: List[str] = []
-    lock: Optional[Union[Flock, Path]] = None
-    instance: Optional[Any] = None
-    args: Optional[List[Any]] = None
-    kwargs: Optional[Dict] = None
+    A lock decorates a method of an adapter; every call gets a fresh lock object bound to the adapter and the
+    arguments of the call. The lock takes an ``flock`` on the path ``get_path`` names before the method runs
+    and releases it after, whatever the outcome; ``check_existing_lock`` runs before the ``flock`` is taken, for
+    the locks that wait.
+    """
+
+    ALLOWED_TYPES: list[str] = []
+    lock: Flock | None = None
+    # bound by __call__ for every decorated call: the decorated method's object and its arguments
+    instance: Any
+    args: Sequence[Any]
+    kwargs: dict[str, Any]
 
     @abstractmethod
-    def get_path(self) -> Optional[Path]:
-        """Get path to the lock file.
+    def get_path(self) -> Path | None:
+        """Get the path the ``flock`` is taken on.
 
-        For Arrays it shall be .arrlock (array read lock) or path to the file (array write lock)
-        For VArrays there are no specific locks for reading, for writing - lock on .json
+        The main file of an ``Array`` or a ``VArray`` for the locks of the arrays, the ``<collection>.lock`` file
+        for the lock of a collection.
+
+        :returns: the path, ``None`` for a lock that holds nothing
         """
         pass
 
-    def check_existing_lock(self, func_args: Sequence, func_kwargs: Dict) -> None:
-        """Check if there is lock for given method.
+    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:
+        """Run before the ``flock`` is taken; a lock that waits for the file takes the ``flock`` here.
+
+        Does nothing by default.
 
         :param func_args: Arguments for function that has been called
         :param func_kwargs: Key word arguments for function that has been called
@@ -52,31 +67,36 @@ class BaseLock(SelfLoggerMixin, ABC):
         pass
 
     def check_type(self) -> None:
-        """Check if the instance type (class) is allowed for locking."""
+        """Check if the instance type (class) is allowed for locking.
+
+        :raises TypeError: if the decorated method belongs to a class the lock does not support
+        """
         # Workaround, because isinstance returns BaseClass
         cls: str = self.instance.__class__.__name__
         if cls not in self.ALLOWED_TYPES:
             raise TypeError(f"{cls} lock is not supported")
 
-    def acquire(self, path: Optional[Path]) -> None:
-        """Make lock using flock.
+    def acquire(self, path: Path | None) -> None:
+        """Take an exclusive ``flock`` on the path, unless the lock is held already or there is no path.
 
         :param path: Path to file that should be flocked
+        :raises DekerLockError: if the file is locked by another holder
         """
         if not self.lock and path:
-            self.lock = Flock(path)
-            self.lock.acquire()
-            self.logger.debug(f"Set flock for {path}")
+            lock = Flock(path)
+            lock.acquire()  # a refused lock is not kept: the next attempt starts afresh
+            self.lock = lock
+            self.logger.debug("Set flock for %s", path)
 
-    def release(self, e: Optional[Exception] = None) -> None:  # noqa[ARG002]
+    def release(self, e: Exception | None = None) -> None:  # noqa: ARG002
         """Release Flock.
 
         :param e: exception that might have been raised
         """
         if self.lock:
             self.lock.release()
+            self.logger.debug("Released lock for %s", self.lock.file)
             self.lock = None
-            self.logger.debug(f"Released lock for {self.lock}")
 
     def get_result(self, func: Callable, args: Any, kwargs: Any) -> Any:
         """Call func, and get its result.
@@ -84,24 +104,25 @@ class BaseLock(SelfLoggerMixin, ABC):
         :param func: decorated function
         :param args: Arguments of decorated function
         :param kwargs: Keyword arguments of decorated function
+        :returns: result of ``func``
         """
         return func(*args, **kwargs)
 
     @staticmethod
-    def _inner_method_logic(lock: "BaseLock", args: Sequence, kwargs: Dict, func: Callable) -> Any:
-        """Logic of acquiring lock and getting a result.
+    def _inner_method_logic(lock: "BaseLock", args: Sequence, kwargs: dict, func: Callable) -> Any:
+        """Logic of acquiring lock and getting a result: the lock is released whatever the method does.
 
         :param lock: lock to be acquired
         :param func: decorated function
         :param args: Arguments of decorated function
         :param kwargs: Keyword arguments of decorated function
+        :returns: result of the decorated method
         """
         lock.check_existing_lock(args, kwargs)
         path = lock.get_path()
         lock.acquire(path)
         try:
-            # Logic is in the separate method, so we can override its behavior
-            # E.g., CreateArray lock has specific instructions for array attribute
+            # Logic is in the separate method, so a lock can override it
             result = lock.get_result(func, args, kwargs)
         except Exception as e:
             lock.release(e)
@@ -110,19 +131,23 @@ class BaseLock(SelfLoggerMixin, ABC):
 
         return result
 
-    def __call__(self, func: Callable) -> Any:
-        """Create/get file to lock with Flock and lock it.
+    def __call__(self, func: Callable[P, R]) -> Callable[P, R]:
+        """Decorate a method of an adapter with the lock.
 
-        If there is an existing lock, raise DekerLockError
+        Every call of the decorated method runs under a fresh lock of this class; if the file is held by someone
+        else, the call raises ``DekerLockError``. The decorated method keeps its signature for type checkers.
+
         :param func: Func that would be decorated
+        :returns: the decorated method
         """
 
         @wraps(func)
-        def inner(*args: Sequence, **kwargs: Dict[str, Any]) -> Any:
-            """Inner function of lock decorator.
+        def inner(*args: P.args, **kwargs: P.kwargs) -> R:
+            r"""Inner function of lock decorator.
 
-            :param args: Arguments of decorated function
-            :param kwargs: Keyword arguments of decorated function
+            :param \*args: Arguments of decorated function
+            :param \**kwargs: Keyword arguments of decorated function
+            :returns: result of the decorated method
             """
             # To keep different references for locks
             lock = self.__class__()
@@ -133,8 +158,7 @@ class BaseLock(SelfLoggerMixin, ABC):
             # Check that we don't have lock on anything that besides methods that require lock
             lock.check_type()
 
-            # Logic is in the separate method, so we can override its behavior
-            # E.g., in WriteVArrayLock, where we should skip the whole lock logic
+            # Logic is in the separate method, so a lock can override it
             return lock._inner_method_logic(lock, args, kwargs, func)
 
         return inner

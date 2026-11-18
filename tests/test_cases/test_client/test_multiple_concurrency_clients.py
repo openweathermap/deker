@@ -1,6 +1,6 @@
 import multiprocessing
 
-from multiprocessing import Pool
+from multiprocessing.context import BaseContext
 from multiprocessing.pool import ThreadPool
 
 import pytest
@@ -16,7 +16,6 @@ from deker.collection import Collection
 from deker.errors import DekerCollectionAlreadyExistsError, DekerLockError
 from deker.locks import Flock
 from deker.schemas import ArraySchema
-
 
 cores = multiprocessing.cpu_count() // 2
 WORKERS = cores if cores > 2 else 2
@@ -46,7 +45,7 @@ def collection_adapter_methods(method: str, path: str, name: str, array_schema: 
 
 class TestMultipleClients:
     def test_multiple_processes_create_collection(
-        self, root_path, array_schema: ArraySchema, client: Client
+        self, root_path, array_schema: ArraySchema, client: Client, mp_context: BaseContext
     ):
         """Tests multiple processes cannot create same collection."""
         name = "new_collection_for_processes"
@@ -57,7 +56,7 @@ class TestMultipleClients:
             flock = Flock(path)
             flock.acquire()
             try:
-                with Pool(WORKERS) as pool:
+                with mp_context.Pool(WORKERS) as pool:
                     res = pool.starmap(
                         collection_adapter_methods,
                         [("create", str(embedded_uri(root_path)), name, array_schema)] * WORKERS,
@@ -71,11 +70,11 @@ class TestMultipleClients:
             if not collection._is_deleted():
                 collection.delete()
 
-    def test_multiple_clients_create_collections(self, root_path, array_schema: ArraySchema):
+    def test_multiple_clients_create_collections(self, root_path, array_schema: ArraySchema, mp_context: BaseContext):
         """Tests multiple clients can create different collections."""
         coros = 10
 
-        with Pool(WORKERS) as pool:
+        with mp_context.Pool(WORKERS) as pool:
             args = []
             for _ in range(coros):
                 args.append(["create", str(embedded_uri(root_path)), random_string(), array_schema])
@@ -84,27 +83,25 @@ class TestMultipleClients:
         assert colls
         assert len(colls) == coros
         assert all(isinstance(c, str) for c in colls)
-        assert set([arg[2] for arg in args]) == set(colls)
+        assert {arg[2] for arg in args} == set(colls)
 
     def test_multiple_clients_can_not_create_same_collection(
-        self, root_path, array_schema: ArraySchema, client: Client
+        self, root_path, array_schema: ArraySchema, client: Client, mp_context: BaseContext
     ):
         """Tests multiple clients cannot create same collection."""
         coros = 10
         name = "new_col"
-        with Pool(WORKERS) as pool:
+        with mp_context.Pool(WORKERS) as pool:
             args = []
             for _ in range(coros):
                 args.append(["create", str(embedded_uri(root_path)), name, array_schema])
 
             with pytest.raises(DekerCollectionAlreadyExistsError):
-                colls = pool.starmap(collection_adapter_methods, args)
+                pool.starmap(collection_adapter_methods, args)
 
             assert client.get_collection(name)
 
-    def test_update_different_arrays_concurrently_with_one_client(
-        self, array_collection, root_path, array_data
-    ):
+    def test_update_different_arrays_concurrently_with_one_client(self, array_collection, root_path, array_data):
         """Tests one client can update different arrays in same collection concurrently."""
         coros = 10
         with Client(str(embedded_uri(root_path))) as client:

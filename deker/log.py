@@ -15,8 +15,6 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 import logging
 
-from typing import Optional
-
 _ROOT_DEKER_LOGGER_NAME = "Deker"
 
 format_string = "%(levelname)s | %(asctime)s | %(name)s | %(message)s"
@@ -29,10 +27,10 @@ _handler.setFormatter(fmter)
 _logger.addHandler(_handler)
 
 
-class SelfLoggerMixin(object):
+class SelfLoggerMixin:
     """Mixin with a logger object with a possibility to log its actions."""
 
-    __logger: Optional[logging.Logger] = None
+    __logger: logging.Logger | None = None
 
     @property
     def logger(self) -> logging.Logger:
@@ -51,5 +49,5 @@ def set_logging_level(level: str) -> None:
     items = list(_logger.manager.loggerDict.items())  # for Python 2 and 3
     items.sort()
     for name, logger in items:
-        if _logger.name in name:
+        if _logger.name in name and isinstance(logger, logging.Logger):
             logger.setLevel(level)

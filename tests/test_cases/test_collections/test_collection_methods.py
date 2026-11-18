@@ -10,7 +10,6 @@ from deker_local_adapters import HDF5StorageAdapter, LocalCollectionAdapter
 from deker_local_adapters.storage_adapters.hdf5 import HDF5CompressionOpts, HDF5Options
 
 from tests.parameters.collection_params import ClientParams
-from tests.parameters.uri import embedded_uri
 
 from deker import Scale
 from deker.arrays import Array, VArray
@@ -19,7 +18,6 @@ from deker.collection import Collection
 from deker.errors import (
     DekerInvalidManagerCallError,
     DekerInvalidSchemaError,
-    DekerMemoryError,
     DekerValidationError,
 )
 from deker.schemas import (
@@ -224,9 +222,7 @@ class TestCollectionMethods:
                 datetime(2023, 1, 1).replace(tzinfo=timezone.utc).isoformat(),
             ),
             (
-                HDF5Options(
-                    chunks=None, compression_opts=HDF5CompressionOpts(**hdf5plugin.Zstd(clevel=9))
-                ),
+                HDF5Options(chunks=None, compression_opts=HDF5CompressionOpts(**hdf5plugin.Zstd(clevel=9))),
                 datetime(2023, 1, 1).replace(tzinfo=timezone.utc),
                 {
                     "chunks": {"mode": "none"},
@@ -238,9 +234,7 @@ class TestCollectionMethods:
                 HDF5Options(
                     chunks=None,
                     compression_opts=HDF5CompressionOpts(
-                        **hdf5plugin.Blosc(
-                            cname="blosclz", clevel=9, shuffle=hdf5plugin.Blosc.SHUFFLE
-                        )
+                        **hdf5plugin.Blosc(cname="blosclz", clevel=9, shuffle=hdf5plugin.Blosc.SHUFFLE)
                     ),
                 ),
                 datetime(2023, 1, 1).replace(tzinfo=timezone.utc),
@@ -335,7 +329,7 @@ class TestCollectionMethods:
 
     @pytest.mark.parametrize(
         "dtype",
-        (
+        [
             BytesIO,
             set,
             type,
@@ -343,7 +337,7 @@ class TestCollectionMethods:
             dict,
             tuple,
             list,
-        ),
+        ],
     )
     def test_wrong_dtype(self, dtype: type, array_schema: ArraySchema):
         """Checks raising exception for wrong dtypes."""
@@ -419,7 +413,7 @@ class TestCollectionIterator:
         arrays = [array_collection.create() for _ in range(100)]
         assert arrays
         try:
-            iterated_arrays = [a for a in array_collection]
+            iterated_arrays = [*array_collection]
             assert all(isinstance(a, Array) for a in iterated_arrays)
         finally:
             for a in arrays:
@@ -453,9 +447,7 @@ class TestCollectionIterator:
             for a in arrays:
                 a.delete()
 
-    @pytest.mark.parametrize(
-        "params", [*ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas()]
-    )
+    @pytest.mark.parametrize("params", [*ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas()])
     def test_varray_collection_array_schema_creation_ok(self, params: dict, client: Client):
         """Tests if collection creates a valid array schemas, when varray schema is passed."""
         try:
@@ -478,9 +470,7 @@ class TestCollectionIterator:
                     if isinstance(dim.start_value, datetime):
                         assert dim.start_value == ar_dim.start_value  # type: ignore[attr-defined]
                     else:
-                        assert (
-                            f"$parent." + dim.start_value[1:] == ar_dim.start_value
-                        )  # type: ignore[attr-defined]
+                        assert "$parent." + dim.start_value[1:] == ar_dim.start_value  # type: ignore[attr-defined]
 
                 else:
                     assert ar_dim.labels is None  # type: ignore[attr-defined]
@@ -518,23 +508,17 @@ class TestCollectionIterator:
         :return:
         """
         position = [0] * len(varray_schema.dimensions)
-        array = varray_collection.arrays.filter(
-            {"vid": inserted_varray.id, "v_position": position}
-        ).first()
+        array = varray_collection.arrays.filter({"vid": inserted_varray.id, "v_position": position}).first()
         assert isinstance(array, Array)
         assert array.primary_attributes["vid"] == inserted_varray.id
         assert list(array.primary_attributes["v_position"]) == list(position)
 
-    def test_varray_collection_arrays_manager_iter_return_arrays(
-        self, varray_collection: Collection
-    ):
+    def test_varray_collection_arrays_manager_iter_return_arrays(self, varray_collection: Collection):
         """Check if we can iterate over arrays in varray collection."""
         for array in varray_collection.arrays:
             assert isinstance(array, Array)
 
-    def test_varray_collection_varrays_manager_iter_return_arrays(
-        self, varray_collection: Collection, inserted_varray
-    ):
+    def test_varray_collection_varrays_manager_iter_return_arrays(self, varray_collection: Collection, inserted_varray):
         """Check if we can iterate over arrays in varray collection."""
         equals_to_inserted = 0
         for array in varray_collection.varrays:
@@ -546,3 +530,10 @@ class TestCollectionIterator:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestCollectionRepr:
+    def test_repr_of_an_array_collection_names_only_the_array_schema(self, array_collection: Collection):
+        assert repr(array_collection) == (
+            f"Collection(name={array_collection.name}, array_schema={array_collection.array_schema})"
+        )

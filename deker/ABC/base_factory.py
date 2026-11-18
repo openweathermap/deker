@@ -18,7 +18,7 @@
 
 from abc import ABC, abstractmethod
 from concurrent.futures import ThreadPoolExecutor
-from typing import TYPE_CHECKING, Any, Tuple
+from typing import TYPE_CHECKING, Any
 
 from deker.log import SelfLoggerMixin
 
@@ -31,26 +31,34 @@ if TYPE_CHECKING:
 class BaseAdaptersFactory(SelfLoggerMixin, ABC):
     """Base interface of Collections, Arrays and VArrays adapters' factory."""
 
-    uri_schemes: Tuple[str, ...]
+    uri_schemes: tuple[str, ...]
 
     def __init__(self, ctx: "CTX", uri: "Uri") -> None:
+        """BaseAdaptersFactory constructor: takes the executor of the context or creates an own one.
+
+        :param ctx: context of the client
+        :param uri: uri of the storage
+        """
         self.ctx = ctx
         self.uri = uri
+        self.executor: ThreadPoolExecutor
+        self._own_executor: bool
         if self.ctx.executor is None:
-            self.executor: ThreadPoolExecutor = ThreadPoolExecutor(self.ctx.config.workers)
+            self.executor = ThreadPoolExecutor(self.ctx.config.workers)
             self.ctx.executor = self.executor
             self._own_executor = True
         else:
-            self.executor: ThreadPoolExecutor = self.ctx.executor
-            self._own_executor: bool = False
-        self.logger.debug(f"{self.__class__.__name__} instantiated")
+            self.executor = self.ctx.executor
+            self._own_executor = False
+        self.logger.debug("%s instantiated", self.__class__.__name__)
 
     def __del__(self) -> None:
+        """Close the factory when it is dropped."""
         self.close()
 
     @abstractmethod
     def close(self) -> None:
-        """Close own executor."""
+        """Close the own executor; an executor given by the user is left to the user."""
         try:
             if self.executor and self._own_executor:
                 self.executor.shutdown(wait=True, cancel_futures=False)
@@ -59,27 +67,30 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
 
     @abstractmethod
     def get_array_adapter(self, *args: Any, **kwargs: Any) -> "BaseArrayAdapter":
-        """Create ArrayAdapter instance.
+        r"""Create ArrayAdapter instance.
 
-        :param args: any arguments
-        :param kwargs: any keyword arguments
+        :param \*args: any arguments
+        :param \**kwargs: any keyword arguments
+        :returns: ``ArrayAdapter`` instance
         """
         pass
 
     @abstractmethod
-    def get_varray_adapter(self, *args: Any, **kwargs: Any) -> "BaseVArrayAdapter":  # type: ignore[return-value]
-        """Create VArrayAdapter instance.
+    def get_varray_adapter(self, *args: Any, **kwargs: Any) -> "BaseVArrayAdapter":
+        r"""Create VArrayAdapter instance.
 
-        :param args: any arguments
-        :param kwargs: any keyword arguments
+        :param \*args: any arguments
+        :param \**kwargs: any keyword arguments
+        :returns: ``VArrayAdapter`` instance
         """
         pass
 
     @abstractmethod
     def get_collection_adapter(self, *args: Any, **kwargs: Any) -> "BaseCollectionAdapter":
-        """Create collection adapter.
+        r"""Create collection adapter.
 
-        :param args: any arguments
-        :param kwargs: any keyword arguments
+        :param \*args: any arguments
+        :param \**kwargs: any keyword arguments
+        :returns: ``CollectionAdapter`` instance
         """
         pass

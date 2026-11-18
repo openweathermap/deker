@@ -17,23 +17,26 @@
 import datetime
 import uuid
 
-from typing import TYPE_CHECKING, Optional, Tuple, Union
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Union
 
 from deker_tools.time import get_utc
 
-from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerValidationError
 from deker.types import DTypeEnum
 
 if TYPE_CHECKING:
+    from deker.ABC.base_schemas import BaseDimensionSchema
     from deker.schemas import ArraySchema, AttributeSchema, VArraySchema
 
 
 def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.datetime:
-    """Validate time attribute and return its value.
+    """Get the attribute a time dimension starts at, as a UTC datetime.
 
-    :param attributes: attributes to validate
-    :param attr_name: attribute name to validate
+    :param attributes: attributes of the array
+    :param attr_name: name of the attribute
+    :returns: the time attribute as a datetime
+    :raises DekerValidationError: if the attribute is missing or ``None``
     """
     time_attribute = attributes.get(attr_name)
     if time_attribute is None:
@@ -44,9 +47,10 @@ def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.d
 
 
 def __validate_attribute_type(attribute: object) -> None:
-    """Validate attribute type over allowed types.
+    """Validate attribute type over allowed types; a tuple is validated element by element.
 
     :param attribute: attribute object
+    :raises DekerValidationError: if the type of the value is not an attribute dtype
     """
     if isinstance(attribute, tuple):
         for attr in attribute:
@@ -55,23 +59,28 @@ def __validate_attribute_type(attribute: object) -> None:
     dtype = type(attribute)
     if attribute is not None:
         try:
-            DTypeEnum(dtype).value
+            DTypeEnum(dtype).value  # noqa: B018  # validation by side effect, same as in BaseArraysSchema
         except (ValueError, KeyError):
             raise DekerValidationError(f"Invalid dtype value {dtype}")
 
 
 def __process_attributes_types(
-    attrs_schema: Tuple["AttributeSchema", ...],
+    attrs_schema: tuple["AttributeSchema", ...],
     primary_attributes: dict,
     custom_attributes: dict,
-    dimensions: list,
+    dimensions: Sequence["BaseDimensionSchema"],
 ) -> None:
     """Validate attributes types over schema and update dicts if needed.
+
+    A custom attribute left out is set to ``None``, unless a time dimension starts at it; datetime attributes
+    are converted to UTC in place.
 
     :param attrs_schema: attributes schema
     :param primary_attributes: primary attributes to validate
     :param custom_attributes: custom attributes to validate
-    :param dimensions: list of dimensions
+    :param dimensions: dimensions schemas
+    :raises DekerValidationError: if a primary attribute is missing, a value has a wrong type, or a custom
+      attribute a time dimension starts at is ``None``
     """
     from deker.schemas import TimeDimensionSchema
 
@@ -108,9 +117,7 @@ def __process_attributes_types(
                             and isinstance(d.start_value, str)
                             and d.start_value.startswith("$" + attr.name)
                         ):
-                            raise DekerValidationError(
-                                f'Custom attribute "{attr.name}" cannot be None'
-                            )
+                            raise DekerValidationError(f'Custom attribute "{attr.name}" cannot be None')
                 custom_attributes[attr.name] = None
 
             # validate tuples
@@ -118,37 +125,37 @@ def __process_attributes_types(
                 __validate_attribute_type(custom_attributes[attr.name])
 
         # convert datetime attribute with set datetime value to utc if needed
-        if (
-            attr.dtype == datetime.datetime
-            and attr.name in attributes
-            and attributes[attr.name] is not None
-        ):
+        if attr.dtype == datetime.datetime and attr.name in attributes and attributes[attr.name] is not None:
             try:
                 utc = get_utc(attributes[attr.name])
                 if attr.primary:
                     primary_attributes[attr.name] = utc
                 else:
                     custom_attributes[attr.name] = utc
-            except (ValueError, TypeError) as e:
+            except (ValueError, TypeError) as e:  # pragma: no cover  # guard: the value is a datetime, checked above
                 raise DekerValidationError(e)
 
 
 def process_attributes(
     schema: Union["ArraySchema", "VArraySchema"],
-    primary_attributes: Optional[dict],
-    custom_attributes: Optional[dict],
-) -> Tuple[dict, dict]:
+    primary_attributes: dict | None,
+    custom_attributes: dict | None,
+) -> tuple[dict, dict]:
     """Validate attributes over schema and return them.
 
     :param schema: ArraySchema or VArraySchema instance
     :param primary_attributes: attributes to validate
     :param custom_attributes: attributes to validate
+    :returns: validated primary and custom attributes: the custom ones completed with ``None`` for the attributes
+      left out, the datetimes in UTC
+    :raises DekerValidationError: if attributes are given to a schema without them, the primary ones are missing,
+      a name is both primary and custom, a name is not in the schema, or a value has a wrong type
     """
     from deker.schemas import VArraySchema
 
     array_type = "VArray" if isinstance(schema, VArraySchema) else "Array"
 
-    attrs_schema = schema.attributes if schema else []
+    attrs_schema: tuple["AttributeSchema", ...] = tuple(schema.attributes or ()) if schema else ()
 
     primary_attributes = primary_attributes or {}
     custom_attributes = custom_attributes or {}
@@ -180,47 +187,38 @@ def process_attributes(
             f"Invalid attributes: {sorted(extra_names)}"
         )
     __process_attributes_types(
-        attrs_schema, primary_attributes, custom_attributes, schema.dimensions  # type: ignore[arg-type]
+        attrs_schema,
+        primary_attributes,
+        custom_attributes,
+        schema.dimensions,
     )
     return primary_attributes, custom_attributes
 
 
 def validate_custom_attributes_update(
     schema: Union["ArraySchema", "VArraySchema"],
-    dimensions: Tuple[Union[Dimension, TimeDimension], ...],
     primary_attributes: dict,
     custom_attributes: dict,
-    attributes: Optional[dict],
+    attributes: dict | None,
 ) -> dict:
     """Validate custom attributes update over schema.
 
+    The custom attributes left out of the update keep their current values, the start of a $-time
+    dimension among them.
+
     :param schema: ArraySchema or VArraySchema instance
-    :param dimensions: tuple of (V)Array dimensions
     :param primary_attributes: (V)Array primary attributes
     :param custom_attributes: old custom attributes
     :param attributes: new custom attributes to validate
+    :returns: validated attributes: the given ones and the current values of the others
+    :raises DekerValidationError: if no attributes are given, a name is primary or not in the schema, or a value has
+      a wrong type
     """
-    from deker.schemas import TimeDimensionSchema
-
     if not attributes:
         raise DekerValidationError("No attributes passed for update")
-    for s in schema.dimensions:
-        if (
-            isinstance(s, TimeDimensionSchema)
-            and isinstance(s.start_value, str)
-            and s.start_value.startswith("$")
-        ):
-            if s.start_value[1:] in primary_attributes:
-                continue
-            if s.start_value[1:] not in attributes:
-                for d in dimensions:
-                    if d.name == s.name:
-                        attributes[s.start_value[1:]] = d.start_value  # type: ignore[attr-defined]
-        else:
-            # fill attributes to update dict with already existing custom attributes values
-            for attr in schema.attributes:
-                if not attr.primary and attr.name not in attributes:
-                    attributes[attr.name] = custom_attributes[attr.name]
+    for attr in schema.attributes or ():
+        if not attr.primary and attr.name not in attributes:
+            attributes[attr.name] = custom_attributes[attr.name]
 
     process_attributes(schema, primary_attributes, attributes)
     return attributes
@@ -230,6 +228,7 @@ def is_valid_uuid(id_: str) -> bool:
     """Validate if id is in uuid format.
 
     :param id_: id to validate
+    :returns: ``True`` if the string is a UUID
     """
     if not isinstance(id_, str) or len(id_.split("-")) != 5 or len(id_) != 36:
         return False

@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from typing import List, Union
 
 import numpy as np
 import pytest
@@ -25,20 +24,16 @@ def test_array_schema(params: dict):
     [
         [DimensionSchema(name="x", size=1), DimensionSchema(name="x", size=2)],
         [
-            TimeDimensionSchema(
-                name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)
-            ),
+            TimeDimensionSchema(name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)),
             DimensionSchema(name="x", size=2),
         ],
         [
             DimensionSchema(name="x", size=2),
-            TimeDimensionSchema(
-                name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)
-            ),
+            TimeDimensionSchema(name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)),
         ],
     ],
 )
-def test_dimensions_non_unique_names_error(dims: List[Union[DimensionSchema, TimeDimensionSchema]]):
+def test_dimensions_non_unique_names_error(dims: list[DimensionSchema | TimeDimensionSchema]):
     with pytest.raises(DekerValidationError):
         assert ArraySchema(dtype=int, dimensions=dims)  # type: ignore[arg-type]
 
@@ -60,9 +55,7 @@ def test_dimensions_non_unique_names_error(dims: List[Union[DimensionSchema, Tim
         ],
     ],
 )
-def test_attributes_non_unique_names_error(
-    attrs: List[AttributeSchema], dimensions: List[DimensionSchema]
-):
+def test_attributes_non_unique_names_error(attrs: list[AttributeSchema], dimensions: list[DimensionSchema]):
     with pytest.raises(DekerValidationError):
         assert ArraySchema(dtype=int, dimensions=dimensions, attributes=attrs)  # type: ignore[arg-type]
 
@@ -148,15 +141,13 @@ def test_array_schema_dtype_converting(dimensions, user_dtype, dtype):
 def test_array_schema_shape_is_python_int(array_schema: ArraySchema):
     shape = array_schema.shape
     for i in shape:
-        assert type(i) == int
+        assert type(i) is int
 
 
 @pytest.mark.parametrize("primary", [False, True])
 def test_schema_with_TD_and_start_value_link_fail_on_attr_is_None(client, primary):
     schema = ArraySchema(
-        dimensions=[
-            TimeDimensionSchema(name="x", size=1, start_value="$some_attr", step=timedelta(1))
-        ],
+        dimensions=[TimeDimensionSchema(name="x", size=1, start_value="$some_attr", step=timedelta(1))],
         dtype=int,
         attributes=[AttributeSchema(name="some_attr", dtype=datetime, primary=primary)],
     )
@@ -180,9 +171,7 @@ def test_schema_with_TD_and_start_value_link_fail_on_attr_is_None(client, primar
 
 def test_schema_with_TD_and_start_value_link_fail_on_custom_attr_is_set_to_None(client):
     schema = ArraySchema(
-        dimensions=[
-            TimeDimensionSchema(name="x", size=1, start_value="$some_attr", step=timedelta(1))
-        ],
+        dimensions=[TimeDimensionSchema(name="x", size=1, start_value="$some_attr", step=timedelta(1))],
         dtype=int,
         attributes=[AttributeSchema(name="some_attr", dtype=datetime, primary=False)],
     )
@@ -197,10 +186,7 @@ def test_schema_with_TD_and_start_value_link_fail_on_custom_attr_is_set_to_None(
         attrs = {key: {schema.attributes[0].name: datetime(2024, 1, 1, tzinfo=timezone.utc)}}
         array = col.create(**attrs)
         assert array
-        assert (
-            array.custom_attributes[schema.attributes[0].name]
-            == attrs[key][schema.attributes[0].name]
-        )
+        assert array.custom_attributes[schema.attributes[0].name] == attrs[key][schema.attributes[0].name]
         with pytest.raises(DekerValidationError):
             assert array.update_custom_attributes({schema.attributes[0].name: None})
     finally:
@@ -209,3 +195,21 @@ def test_schema_with_TD_and_start_value_link_fail_on_custom_attr_is_set_to_None(
 
 if __name__ == "__main__":
     pytest.main()
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        pytest.param([], id="no-attributes"),
+        pytest.param([AttributeSchema(name="other", dtype=datetime, primary=True)], id="another-name"),
+        pytest.param([AttributeSchema(name="time", dtype=str, primary=True)], id="not-a-datetime"),
+    ],
+)
+def test_time_dimension_referring_to_a_missing_attribute_raises(attributes: list):
+    """A $-start of a time dimension needs a datetime attribute of that name in the same schema."""
+    with pytest.raises(DekerValidationError, match="No time attribute with dtype `datetime.datetime` is provided"):
+        ArraySchema(
+            dtype=float,
+            dimensions=[TimeDimensionSchema(name="t", size=2, start_value="$time", step=timedelta(hours=1))],
+            attributes=attributes,
+        )

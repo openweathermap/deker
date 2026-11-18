@@ -22,11 +22,12 @@ from .array import (
     get_id,
 )
 from .decorators import not_deleted
-from .path import get_array_lock_path, get_main_path, get_paths, get_symlink_path
+from .path import get_main_path, get_paths, get_symlink_path
 from .schema import (
     create_attributes_schema,
     create_dimensions,
     create_dimensions_schema,
+    dtype_from_name,
     get_default_fill_value,
 )
-from .time import convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime
+from .time import array_time_attributes, convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime

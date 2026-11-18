@@ -16,25 +16,25 @@
 
 """Module for using in type annotations. Not for direct initialization."""
 
+import functools
+import operator
+
 from datetime import datetime
-from typing import TYPE_CHECKING, List, Tuple, Type, Union
+from types import EllipsisType, NoneType
+from typing import TYPE_CHECKING, TypeVar, Union
 
 import numpy as np
 
-from .classes import ArrayPosition, ArraysCoordinatesWithOffset
+from .classes import ArrayPosition
 
 if TYPE_CHECKING:
-    from numpy.lib._index_tricks_impl import IndexExpression
-else:
-    # numpy 2 made numpy.lib.index_tricks private; this works on numpy 1.26 and 2.x
-    IndexExpression = type(np.index_exp)
+    from deker.arrays import Array, VArray
 
 __all__ = (
+    "ArrayT",
     "EllipsisType",
     "NoneType",
     "Arrays",
-    "ArraysCoordinates",
-    "ArraysInDimension",
     "Slice",
     "FancySlice",
     "MetaDataType",
@@ -42,12 +42,6 @@ __all__ = (
     "Numeric",
     "NumericDtypes",
 )
-
-EllipsisType = type(...)
-NoneType = type(None)
-
-if TYPE_CHECKING:
-    EllipsisType = Type[Ellipsis]
 
 NumericDtypes = [
     int,
@@ -80,81 +74,90 @@ NumericDtypes = [
     np.clongdouble,
     np.float64,
     np.double,
-    np.float128,
     np.longdouble,
     np.longdouble,
     np.complex64,
     np.csingle,
     np.complex128,
     np.complex128,
-    np.complex256,
     np.clongdouble,
 ]
+# NumPy has the 128-bit types only where long double is 128 bits wide: Linux and Intel macOS,
+# not Apple silicon or Windows
+if hasattr(np, "float128"):
+    NumericDtypes.append(np.float128)
+if hasattr(np, "complex256"):
+    NumericDtypes.append(np.complex256)
 
-Numeric = Union[
-    int,
-    float,
-    complex,
-    np.int8,
-    np.byte,
-    np.int16,
-    np.short,
-    np.int32,
-    np.intc,
-    np.int64,
-    np.intp,
-    np.int_,  # alias for np.compat.long, deprecated in numpy version 1.25, equals to np.int64
-    np.longlong,
-    np.uint,
-    np.uint8,
-    np.ubyte,
-    np.uint16,
-    np.ushort,
-    np.uint32,
-    np.uintc,
-    np.uint64,
-    np.uintp,
-    np.ulonglong,
-    np.float16,
-    np.cdouble,
-    np.cdouble,
-    np.float32,
-    np.clongdouble,
-    np.float64,
-    np.double,
-    np.float128,
-    np.longdouble,
-    np.longdouble,
-    np.complex64,
-    np.csingle,
-    np.complex128,
-    np.complex128,
-    np.complex256,
-    np.clongdouble,
-]
+if TYPE_CHECKING:
+    # the full union for the type checker; at runtime it is built from NumericDtypes, which has
+    # the 128-bit types only where NumPy provides them
+    Numeric = Union[
+        int,
+        float,
+        complex,
+        np.int8,
+        np.byte,
+        np.int16,
+        np.short,
+        np.int32,
+        np.intc,
+        np.int64,
+        np.intp,
+        np.int_,  # alias for np.compat.long, deprecated in numpy version 1.25, equals to np.int64
+        np.longlong,
+        np.uint,
+        np.uint8,
+        np.ubyte,
+        np.uint16,
+        np.ushort,
+        np.uint32,
+        np.uintc,
+        np.uint64,
+        np.uintp,
+        np.ulonglong,
+        np.float16,
+        np.cdouble,
+        np.cdouble,
+        np.float32,
+        np.clongdouble,
+        np.float64,
+        np.double,
+        np.float128,
+        np.longdouble,
+        np.longdouble,
+        np.complex64,
+        np.csingle,
+        np.complex128,
+        np.complex128,
+        np.complex256,
+        np.clongdouble,
+    ]
+else:
+    Numeric = functools.reduce(operator.or_, NumericDtypes)
 
 Data = Union[list, tuple, np.ndarray, Numeric]
+
+# the kind of arrays a collection, a manager or an adapter works with: decided by the collection schema
+ArrayT = TypeVar("ArrayT", "Array", "VArray")
 MetaDataType = Union[int, float, str, datetime, Data]
+# what ``np.index_exp[...]`` produces: a single index or a tuple of them
 Slice = Union[
-    IndexExpression,
     slice,
-    EllipsisType,  # type: ignore
+    EllipsisType,
     int,
-    Tuple[Union[slice, int, EllipsisType, None], ...],  # type: ignore
+    tuple[Union[slice, int, EllipsisType, None], ...],
 ]
 
 FancySlice = Union[
-    IndexExpression,
     slice,
-    EllipsisType,  # type: ignore
+    EllipsisType,
     int,
     float,
     str,
     datetime,
     None,
-    Tuple[Union[IndexExpression, slice, int, float, str, datetime, EllipsisType, None], ...],  # type: ignore
+    tuple[Union[slice, int, float, str, datetime, EllipsisType, None], ...],
 ]
 
-ArraysInDimension = List[ArraysCoordinatesWithOffset]
-ArraysCoordinates = List[ArraysInDimension]
-Arrays = List[ArrayPosition]
+Arrays = list[ArrayPosition]

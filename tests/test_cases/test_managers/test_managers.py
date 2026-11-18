@@ -10,7 +10,8 @@ from deker_tools.time import get_utc
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerArrayError, DekerFilterError, DekerValidationError
+from deker.errors import DekerArrayError, DekerFilterError, DekerInvalidManagerCallError, DekerValidationError
+from deker.managers import DataManager, FilteredManager, VArrayManager
 from deker.schemas import (
     ArraySchema,
     AttributeSchema,
@@ -80,7 +81,7 @@ class TestDataManagerMethods:
         :param inserted_array: fixture
         :param collection_manager: fixture
         """
-        no_such_id = inserted_array.id + "1"
+        no_such_id = str(uuid.uuid4())
         filter = collection_manager.filter({"id": no_such_id})
         array = filter.first()
         assert array is None
@@ -109,9 +110,7 @@ class TestDataManagerMethods:
         """
 
         getter = getattr(
-            collection_manager_with_attributes.filter(
-                {**inserted_array_with_attributes.primary_attributes}
-            ),
+            collection_manager_with_attributes.filter({**inserted_array_with_attributes.primary_attributes}),
             property_name,
         )
         array = getter()
@@ -144,7 +143,7 @@ class TestDataManagerMethods:
         schema = ArraySchema(dimensions=dims, attributes=attrs, dtype=float, fill_value=-9999)
         try:
             collection = client.create_collection("tm_collection", schema)
-        except:
+        except BaseException:
             client.get_collection("tm_collection")
             collection = client.create_collection("tm_collection", schema)
 
@@ -184,13 +183,11 @@ class TestDataManagerMethods:
             AttributeSchema(name="dt", dtype=datetime, primary=True),
             AttributeSchema(name="some", dtype=float, primary=False),
         ]
-        schema = VArraySchema(
-            dimensions=dims, attributes=attrs, dtype=float, fill_value=-9999, vgrid=(1, 1, 1)
-        )
+        schema = VArraySchema(dimensions=dims, attributes=attrs, dtype=float, fill_value=-9999, vgrid=(1, 1, 1))
 
         try:
             collection = client.create_collection("tm_collection", schema)
-        except:
+        except BaseException:
             client.get_collection("tm_collection")
             collection = client.create_collection("tm_collection", schema)
 
@@ -276,11 +273,21 @@ class TestDataManagerMethods:
         inserted_array_with_attributes: Array,
         collection_manager_with_attributes,
     ):
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(DekerFilterError, match="primary_attribute is missing"):
             collection_manager_with_attributes.filter({"extra": 12}).first()
 
-        with pytest.raises(NotImplementedError):
+        with pytest.raises(DekerFilterError, match="primary_attribute is missing"):
             collection_manager_with_attributes.filter({"extra": 12}).last()
+
+    def test_filter_without_primary_attributes_in_schema_accepts_an_id_only(
+        self, inserted_array: Array, collection_manager
+    ):
+        """A collection whose schema has no primary attributes can be filtered by an id and by nothing else."""
+        assert collection_manager.filter({"id": inserted_array.id}).first().id == inserted_array.id
+        with pytest.raises(DekerFilterError, match="by the id or by all the primary attributes"):
+            collection_manager.filter({"extra": 12}).first()
+        with pytest.raises(DekerFilterError, match="by the id or by all the primary attributes"):
+            collection_manager.filter({"extra": 12}).last()
 
 
 class TestDataManagerMethodsVArray:
@@ -313,9 +320,7 @@ class TestDataManagerMethodsVArray:
         with pytest.raises(DekerValidationError):
             va_collection_manager.create(id_=id_)
 
-    def test_manager_create_varray_fail_exists(
-        self, inserted_varray: VArray, va_collection_manager
-    ):
+    def test_manager_create_varray_fail_exists(self, inserted_varray: VArray, va_collection_manager):
         """Tests if manager returns error on trying to create varray with uuid of existing varray.
 
         :param inserted_varray: fixture
@@ -343,7 +348,7 @@ class TestDataManagerMethodsVArray:
         :param inserted_varray: fixture
         :param va_collection_manager: fixture
         """
-        no_such_id = inserted_varray.id + "1"
+        no_such_id = str(uuid.uuid4())
         filter = va_collection_manager.filter({"id": no_such_id})
         array = filter.first()
         assert array is None
@@ -372,9 +377,7 @@ class TestDataManagerMethodsVArray:
         """
 
         getter = getattr(
-            va_collection_manager_with_attributes.filter(
-                {**inserted_varray_with_attributes.primary_attributes}
-            ),
+            va_collection_manager_with_attributes.filter({**inserted_varray_with_attributes.primary_attributes}),
             property_name,
         )
         array = getter()
@@ -415,9 +418,7 @@ class TestDataManagerMethodsVArray:
         :param va_collection_manager_with_attributes: fixture
         """
         getter = getattr(
-            va_collection_manager_with_attributes.filter(
-                {**varray_with_attributes.primary_attributes}
-            ),
+            va_collection_manager_with_attributes.filter({**varray_with_attributes.primary_attributes}),
             property_name,
         )
         array = getter()
@@ -450,10 +451,10 @@ class TestDataManagerMethodsVArray:
         inserted_varray_with_attributes: Array,
         va_collection_manager_with_attributes,
     ):
-        with pytest.raises(NotImplementedError) as error:
+        with pytest.raises(DekerFilterError):
             va_collection_manager_with_attributes.filter({"extra": 12}).first()
 
-        with pytest.raises(NotImplementedError) as error:
+        with pytest.raises(DekerFilterError):
             va_collection_manager_with_attributes.filter({"extra": 12}).last()
 
 
@@ -464,9 +465,7 @@ class TestArrayManager:
         varray[0, 0, 0:1].update([4.0])
 
         array = varray_collection.arrays.create({"vid": varray.id, "v_position": (0, 1, 0)})
-        expected_array = varray_collection.arrays.filter(
-            {"vid": varray.id, "v_position": (0, 1, 0)}
-        ).last()
+        expected_array = varray_collection.arrays.filter({"vid": varray.id, "v_position": (0, 1, 0)}).last()
         assert array.id == expected_array.id
         assert array.primary_attributes == expected_array.primary_attributes
 
@@ -478,6 +477,52 @@ class TestVarrayManger:
         assert varray.id == expected_array.id
         assert varray.primary_attributes == expected_array.primary_attributes
 
+    def test_data_manager_without_varray_adapter_cannot_create_varrays(
+        self, varray_collection: Collection, local_array_adapter
+    ):
+        """Tests if DataManager of a VArray collection refuses to work without a VArray adapter."""
+        manager = DataManager(varray_collection, local_array_adapter)
+        with pytest.raises(DekerInvalidManagerCallError):
+            manager.create()
+        with pytest.raises(DekerInvalidManagerCallError):
+            manager._adapter  # noqa: B018
+
+    def test_varrays_manager_create_raises_without_varray_schema(
+        self, array_collection: Collection, local_array_adapter, local_varray_adapter
+    ):
+        """Tests if VArrayManager refuses to create VArrays in a collection without VArraySchema."""
+        manager = VArrayManager(array_collection, local_array_adapter, local_varray_adapter)
+        with pytest.raises(DekerInvalidManagerCallError):
+            manager.create()
+
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestFilteredManagerAdapters:
+    def test_varray_schema_without_a_varray_adapter_raises(self, varray_collection: Collection, local_array_adapter):
+        """Filtering VArrays needs their adapter: a manager built without it is refused at once."""
+        with pytest.raises(DekerInvalidManagerCallError, match="missing varray adapter"):
+            FilteredManager(
+                varray_collection,
+                local_array_adapter,
+                None,
+                schema=varray_collection.varray_schema,
+                filters={"id": "x"},
+            )
+
+    def test_array_schema_needs_no_varray_adapter(self, array_collection: Collection, local_array_adapter):
+        manager = FilteredManager(
+            array_collection,
+            local_array_adapter,
+            None,
+            schema=array_collection.array_schema,
+            filters={"id": str(uuid.uuid4())},
+        )
+        assert manager.first() is None
+
+    @pytest.mark.parametrize("id_", ["x", "", "12345678-1234-5678-1234-56781234567g", 1, None])
+    def test_filter_by_an_invalid_id_raises(self, array_collection: Collection, id_):
+        with pytest.raises(DekerValidationError, match="Invalid array id"):
+            array_collection.filter({"id": id_}).first()

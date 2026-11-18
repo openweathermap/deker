@@ -1,7 +1,10 @@
 import json
 import os
 
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -9,12 +12,15 @@ import h5py
 import numpy as np
 import pytest
 
-from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter
+from deker_local_adapters import AdaptersFactory, LocalArrayAdapter
+from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from pytest_mock import MockerFixture
 
-from deker.arrays import Array
+from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerArrayError, DekerArrayTypeError, DekerValidationError
+from deker.errors import DekerArrayError, DekerArrayTypeError, DekerLockError, DekerValidationError
+from deker.flock import Flock
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_paths
 
@@ -43,8 +49,8 @@ class TestArrayAdapter:
         filename = str(array.id) + factory.ctx.storage_adapter.file_ext
         file_path = paths.main / filename
         symlink = paths.symlink / filename
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
-        array_adapter.create(array)
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
+        assert array_adapter.create(array) is array
         assert file_path.exists()
         array[:].update(data)
         assert symlink.exists()
@@ -77,10 +83,13 @@ class TestArrayAdapter:
         paths.create()
         filename = str(array.id) + factory.ctx.storage_adapter.file_ext
         file_path = paths.main / filename
-        file_path.write_text("")
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
+        file_path.write_text("foreign")
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         with pytest.raises(DekerArrayError) as e:
             array_adapter.create(array)
+        assert "already exists" in str(e.value)
+        assert file_path.read_text() == "foreign"  # refused in one step, never opened for writing
+        assert not (paths.symlink / filename).exists()
 
     @pytest.mark.parametrize(
         ("data", "raised"),
@@ -111,15 +120,16 @@ class TestArrayAdapter:
 
         :param root_path: temporary array_collection root path
         :param array: Pre created array
-        :param data: array data from options
+        :param data: data to update the array
         """
         coll_path = root_path / factory.ctx.config.collections_directory / array.collection
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         paths = get_paths(array, coll_path)
-        filename = str(array.id) + factory.ctx.storage_adapter.file_ext
+        filename = str(array.id) + array_adapter.storage_adapter.file_ext
         file_path = paths.main / filename
         symlink = paths.symlink / filename
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
-        with pytest.raises(raised):  # type: ignore
+
+        with pytest.raises(raised):
             array_adapter.create(array)
             array[:].update(data)
             assert not file_path.exists()
@@ -141,12 +151,12 @@ class TestArrayAdapter:
 
         :param root_path: temporary array_collection root path
         :param array: Pre created array
-        :param data: array data from options
+        :param data: data to update the array
         """
         coll_path = root_path / factory.ctx.config.collections_directory / array.collection
         paths = get_paths(array, coll_path)
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
-        filename = paths.main / (array.id + factory.ctx.storage_adapter.file_ext)
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
+        filename = paths.main / (array.id + array_adapter.storage_adapter.file_ext)
         array_adapter.create(array)
         array[:].update(data)
         assert os.path.exists(filename)
@@ -163,12 +173,12 @@ class TestArrayAdapter:
         """
         coll_path = root_path / factory.ctx.config.collections_directory / array.collection
         paths = get_paths(array, coll_path)
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
-        filename = paths.main / (array.id + factory.ctx.storage_adapter.file_ext)
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
+        filename = paths.main / (array.id + array_adapter.storage_adapter.file_ext)
         array_adapter.create(array)
         assert os.path.exists(filename)
-        with pytest.raises(ValueError):
-            assert array_adapter.update(array, np.index_exp[:], None)
+        with pytest.raises(DekerArrayError, match="shall not be None"):
+            array_adapter.update(array, np.index_exp[:], None)
 
     @pytest.mark.parametrize(
         "data",
@@ -181,18 +191,18 @@ class TestArrayAdapter:
         self,
         root_path,
         array: Array,
-        factory,
+        factory: AdaptersFactory,
         data: Any,
     ):
         """Tests if array adapter reads array data properly.
 
         :param root_path: temporary array_collection root path
         :param array: Pre created array
-        :param data: array data from options
+        :param data: data to update the array
         """
         coll_path = root_path / factory.ctx.config.collections_directory / array.collection
         paths = get_paths(array, coll_path)
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         filename = paths.main / (array.id + factory.ctx.storage_adapter.file_ext)
         array_adapter.create(array)
         assert os.path.exists(filename)
@@ -202,9 +212,9 @@ class TestArrayAdapter:
 
     def test_array_adapter_reads_cleared_data_from_array(
         self,
-        root_path,
+        root_path: Path,
         array: Array,
-        factory,
+        factory: AdaptersFactory,
     ):
         """Tests if array adapter reads cleared array data properly.
 
@@ -213,12 +223,12 @@ class TestArrayAdapter:
         """
         coll_path = root_path / factory.ctx.config.collections_directory / array.collection
         paths = get_paths(array, coll_path)
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         filename = paths.main / (array.id + factory.ctx.storage_adapter.file_ext)
         array_adapter.create(array)
         assert os.path.exists(filename)
         result = array_adapter.read_data(array, np.index_exp[:])
-        assert (np.isnan(result)).all()  # type: ignore[arg-type]
+        assert (np.isnan(result)).all()
         assert result.dtype == array.dtype
 
     @pytest.mark.parametrize(
@@ -232,7 +242,7 @@ class TestArrayAdapter:
         self,
         root_path,
         array: Array,
-        factory,
+        factory: AdaptersFactory,
         metakey: Any,
         expected: Any,
     ):
@@ -240,18 +250,19 @@ class TestArrayAdapter:
 
         :param root_path: temporary array_collection root path
         :param array: Pre created array
+        :param factory: AdaptersFactory
         :param metakey: key in metadata
         :param expected: expected value of metakey
         """
         coll_path = root_path / factory.ctx.config.collections_directory / array.collection
         paths = get_paths(array, coll_path)
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         filename = paths.main / (array.id + factory.ctx.storage_adapter.file_ext)
         array_adapter.create(array)
         assert os.path.exists(filename)
         meta = array.read_meta()
         assert isinstance(meta, dict)
-        assert meta[metakey] == expected  # type: ignore[literal-required]
+        assert meta[metakey] == expected
 
     def test_array_adapter_deletes_array(self, root_path, inserted_array: Array, factory):
         """Tests if array adapter deletes array properly.
@@ -261,7 +272,7 @@ class TestArrayAdapter:
         """
         coll_path = root_path / factory.ctx.config.collections_directory / inserted_array.collection
         paths = get_paths(inserted_array, coll_path)
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         filename = paths.main / (inserted_array.id + factory.ctx.storage_adapter.file_ext)
         mainfile = paths.main / filename
         array_adapter.delete(inserted_array)
@@ -269,7 +280,41 @@ class TestArrayAdapter:
         assert not os.path.exists(mainfile)
         assert not paths.main.exists()
 
-    def test_array_adapter_deletes_non_existing_array(
+    @pytest.mark.timeout(60)
+    def test_array_adapter_delete_waits_for_a_reader(self, root_path, inserted_array: Array, factory):
+        """A delete holds the file exclusively: it waits for the reader to leave and only then removes the files."""
+        coll_path = root_path / factory.ctx.config.collections_directory / inserted_array.collection
+        paths = get_paths(inserted_array, coll_path)
+        filename = inserted_array.id + factory.ctx.storage_adapter.file_ext
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
+        reader = Flock(paths.main / filename, shared=True)
+        reader.acquire()
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            deletion = pool.submit(array_adapter.delete, inserted_array)
+            with pytest.raises(FutureTimeoutError):
+                deletion.result(timeout=0.5)  # the reader is still there
+            assert (paths.main / filename).exists()
+            reader.release()
+            assert deletion.result(timeout=10) is None
+        assert not (paths.main / filename).exists()
+        assert not (paths.symlink / filename).exists()
+
+    @pytest.mark.timeout(60)
+    def test_array_adapter_delete_times_out_on_a_long_reader(
+        self, root_path, inserted_array: Array, factory, mocker: MockerFixture
+    ):
+        """A delete gives up by the write lock timeout and leaves the files in place."""
+        coll_path = root_path / factory.ctx.config.collections_directory / inserted_array.collection
+        paths = get_paths(inserted_array, coll_path)
+        filename = inserted_array.id + factory.ctx.storage_adapter.file_ext
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
+        mocker.patch.object(array_adapter.ctx.config, "write_lock_timeout", 1)
+        with Flock(paths.main / filename, shared=True), pytest.raises(DekerLockError):
+            array_adapter.delete(inserted_array)
+        assert (paths.main / filename).exists()
+        assert (paths.symlink / filename).exists()
+
+    def test_array_adapter_deletes_not_existing_array(
         self,
         root_path,
         inserted_array: Array,
@@ -282,7 +327,7 @@ class TestArrayAdapter:
         """
         coll_path = root_path / factory.ctx.config.collections_directory / inserted_array.collection
         paths = get_paths(inserted_array, coll_path)
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         filename = inserted_array.id + factory.ctx.storage_adapter.file_ext
         mainfile = paths.main / filename
         assert mainfile.exists()
@@ -306,7 +351,7 @@ class TestArrayAdapter:
         """
         coll_path = root_path / factory.ctx.config.collections_directory / inserted_array.collection
         paths = get_paths(inserted_array, coll_path)
-        array_adapter = factory.get_array_adapter(coll_path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         filename = paths.main / (inserted_array.id + factory.ctx.storage_adapter.file_ext)
         assert filename.exists()
         array_adapter.clear(inserted_array, np.index_exp[:])
@@ -323,12 +368,9 @@ class TestArrayAdapter:
         :param array_with_attributes: Array which contains some primary attributes
         """
         main_tree, rest = array_with_attributes.id.split("-", 1)
-        main_tree = os.path.sep.join((s for s in main_tree))
+        main_tree = os.path.sep.join(s for s in main_tree)
         main_path = (
-            array_with_attributes._adapter.collection_path
-            / array_with_attributes._adapter.data_dir
-            / main_tree
-            / rest
+            array_with_attributes._adapter.collection_path / array_with_attributes._adapter.data_dir / main_tree / rest
         )
 
         sym_path = (
@@ -337,9 +379,7 @@ class TestArrayAdapter:
             / str(array_with_attributes.primary_attributes.get("primary_attribute"))
         )
 
-        adapter_paths = get_paths(
-            array_with_attributes, array_with_attributes._adapter.collection_path
-        )
+        adapter_paths = get_paths(array_with_attributes, array_with_attributes._adapter.collection_path)
 
         assert adapter_paths.main == main_path
         assert adapter_paths.symlink == sym_path
@@ -355,8 +395,8 @@ class TestArrayAdapter:
         assert array_with_attributes.custom_attributes == new_custom_attributes
         meta = array_with_attributes.read_meta()
         ar = Array._create_from_meta(
-            array_with_attributes._Array__collection,  # type: ignore[attr-defined]
-            meta,  # type: ignore[arg-type]
+            array_with_attributes._Array__collection,
+            meta,
             array_with_attributes._adapter,
         )
         assert ar.custom_attributes == new_custom_attributes
@@ -365,7 +405,7 @@ class TestArrayAdapter:
         arrays = [array_collection.create() for _ in range(10)]
         metas = [json.loads(array._create_meta()) for array in arrays]
         adapter: LocalArrayAdapter = arrays[0]._adapter
-        inner_metas = [meta for meta in adapter]
+        inner_metas = [*adapter]
         assert len(inner_metas) == len(metas)
         assert all(inner_meta in metas for inner_meta in inner_metas)
 
@@ -374,7 +414,7 @@ class TestArrayAdapter:
         coll = client.create_collection("test", schema=schema)
         array = coll.create()
         try:
-            data = np.asarray([np.iinfo(schema.dtype).min] * 2).reshape(2)  # type: ignore[arg-type,type-var]
+            data = np.asarray([np.iinfo(schema.dtype).min] * 2).reshape(2)
             array[:].update(data)
             array[:].clear()
             result = array[:].read()
@@ -389,6 +429,64 @@ class TestArrayAdapter:
             varray_collection.arrays.create({"vid": _id, "v_position": (0, 0, 0)})
 
         assert f"VArray with id={_id} doesn't exist" == str(e.value)
+
+
+class TestArrayAdapterEdges:
+    @pytest.fixture
+    def varray_arrays_adapter(self, varray_collection: Collection, ctx) -> LocalArrayAdapter:
+        """Adapter of the Arrays (Arrays) that belong to the VArray collection."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        return LocalArrayAdapter(
+            collection_path=varray_collection.path,
+            collection_options=varray_collection.options,
+            ctx=ctx,
+            storage_adapter=HDF5StorageAdapter,
+            executor=ThreadPoolExecutor(max_workers=1),
+        )
+
+    def test_symlink_filename_of_an_existing_array(
+        self, varray_arrays_adapter: LocalArrayAdapter, inserted_varray: VArray, varray_collection: Collection
+    ):
+        symlink = next(iter(varray_arrays_adapter._adapter_iter(inserted_varray.id)))
+        position = tuple(int(i) for i in symlink.parent.name.split("-"))
+        filename = varray_arrays_adapter._get_symlink_filename(
+            inserted_varray.id, position, varray_collection.array_schema.primary_attributes
+        )
+        assert filename == symlink
+
+    def test_symlink_filename_of_an_empty_array_directory(
+        self, varray_arrays_adapter: LocalArrayAdapter, inserted_varray: VArray, varray_collection: Collection
+    ):
+        symlink = next(iter(varray_arrays_adapter._adapter_iter(inserted_varray.id)))
+        position = tuple(int(i) for i in symlink.parent.name.split("-"))
+        symlink.unlink()
+        assert (
+            varray_arrays_adapter._get_symlink_filename(
+                inserted_varray.id, position, varray_collection.array_schema.primary_attributes
+            )
+            is None
+        )
+
+    def test_symlink_filename_of_a_missing_array(
+        self, varray_arrays_adapter: LocalArrayAdapter, inserted_varray: VArray, varray_collection: Collection
+    ):
+        position = (99,) * len(inserted_varray.vgrid)
+        assert (
+            varray_arrays_adapter._get_symlink_filename(
+                inserted_varray.id, position, varray_collection.array_schema.primary_attributes
+            )
+            is None
+        )
+
+    def test_adapter_iter_skips_foreign_files(
+        self, varray_arrays_adapter: LocalArrayAdapter, inserted_varray: VArray, varray_collection: Collection
+    ):
+        root = varray_collection.path / varray_arrays_adapter.symlinks_dir / inserted_varray.id
+        (root / "stray.lock").write_text("x")
+        symlinks = list(varray_arrays_adapter._adapter_iter(inserted_varray.id))
+        assert symlinks
+        assert all(s.name.endswith(varray_arrays_adapter.file_ext) for s in symlinks)
 
 
 if __name__ == "__main__":

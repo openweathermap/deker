@@ -17,16 +17,11 @@ to be running in production environments on x86_64 Linux servers.
    ``deker-local-adapters``, ``deker-server-adapters`` and ``deker-shell`` ``1.2.0``). If you are on
    Python ``3.9``, use ``deker<1.2``.
 
-.. attention::
-   DEKER™ uses NumPy, and some NumPy types are unsupported on current NumPy arm64 version. So if you
-   want to use DEKER™ library on Apple silicon (M series CPU), you have to install x86_64 version of
-   Python using Rosetta_ x86_64 to arm64 dynamic binary translator.
-
-   You may use the following guide_ to install x86_64 version of Python an then switch to that
-   version in your DEKER™ project using ``pyenv`` and install DEKER™ package as usual.
-
-.. _Rosetta: https://developer.apple.com/documentation/apple-silicon/about-the-rosetta-translation-environment
-.. _guide: https://sixty-north.com/blog/pyenv-apple-silicon.html
+.. note::
+   On Apple silicon macOS and on Windows NumPy has no ``float128`` and ``complex256``. DEKER™ installs
+   and works there without them: these two dtypes cannot be used in a schema, and a collection created
+   with one of them on Linux or Intel macOS cannot be opened there (``DekerMetaDataError`` says so).
+   Everything else works the same on every platform.
 
 
 Dependencies

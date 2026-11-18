@@ -1,5 +1,3 @@
-from typing import Optional, Type
-
 import pytest
 
 from deker_local_adapters.errors import DekerStorageError
@@ -16,12 +14,10 @@ def test_raise_on_wrong_storage(client: Client, name: str, array_schema: ArraySc
 
 
 @pytest.mark.parametrize(
-    "adapter, adapter_type",
-    ((None, HDF5StorageAdapter), ("HDF5StorageAdapter", HDF5StorageAdapter)),
+    ("adapter", "adapter_type"),
+    [(None, HDF5StorageAdapter), ("HDF5StorageAdapter", HDF5StorageAdapter)],
 )
-def test_storage_adapter(
-    adapter: Optional[str], adapter_type: Type, client: Client, name: str, array_schema: ArraySchema
-):
+def test_storage_adapter(adapter: str | None, adapter_type: type, client: Client, name: str, array_schema: ArraySchema):
     coll = client.create_collection(name, array_schema, None, adapter)
     assert coll._storage_adapter == adapter_type
     coll.delete()

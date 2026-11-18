@@ -17,7 +17,7 @@
 """Abstract interfaces for collection."""
 
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any
 
 from deker.types.private.classes import Serializer
 
@@ -35,11 +35,11 @@ class BaseCollectionOptions(Serializer, ABC):
 
     @classmethod
     @abstractmethod
-    def _process_options(cls, storage_options: Optional[dict]) -> dict:
+    def _process_options(cls, storage_options: dict | None) -> dict:
         """Validate and convert collection storage options.
 
-        :param storage_options: options for storing data by a certain storage adapter,
-        like chunks, compression, etc. Such options are passed to a collection to be used for every
-        Array in it.
+        :param storage_options: options for storing data by a certain storage adapter, like chunks,
+          compression, etc. Such options are passed to a collection to be used for every Array in it.
+        :returns: options ready for the collection options class
         """
         pass

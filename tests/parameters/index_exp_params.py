@@ -1,5 +1,5 @@
 import numpy as np
-
+import pytest
 
 np_index_exp_params = [
     np.index_exp[:],
@@ -360,7 +360,22 @@ tuples = [
 ints = [0, 1, -1, -2]
 misc = [...]
 
-valid_index_exp_params = misc + np_index_exp_params + slices + tuples + ints
+# an ellipsis beside indices for every axis stands for no axis at all, as in numpy
+ellipsis_for_no_axis = [
+    np.index_exp[..., 0, :, :],
+    np.index_exp[0, ..., :, :],
+    np.index_exp[0, :, ..., :],
+    np.index_exp[0, :, :, ...],
+    np.index_exp[0, 0, :, ...],
+    np.index_exp[0, 0, ..., :],
+    np.index_exp[0, ..., 0, :],
+    np.index_exp[..., 0, 0, :],
+    np.index_exp[:, 0, 0, ...],
+    np.index_exp[0, :, 0, ...],
+    np.index_exp[0, :, ..., 0],
+]
+
+valid_index_exp_params = misc + np_index_exp_params + slices + tuples + ints + ellipsis_for_no_axis
 
 invalid_index_params = [
     np.index_exp[0:0, 1],
@@ -545,23 +560,12 @@ invalid_index_params = [
     np.index_exp[:, 0, :, :],
     np.index_exp[:, :, 0, :],
     np.index_exp[:, :, :, 0],
-    np.index_exp[..., 0, :, :],
-    np.index_exp[0, ..., :, :],
-    np.index_exp[0, :, ..., :],
-    np.index_exp[0, :, :, ...],
     np.index_exp[0, 0, :, :],
     np.index_exp[0, :, 0, :],
     np.index_exp[0, :, :, 0],
     np.index_exp[:, 0, 0, :],
     np.index_exp[:, 0, :, 0],
     np.index_exp[:, :, 0, 0],
-    np.index_exp[0, 0, :, ...],
-    np.index_exp[0, 0, ..., :],
-    np.index_exp[0, ..., 0, :],
-    np.index_exp[..., 0, 0, :],
-    np.index_exp[:, 0, 0, ...],
-    np.index_exp[0, :, 0, ...],
-    np.index_exp[0, :, ..., 0],
     np.index_exp[0, 0, 0, :],
     np.index_exp[0, 0, :, 0],
     np.index_exp[0, :, 0, 0],
@@ -602,4 +606,163 @@ invalid_index_params = [
     slice(-2, 0, 1),
     slice(-2, 1, 1),
     slice(-2, -2, 1),
+]
+
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Steps (D5/D6): index expressions with a step other than 1, for arrays and varrays of one to four dimensions
+# ---------------------------------------------------------------------------------------------------------------------
+
+# Shapes of the arrays of the step tests, by the number of dimensions
+STEP_SHAPES: dict[int, tuple[int, ...]] = {1: (24,), 2: (12, 10), 3: (12, 10, 8), 4: (6, 5, 4, 6)}
+
+# Grids of the varrays of the step tests: one Array, uneven Arrays along every axis (sizes that do not divide evenly
+# by the steps), and an Array of one cell on the first axis (smaller than any step)
+STEP_VGRIDS: dict[int, list[tuple[int, ...]]] = {
+    1: [(1,), (3,), (24,)],
+    2: [(1, 1), (3, 5), (12, 1)],
+    3: [(1, 1, 1), (3, 5, 2), (12, 1, 1)],
+    4: [(1, 1, 1, 1), (3, 5, 2, 2), (6, 1, 4, 1)],
+}
+
+# Integer steps that select at least one cell on every axis of the shape of their dimensionality;
+# the result equals numpy's
+STEPPED_INDEX_EXPS: dict[int, list] = {
+    1: [
+        np.index_exp[::2],
+        np.index_exp[::3],
+        np.index_exp[1::3],
+        np.index_exp[::5],
+        np.index_exp[::7],
+        np.index_exp[::23],
+        np.index_exp[::24],
+        np.index_exp[2:23:4],
+        np.index_exp[::-1],
+        np.index_exp[::-2],
+        np.index_exp[23:2:-3],
+        np.index_exp[-1::-4],
+        np.index_exp[-2:-20:-2],
+        np.index_exp[9:1:-1],
+        np.index_exp[5:6:2],
+        np.index_exp[1:0:-1],
+        np.index_exp[-5::2],
+        np.index_exp[..., ::2],
+    ],
+    2: [
+        np.index_exp[::2],
+        np.index_exp[::-1],
+        np.index_exp[::2, ::3],
+        np.index_exp[::-2, ::-3],
+        np.index_exp[:, ::-2],
+        np.index_exp[3, ::2],
+        np.index_exp[::2, 5],
+        np.index_exp[1:12:2, 9:0:-2],
+        np.index_exp[..., ::2],
+        np.index_exp[::-1, ::-1],
+        np.index_exp[::7, ::11],
+        np.index_exp[11:2:-3, 1::3],
+        np.index_exp[-5::2, :-1:2],
+        np.index_exp[5:6:2, 1:0:-1],
+    ],
+    3: [
+        np.index_exp[::2],
+        np.index_exp[::3],
+        np.index_exp[1::3],
+        np.index_exp[::5],
+        np.index_exp[::7],
+        np.index_exp[::11],
+        np.index_exp[::12],
+        np.index_exp[2:11:4],
+        np.index_exp[::-1],
+        np.index_exp[::-2],
+        np.index_exp[11:2:-3],
+        np.index_exp[-1::-4],
+        np.index_exp[-2:-9:-2],
+        np.index_exp[9:1:-1],
+        np.index_exp[::2, ::3],
+        np.index_exp[::-2, ::-3],
+        np.index_exp[:, ::-2, 1::3],
+        np.index_exp[3, ::2],
+        np.index_exp[::2, 5, ::-1],
+        np.index_exp[1:12:2, 9:0:-2, ::4],
+        np.index_exp[..., ::2],
+        np.index_exp[::2, ..., ::-3],
+        np.index_exp[::-1, ::-1, ::-1],
+        np.index_exp[5:6:2],
+        np.index_exp[1:0:-1],
+        np.index_exp[-5::2, :-1:2, 2::2],
+    ],
+    4: [
+        np.index_exp[::2],
+        np.index_exp[::-1],
+        np.index_exp[::2, ::3, ::-1, ::2],
+        np.index_exp[1::3, ::-2, 1::2, ::5],
+        np.index_exp[::7, ::11, ::5, ::7],
+        np.index_exp[3, ::2, ::-1, 1],
+        np.index_exp[::-1, 2, ::3, ::-2],
+        np.index_exp[..., ::-2],
+        np.index_exp[::2, ..., ::3],
+        np.index_exp[-1::-2, ::-1, 3:0:-1, ::-3],
+        np.index_exp[1:6:2, 4:0:-2, ::2, 5:1:-2],
+        np.index_exp[5:6:2, 1:0:-1, 3:4:3, 2:1:-1],
+    ],
+}
+
+
+def _exp_id(index_exp: tuple) -> str:
+    """Readable id of an index expression.
+
+    :param index_exp: index expression
+    :returns: id
+    """
+    parts = []
+    for item in index_exp:
+        if isinstance(item, slice):
+            parts.append(":".join("" if v is None else str(v) for v in (item.start, item.stop, item.step)))
+        elif item is Ellipsis:
+            parts.append("...")
+        else:
+            parts.append(str(item))
+    return "[" + ",".join(parts) + "]"
+
+
+def array_step_cases() -> list:
+    """Every step expression on the array shape of its dimensionality.
+
+    :returns: pytest params ``(shape, index_exp)``
+    """
+    return [
+        pytest.param(shape, index_exp, id=f"{'x'.join(map(str, shape))}{_exp_id(index_exp)}")
+        for ndim, shape in STEP_SHAPES.items()
+        for index_exp in STEPPED_INDEX_EXPS[ndim]
+    ]
+
+
+def varray_step_cases(every_grid: bool = True) -> list:
+    """Every step expression on the grids of the varray shape of its dimensionality.
+
+    :param every_grid: ``True`` for every grid, ``False`` for the first grid of every dimensionality only
+        (for the checks that do not depend on the grid)
+    :returns: pytest params ``((shape, vgrid), index_exp)``
+    """
+    return [
+        pytest.param(
+            (shape, vgrid),
+            index_exp,
+            id=f"{'x'.join(map(str, shape))}-grid{'x'.join(map(str, vgrid))}{_exp_id(index_exp)}",
+        )
+        for ndim, shape in STEP_SHAPES.items()
+        for vgrid in (STEP_VGRIDS[ndim] if every_grid else STEP_VGRIDS[ndim][:1])
+        for index_exp in STEPPED_INDEX_EXPS[ndim]
+    ]
+
+
+# Steps that are not valid on any array, whatever the dimension types
+invalid_step_index_exp_params = [
+    np.index_exp[::0],
+    np.index_exp[:, ::0],
+    np.index_exp[::True],
+    np.index_exp[::False],
+    np.index_exp[:, :, ::True],
+    np.index_exp[0:10:0],
 ]

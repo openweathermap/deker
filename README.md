@@ -80,7 +80,7 @@ To install DEKER™ run:
    ```bash
    pip install deker
    ```
-Please refer to documentation for advanced topics such as running on Apple silicone or using Xarray
+Please refer to documentation for advanced topics such as the data types on Apple silicon or using Xarray
 with DEKER™ API.
 
 ### First Steps
@@ -97,14 +97,14 @@ DEKER_URI = "file:///tmp/deker"
 
 # Define 3-dimensional schema with to numeric and one time dimension
 dimensions = [
-   DimensionSchema(name="y", size=128),
-   DimensionSchema(name="x", size=128),
-   TimeDimensionSchema(
-      name="forecast_dt",
-      size=128,
-      start_value=datetime.now(timezone.utc),
-      step=timedelta(3),
-   )
+    DimensionSchema(name="y", size=128),
+    DimensionSchema(name="x", size=128),
+    TimeDimensionSchema(
+        name="forecast_dt",
+        size=128,
+        start_value=datetime.now(timezone.utc),
+        step=timedelta(3),
+    ),
 ]
 
 # Define array schema with float dtype and dimensions
@@ -112,15 +112,15 @@ array_schema = ArraySchema(dtype=float, dimensions=dimensions)
 
 # Instantiate client using context manager
 with Client(DEKER_URI) as client:
-   # Create collection
-   collection = client.create_collection("my_collection", array_schema)
-   
-   # Create array
-   array = collection.create()
-   
-   # Write some data
-   array[:].update(np.ones(shape=array.shape))
-   
-   # And read the data back
-   data = array[:].read()
+    # Create collection
+    collection = client.create_collection("my_collection", array_schema)
+
+    # Create array
+    array = collection.create()
+
+    # Write some data
+    array[:].update(np.ones(shape=array.shape))
+
+    # And read the data back
+    data = array[:].read()
 ```

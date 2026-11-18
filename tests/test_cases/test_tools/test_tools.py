@@ -10,9 +10,10 @@ from tests.parameters.collection_params import CollectionParams
 
 from deker.collection import Collection
 from deker.errors import DekerInstanceNotExistsError, DekerMemoryError, DekerValidationError
-from deker.tools import check_memory, convert_human_memory_to_bytes
+from deker.tools import array as array_tools
+from deker.tools import check_memory, convert_human_memory_to_bytes, get_default_fill_value, get_paths
+from deker.tools.array import UNCHECKED_SHARE_OF_LIMIT
 from deker.tools.time import convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime
-
 
 if TYPE_CHECKING:
     from deker.arrays import Array, VArray
@@ -49,6 +50,37 @@ def test_get_attributes_schema(collection_adapter: LocalCollectionAdapter, facto
 
     varray_schema_attrs = collection_with_varray.varray_schema.attributes
     assert varray_schema_attrs == params_with_varray["schema"].attributes
+
+
+@pytest.mark.parametrize(
+    ("dtype", "expected"),
+    [
+        (int, np.iinfo(np.int64).min),
+        (np.int8, np.iinfo(np.int8).min),
+        (np.uint16, 0),
+        (float, np.nan),
+        (np.float32, np.nan),
+        (complex, np.nan),
+        (np.complex128, np.nan),
+    ],
+)
+def test_get_default_fill_value(dtype, expected):
+    """Tests default fill values: minimum for integers, nan for the others."""
+    value = get_default_fill_value(dtype)
+    assert value == expected or (np.isnan(expected) and np.isnan(value))
+
+
+@pytest.mark.parametrize("dtype", [str, bytes, object])
+def test_get_default_fill_value_raises(dtype):
+    """Tests if non-numeric dtypes have no default fill value."""
+    with pytest.raises(DekerValidationError):
+        get_default_fill_value(dtype)
+
+
+def test_get_paths_raises_on_wrong_object(tmp_path):
+    """Tests if paths can be built only for arrays."""
+    with pytest.raises(TypeError):
+        get_paths("not an array", tmp_path)
 
 
 def test_deleted_array_call(inserted_array: "Array"):
@@ -115,6 +147,55 @@ def test_check_memory_raises(config, shape, dtype):
         check_memory(shape, dtype, config.memory_limit)
 
 
+class TestCheckMemorySmallRequests:
+    """A request within a small share of the limit of the client fits for sure: the system is not asked."""
+
+    LIMIT = 100 * 1024 * 1024
+
+    def test_a_small_request_does_not_query_the_system(self, mocker):
+        virtual = mocker.spy(array_tools, "virtual_memory")
+        swap = mocker.spy(array_tools, "swap_memory")
+        check_memory((100, 100), np.float64, self.LIMIT)  # 80 KB of 100 MB
+        assert virtual.call_count == 0
+        assert swap.call_count == 0
+
+    @pytest.mark.parametrize(
+        ("cells", "queried"),
+        [
+            pytest.param(LIMIT * UNCHECKED_SHARE_OF_LIMIT, False, id="exactly-the-share"),
+            pytest.param(LIMIT * UNCHECKED_SHARE_OF_LIMIT + 1, True, id="one-byte-above-the-share"),
+        ],
+    )
+    def test_the_share_decides_whether_the_system_is_queried(self, mocker, cells: float, queried: bool):
+        virtual = mocker.spy(array_tools, "virtual_memory")
+        swap = mocker.spy(array_tools, "swap_memory")
+        check_memory((int(cells),), np.int8, self.LIMIT)
+        assert (virtual.call_count == 1) is queried
+        assert (swap.call_count == 1) is queried
+
+    def test_a_big_request_queries_the_system_once(self, mocker):
+        """One query of the memory and one of the swap per check, not one per number in the message."""
+        virtual = mocker.spy(array_tools, "virtual_memory")
+        swap = mocker.spy(array_tools, "swap_memory")
+        check_memory((10 * 1024 * 1024,), np.int8, self.LIMIT)  # 10 MB of 100 MB
+        assert virtual.call_count == 1
+        assert swap.call_count == 1
+
+    def test_a_request_above_the_limit_raises_without_the_system(self, mocker):
+        """What does not fit the limit of the client is rejected before the system is asked."""
+        virtual = mocker.spy(array_tools, "virtual_memory")
+        with pytest.raises(DekerMemoryError, match="Can not allocate"):
+            check_memory((self.LIMIT + 1,), np.int8, self.LIMIT)
+        assert virtual.call_count == 0
+
+    def test_a_request_above_the_free_memory_raises(self, mocker):
+        """What fits the limit of the client but not the memory free right now is rejected too."""
+        mocker.patch.object(array_tools, "virtual_memory", return_value=mocker.Mock(total=self.LIMIT, available=1024))
+        mocker.patch.object(array_tools, "swap_memory", return_value=mocker.Mock(total=0, free=0))
+        with pytest.raises(DekerMemoryError, match="Current available free memory"):
+            check_memory((10 * 1024 * 1024,), np.int8, self.LIMIT)
+
+
 @pytest.mark.parametrize(
     ("attrs", "expected"),
     [
@@ -149,7 +230,7 @@ def test_convert_datetime_attrs(attrs, expected):
         (datetime(2023, 1, 1, tzinfo=timezone.utc),),
     ],
 )
-def test_convert_datetime_attrs(attrs):
+def test_convert_datetime_attrs_rejects_wrong_type(attrs):
     with pytest.raises(TypeError):
         assert convert_datetime_attrs_to_iso(attrs)
 
@@ -221,14 +302,18 @@ def test_convert_isoformat_attrs_raises(attrs):
 
 
 @pytest.mark.parametrize(
-    "params,result,error",
-    (
+    ("params", "result", "error"),
+    [
         ("1K", 1024, None),
         ("1M", 1024**2, None),
         ("1G", 1024**3, None),
         ("0", 0, None),
         ("Foo", None, DekerValidationError),
-    ),
+        (1.5, None, DekerValidationError),
+        (None, None, DekerValidationError),
+        (["1G"], None, DekerValidationError),
+        (b"1G", None, DekerValidationError),
+    ],
 )
 def test_convert_human_to_bytes(params, result, error):
     if error:

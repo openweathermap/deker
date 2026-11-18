@@ -16,9 +16,9 @@
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import TYPE_CHECKING, NamedTuple, Tuple, Union
+from typing import TYPE_CHECKING, NamedTuple
 
-from typing_extensions import NotRequired, TypedDict
+from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
     from deker.types import Data
@@ -28,8 +28,6 @@ __all__ = (
     "ArrayMeta",
     "ArrayLockMeta",
     "ArrayPosition",
-    "ArrayOffset",
-    "ArraysCoordinatesWithOffset",
     "CollectionLockMeta",
     "Paths",
 )
@@ -46,15 +44,17 @@ class Serializer(ABC):
 
     @abstractmethod
     def __repr__(self) -> str:
+        """Unambiguous representation of the object."""
         pass
 
     @abstractmethod
     def __str__(self) -> str:
+        """Readable representation of the object."""
         pass
 
 
 class ArrayMeta(TypedDict):
-    """Typing for array meta."""
+    """Metadata of an array as it is stored: its id and attributes."""
 
     id: str
     primary_attributes: dict
@@ -62,13 +62,13 @@ class ArrayMeta(TypedDict):
 
 
 class Paths(NamedTuple):
-    """Namedtuple for array paths."""
+    """The two directories of an array: of its main file and of its symlink."""
 
     main: Path
     symlink: Path
 
     def create(self) -> None:
-        """Create paths in the file system."""
+        """Create the directories in the file system, if they are missing."""
         for attr in self._fields:
             path: Path = getattr(self, attr)
             # TODO: make universal string check for is_file. "path" is str, not Path
@@ -77,38 +77,30 @@ class Paths(NamedTuple):
             path.mkdir(parents=True, exist_ok=True)
 
 
-class ArrayOffset(TypedDict):
-    """Offset of subset in array."""
-
-    start: int
-    end: NotRequired[int]
-
-
-class ArraysCoordinatesWithOffset(NamedTuple):
-    """Coordinate of Array in dimension, with offset."""
-
-    coordinate: int
-    offset: ArrayOffset
-
-
 class ArrayPosition(NamedTuple):
-    """Tuple with array coordinates, bounds and slice that will be passed to adapter."""
+    """One ``Array`` a ``VSubset`` covers.
 
-    vposition: Tuple[int, ...]
-    bounds: Tuple[Union[slice, int], ...]
-    data_slice: Tuple[slice, ...]
+    Its position in the ``vgrid``, the bounds inside it and its slice of the subset data.
+    """
+
+    vposition: tuple[int, ...]
+    bounds: tuple[slice | int, ...]
+    data_slice: tuple[slice | int, ...]
 
 
 class ArrayPositionedData(NamedTuple):
-    """Tuple with array coordinates, bounds and data that will be passed to adapter."""
+    """One ``Array`` a ``VSubset`` writes.
 
-    vposition: Tuple[int, ...]
-    bounds: Tuple[Union[slice, int], ...]
+    Its position in the ``vgrid``, the bounds inside it and the data for them.
+    """
+
+    vposition: tuple[int, ...]
+    bounds: tuple[slice | int, ...]
     data: "Data"
 
 
 class CollectionLockMeta(TypedDict):
-    """Typed dict describing collection lockfile parameters. Used for typing."""
+    """Description of a collection lock file in the lock listing."""
 
     Lockfile: str
     Collection: str
@@ -117,13 +109,12 @@ class CollectionLockMeta(TypedDict):
 
 
 class ArrayLockMeta(TypedDict):
-    """Typed dict describing array lockfile parameters. Used for typing."""
+    """Description of a VArray write marker of Deker < 2 in the lock listing."""
 
     Lockfile: str
     Collection: str
     Array: str
-    ID: str
     PID: str
-    TID: str
+    Token: str
     Type: str
     Creation: str
