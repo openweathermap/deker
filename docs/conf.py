@@ -18,8 +18,8 @@ sys.path.insert(0, os.path.abspath(".."))
 
 
 project = "Deker"
-copyright = "2023-2026, OpenWeather"
-author = "OpenWeather"
+copyright = "2023-2026, Openweather Ltd."
+author = "Openweather Ltd."
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
 # built documents.
