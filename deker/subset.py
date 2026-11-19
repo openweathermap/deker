@@ -26,7 +26,7 @@ from deker_tools.slices import create_shape_from_slice, positive_bounds
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
-from deker.errors import DekerArrayError, DekerVSubsetError
+from deker.errors import DekerArrayError, DekerLockError, DekerVSubsetError
 from deker.locks import ArrayCreationLock
 from deker.tools import not_deleted
 from deker.tools.time import array_time_attributes
@@ -471,12 +471,14 @@ class VSubset(BaseSubset["VArray"]):
 
         The ``Arrays`` the subset covers are written one by one in the executor of the client, each under its own
         write lock; a missing ``Array`` is created. The ``Arrays`` that failed are reported together, the others
-        are written.
+        are written. When every failed ``Array`` was not released within the write lock timeout, the error is
+        ``DekerLockError``: nothing is broken, the write can simply be repeated.
 
         :param data: new data which shall match subset slicing
         :raises DekerArrayError: if the data is ``None``
         :raises DekerValidationError: if the data does not fit the shape or the dtype
-        :raises DekerVSubsetError: if one or more ``Arrays`` could not be written: the lock timeout among the reasons
+        :raises DekerLockError: if every ``Array`` that failed was not released within the write lock timeout
+        :raises DekerVSubsetError: if one or more ``Arrays`` could not be written for other reasons, or for mixed ones
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
         """
         self.logger.debug("Trying to update data for %s", self)
@@ -497,18 +499,26 @@ class VSubset(BaseSubset["VArray"]):
         ]
         futures = [self.__adapter.executor.submit(self.__update_array_data, position) for position in positions]
 
-        exceptions = []
+        exceptions: list[Exception] = []
+        descriptions: list[str] = []
         for future in futures:
             try:
                 future.result()
             except Exception as e:
-                exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
+                exceptions.append(e)
+                descriptions.append(repr(e) + "\n" + traceback.format_exc(-1))
 
+        if exceptions and all(isinstance(e, DekerLockError) for e in exceptions):
+            causes = "; ".join(str(e) for e in exceptions)
+            raise DekerLockError(
+                f"{self!s} is written partly: {len(exceptions)} of {len(positions)} Arrays were not released in time, "
+                f"the others are written; repeat the write: {causes}"
+            )
         if exceptions:
             raise DekerVSubsetError(
                 f"{self!s} is written partly: {len(exceptions)} of {len(positions)} Arrays failed, "
                 "the others are written",
-                exceptions,
+                descriptions,
             )
 
         self.logger.info("%s data updated OK", self)

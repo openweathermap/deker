@@ -563,6 +563,33 @@ class TestVArraySubset:
         assert all("Traceback" in text for text in error.exceptions)
         assert "1) OSError('disk full')" in str(error)
 
+    def test_update_raises_the_lock_error_when_every_failure_is_a_lock(
+        self, inserted_varray: VArray, mocker: MockerFixture
+    ):
+        """When every failed Array failed on its lock, the write raises DekerLockError: it can simply be repeated."""
+        mocker.patch.object(VSubset, "_VSubset__update_array_data", side_effect=DekerLockError("held by a writer"))
+        subset = inserted_varray[:]
+        arrays = len(subset._VSubset__arrays)
+        with pytest.raises(DekerLockError) as info:
+            subset.update(np.zeros(subset.shape))
+        assert not isinstance(info.value, DekerVSubsetError)
+        assert f"{subset!s} is written partly: {arrays} of {arrays} Arrays were not released in time" in str(info.value)
+        assert "held by a writer" in str(info.value)
+
+    def test_update_reports_a_lock_error_among_other_failures_as_a_group(
+        self, inserted_varray: VArray, mocker: MockerFixture
+    ):
+        """A lock error next to another failure is not retryable as a whole: the group is raised, with both."""
+        subset = inserted_varray[:]
+        arrays = len(subset._VSubset__arrays)
+        failures = [DekerLockError("held by a writer")] + [OSError("disk full")] * (arrays - 1)
+        mocker.patch.object(VSubset, "_VSubset__update_array_data", side_effect=failures)
+        with pytest.raises(DekerVSubsetError) as info:
+            subset.update(np.zeros(subset.shape))
+        assert len(info.value.exceptions) == arrays
+        assert any(text.startswith("DekerLockError('held by a writer')") for text in info.value.exceptions)
+        assert any(text.startswith("OSError('disk full')") for text in info.value.exceptions)
+
 
 def array_main_file(array) -> Path:
     """Main file of an Array.
@@ -697,11 +724,11 @@ class TestFindArray:
         config.write_lock_timeout, config.write_lock_check_interval = 1, 1
         try:
             started = time.monotonic()
-            with pytest.raises(DekerVSubsetError) as info:
+            with pytest.raises(DekerLockError) as info:
                 subset.update(np.ones(inserted_varray.shape, dtype=inserted_varray.dtype))
             assert time.monotonic() - started >= 1
-            assert f"1 of {len(subset._VSubset__arrays)} Arrays failed" in str(info.value)
-            assert any("DekerLockError" in cause for cause in info.value.args[1])
+            assert f"1 of {len(subset._VSubset__arrays)} Arrays were not released in time" in str(info.value)
+            assert not isinstance(info.value, DekerVSubsetError)
         finally:
             config.write_lock_timeout, config.write_lock_check_interval = timeout, interval
 

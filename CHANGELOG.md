@@ -26,8 +26,9 @@ updated at once, and the satellite packages are released together with it: `deke
   NFS. All processes working with one storage must run 2.0.0.
 - A VArray has no lock of its own anymore: it is written Array by Array, each under the usual
   Array write lock. Writers of different Arrays do not wait for each other, writers of one Array
-  queue up. If one Array could not be locked in time, the write raises `DekerVSubsetError` listing
-  the causes, while the other Arrays are already written.
+  queue up. If the Arrays that failed were all still held when the write lock timeout was over, the
+  write raises `DekerLockError` (the other Arrays are written; the write can simply be repeated);
+  any other failure, alone or among lock timeouts, raises `DekerVSubsetError` listing the causes.
 - Writing data follows one rule. Python numbers, lists and tuples are converted to the dtype of the
   collection when every value fits: integers exactly, floats up to rounding, complex numbers by
   both parts. NumPy arrays and NumPy scalars are never converted: their dtype must be the dtype of

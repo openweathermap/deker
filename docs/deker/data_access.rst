@@ -674,8 +674,10 @@ several processes may write into one ``VArray`` at the same time: the writers of
 Arrays never wait for each other, and the writers of one Array queue on it, each waiting for the
 previous one as it waits for readers. The parts of the Array they write do not get mixed; when they
 write the same cells, the last writer wins. If an Array is still held when ``write_lock_timeout``
-is over, the ``VArray`` update reports it in ``DekerVSubsetError``, with the Arrays written
-meanwhile left as they are.
+is over, the ``VArray`` update raises ``DekerLockError``, with the Arrays written meanwhile left as
+they are: nothing is broken, and the write can simply be repeated. When an Array fails for another
+reason, with or without lock timeouts next to it, the update raises ``DekerVSubsetError`` listing
+every cause.
 
 An Array of a ``VArray`` that does not exist yet is created by the first writer to reach it. The
 creation of an ``Array`` with primary attributes (an Array has them: the ``VArray`` id and the
