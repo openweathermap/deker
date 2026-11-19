@@ -708,6 +708,30 @@ STEPPED_INDEX_EXPS: dict[int, list] = {
     ],
 }
 
+# The same step on the first axis only, on every axis at once, and the three steps mixed across the axes
+UNIFORM_STEPS = (3, -2, -3)
+
+
+def _uniform_step_exps(ndim: int) -> list:
+    """Index expressions with the steps of ``UNIFORM_STEPS`` on the first axis, on every axis and mixed across the axes.
+
+    :param ndim: number of dimensions
+    :returns: index expressions without duplicates (slices are not hashable before Python 3.12, hence the list)
+    """
+    exps: list = []
+    for step in UNIFORM_STEPS:
+        for exp in (np.index_exp[::step], (slice(None, None, step),) * ndim):
+            if exp not in exps:
+                exps.append(exp)
+    mixed = tuple(slice(None, None, UNIFORM_STEPS[axis % len(UNIFORM_STEPS)]) for axis in range(ndim))
+    if mixed not in exps:
+        exps.append(mixed)
+    return exps
+
+
+for _ndim, _exps in STEPPED_INDEX_EXPS.items():
+    _exps.extend(exp for exp in _uniform_step_exps(_ndim) if exp not in _exps)
+
 
 def _exp_id(index_exp: tuple) -> str:
     """Readable id of an index expression.

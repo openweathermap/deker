@@ -909,6 +909,36 @@ fancy_step_params = [
         (slice(3, None, 4), slice(2, None, 2), slice(None, None, 3), slice(1, None, 2)),
         id="every-axis-at-once",
     ),
+    # the steps 3, -2 and -3 in the units of every axis, without bounds: hours on the time axis, scale units on the
+    # scales (the sign is relative to the direction of the scale: on the scale down -1.0 walks up the positions),
+    # positions on the labels, and the four at once
+    pytest.param(np.index_exp[:: timedelta(hours=3)], (slice(None, None, 3),), id="time-3h"),
+    pytest.param(np.index_exp[:: -timedelta(hours=2)], (slice(None, None, -2),), id="time-minus-2h"),
+    pytest.param(np.index_exp[:: -timedelta(hours=3)], (slice(None, None, -3),), id="time-minus-3h"),
+    pytest.param(np.index_exp[:, ::1.5], (slice(None), slice(None, None, -3)), id="scale-down-1.5"),
+    pytest.param(np.index_exp[:, ::-1.0], (slice(None), slice(None, None, 2)), id="scale-down-minus-1.0"),
+    pytest.param(np.index_exp[:, ::-1.5], (slice(None), slice(None, None, 3)), id="scale-down-minus-1.5"),
+    pytest.param(np.index_exp[:, :, ::1.5], (slice(None), slice(None), slice(None, None, 3)), id="scale-up-1.5"),
+    pytest.param(
+        np.index_exp[:, :, ::-1.0], (slice(None), slice(None), slice(None, None, -2)), id="scale-up-minus-1.0"
+    ),
+    pytest.param(
+        np.index_exp[:, :, ::-1.5], (slice(None), slice(None), slice(None, None, -3)), id="scale-up-minus-1.5"
+    ),
+    pytest.param(
+        np.index_exp[:, :, :, ::3], (slice(None), slice(None), slice(None), slice(None, None, 3)), id="labels-3"
+    ),
+    pytest.param(
+        np.index_exp[:, :, :, ::-2], (slice(None), slice(None), slice(None), slice(None, None, -2)), id="labels-minus-2"
+    ),
+    pytest.param(
+        np.index_exp[:, :, :, ::-3], (slice(None), slice(None), slice(None), slice(None, None, -3)), id="labels-minus-3"
+    ),
+    pytest.param(
+        np.index_exp[:: -timedelta(hours=3), ::-1.0, ::1.5, ::-2],
+        (slice(None, None, -3), slice(None, None, 2), slice(None, None, 3), slice(None, None, -2)),
+        id="every-axis-3-minus-2-minus-3",
+    ),
 ]
 
 # Integer positions with a fancy step: the integers are positions, as in numpy, the step converts
