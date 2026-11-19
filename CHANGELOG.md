@@ -75,6 +75,9 @@ updated at once, and the satellite packages are released together with it: `deke
 
 ### Changed
 
+- `Client` that cannot be opened raises `DekerClientError` with the message of the cause and the
+  cause itself chained to it; a `DekerClientError` raised by the adapters is passed through as it
+  is instead of being wrapped into another one.
 - A VArray finds its Arrays without reading their metadata: it knows their schema, attributes and time
   attributes already and asks the adapter for the id only, so the file of an Array is opened once, for
   the data, instead of twice. A writer holding an Array no longer stops the search for it: the write

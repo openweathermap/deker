@@ -284,6 +284,31 @@ class TestClientMethods:
         with pytest.raises(DekerClientError):
             Client(uri)
 
+    @pytest.mark.parametrize(
+        ("cause", "message"),
+        [
+            (ValueError("the memory limit is wrong"), "the memory limit is wrong"),
+            (OSError("the server is unreachable"), "the server is unreachable"),
+        ],
+    )
+    def test_client_constructor_error_keeps_the_message_and_the_cause(self, root_path, cause, message):
+        """Tests a failure of the constructor is answered with a DekerClientError carrying one message and its cause."""
+        with (
+            patch.object(Client, "_open", side_effect=cause),
+            pytest.raises(DekerClientError, match=message) as info,
+        ):
+            Client(str(embedded_uri(root_path)))
+        assert type(info.value) is DekerClientError
+        assert str(info.value) == message
+        assert info.value.__cause__ is cause
+
+    def test_client_constructor_passes_its_own_error_through(self, root_path):
+        """Tests a DekerClientError raised while opening is not wrapped into another one."""
+        error = DekerClientError("No installed adapters are found")
+        with patch.object(Client, "_open", side_effect=error), pytest.raises(DekerClientError) as info:
+            Client(str(embedded_uri(root_path)))
+        assert info.value is error
+
     def test_client_create_collection(self, client: Client, name: str, array_schema: ArraySchema) -> None:
         """Tests client creates array_collection.
 

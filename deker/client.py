@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -290,8 +290,10 @@ class Client(SelfLoggerMixin):
             self.__executor = executor
             self.kwargs = kwargs
             self._open()
+        except DekerClientError:
+            raise
         except Exception as e:
-            raise DekerClientError(e)
+            raise DekerClientError(str(e)) from e
 
     def _release(self) -> None:
         """Close the adapter, the factory and the context; a client that failed to construct has nothing to close."""
