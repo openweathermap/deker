@@ -2,11 +2,14 @@
 
 ![image](docs/deker/images/logo_50.png)
 
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![PyPI version shields.io](https://img.shields.io/pypi/v/deker.svg?color=0)](https://pypi.python.org/pypi/deker/)
 [![PyPI pyversions](https://img.shields.io/pypi/pyversions/deker.svg)](https://pypi.python.org/pypi/deker/) 
 [![GitHub license](https://badgen.net/github/license/openweathermap/deker)](https://github.com/openweathermap/deker/blob/main/LICENSE)
 [![codecov](https://codecov.io/gh/openweathermap/deker/branch/main/graph/badge.svg?token=Z040BQWIOR)](https://codecov.io/gh/openweathermap/deker)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/deker)](pypi)
+[![Pepy - Total Downloads](https://img.shields.io/pepy/dt/deker)](pypi)
 
 DEKER™ is pure Python implementation of petabyte-scale highly parallel data storage engine for
 multidimensional arrays.
