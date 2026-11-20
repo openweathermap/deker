@@ -15,6 +15,8 @@ from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5
 from deker_tools.slices import create_shape_from_slice
 from pytest_mock import MockerFixture
 
+from tests.parameters.index_exp_params import array_step_cases, invalid_index_params, valid_index_exp_params
+
 from deker.errors import DekerArrayError
 
 SHAPE = (100,)
@@ -992,3 +994,117 @@ class TestNegativeStep:
             assert not has_data(path)
         else:
             assert np.array_equal(stored(path), expected, equal_nan=True)
+
+
+BOUNDS_SHAPE = (10, 10, 10)
+OVERWRITE = -9999.0
+
+
+def filled_file(adapter: HDF5StorageAdapter, path: Path, shape: tuple[int, ...]) -> np.ndarray:
+    """Create an array file of the shape with every cell holding its own ordinal, and return that data.
+
+    :param adapter: the storage adapter
+    :param path: the file to create
+    :param shape: the shape of the array
+    :returns: the data written
+    """
+    adapter.create(path, shape, {"id": "test"})
+    data = np.arange(np.prod(shape), dtype=DTYPE).reshape(shape)
+    adapter.update_data(path, np.index_exp[:], data, DTYPE, shape, FILL, None)
+    return data
+
+
+def whole(adapter: HDF5StorageAdapter, path: Path, shape: tuple[int, ...]) -> np.ndarray:
+    """Read the whole array of the file.
+
+    :param adapter: the storage adapter
+    :param path: the file
+    :param shape: the shape of the array
+    :returns: the data
+    """
+    return np.asarray(adapter.read_data(path, shape, np.index_exp[:], FILL, DTYPE))
+
+
+class TestBounds:
+    """Every index expression DEKER accepts selects the same cells as numpy does, on reads, writes and clears.
+
+    Negative steps are the forward twin plus a flip, an integer index yields a scalar, an ellipsis stands for the
+    axes it replaces. The expressions DEKER refuses never change the file: numpy-like ones that select nothing
+    are a no-op, the others are an IndexError.
+    """
+
+    @pytest.mark.parametrize("index_exp", valid_index_exp_params)
+    def test_read_selects_the_cells_numpy_selects(self, adapter, tmp_path, index_exp):
+        data = filled_file(adapter, tmp_path / "array.hdf5", BOUNDS_SHAPE)
+        read = adapter.read_data(tmp_path / "array.hdf5", BOUNDS_SHAPE, index_exp, FILL, DTYPE)
+        assert np.ndim(read) == np.ndim(data[index_exp])
+        assert np.array_equal(np.asarray(read), data[index_exp])
+
+    @pytest.mark.parametrize("index_exp", valid_index_exp_params)
+    def test_read_of_an_empty_array_has_the_shape_numpy_gives(self, adapter, tmp_path, index_exp):
+        """Without a dataset only the requested region is allocated: fill values of the shape of the selection."""
+        path = tmp_path / "array.hdf5"
+        adapter.create(path, BOUNDS_SHAPE, {"id": "test"})
+        read = adapter.read_data(path, BOUNDS_SHAPE, index_exp, FILL, DTYPE)
+        reference = np.empty(BOUNDS_SHAPE)[index_exp]
+        assert np.ndim(read) == reference.ndim
+        assert np.shape(read) == reference.shape
+        assert np.all(np.isnan(read))
+
+    @pytest.mark.parametrize("index_exp", valid_index_exp_params)
+    def test_update_writes_the_cells_numpy_selects_and_no_others(self, adapter, tmp_path, index_exp):
+        path = tmp_path / "array.hdf5"
+        data = filled_file(adapter, path, BOUNDS_SHAPE)
+        expected = data.copy()
+        expected[index_exp] = OVERWRITE
+        adapter.update_data(
+            path, index_exp, np.full(np.shape(data[index_exp]), OVERWRITE), DTYPE, BOUNDS_SHAPE, FILL, None
+        )
+        assert np.array_equal(whole(adapter, path, BOUNDS_SHAPE), expected)
+
+    @pytest.mark.parametrize("index_exp", valid_index_exp_params)
+    def test_clear_empties_the_cells_numpy_selects_and_no_others(self, adapter, tmp_path, index_exp):
+        path = tmp_path / "array.hdf5"
+        data = filled_file(adapter, path, BOUNDS_SHAPE)
+        expected = data.copy()
+        expected[index_exp] = FILL
+        adapter.clear_data(path, BOUNDS_SHAPE, index_exp, FILL)
+        assert np.array_equal(whole(adapter, path, BOUNDS_SHAPE), expected, equal_nan=True)
+        assert empty_cells(path) == int(np.isnan(expected).sum())
+
+    @pytest.mark.parametrize(("shape", "index_exp"), array_step_cases())
+    def test_stepped_bounds_read_write_and_clear_like_numpy(self, adapter, tmp_path, shape, index_exp):
+        """Steps of any sign and size on arrays of one to four dimensions, uneven against the step."""
+        path = tmp_path / "array.hdf5"
+        data = filled_file(adapter, path, shape)
+        assert np.array_equal(np.asarray(adapter.read_data(path, shape, index_exp, FILL, DTYPE)), data[index_exp])
+        expected = data.copy()
+        expected[index_exp] = OVERWRITE
+        adapter.update_data(path, index_exp, np.full(np.shape(data[index_exp]), OVERWRITE), DTYPE, shape, FILL, None)
+        assert np.array_equal(whole(adapter, path, shape), expected)
+        expected[index_exp] = FILL
+        adapter.clear_data(path, shape, index_exp, FILL)
+        assert np.array_equal(whole(adapter, path, shape), expected, equal_nan=True)
+
+    @pytest.mark.parametrize("index_exp", invalid_index_params)
+    def test_refused_bounds_never_change_the_file(self, adapter, tmp_path, index_exp):
+        """The storage adapter is below the validation of DEKER: a refused expression selects nothing or fails."""
+        path = tmp_path / "array.hdf5"
+        data = filled_file(adapter, path, BOUNDS_SHAPE)
+        outcomes = []
+        for operation in (
+            (adapter.read_data, (path, BOUNDS_SHAPE, index_exp, FILL, DTYPE)),
+            (adapter.update_data, (path, index_exp, np.full((), OVERWRITE), DTYPE, BOUNDS_SHAPE, FILL, None)),
+            (adapter.clear_data, (path, BOUNDS_SHAPE, index_exp, FILL)),
+        ):
+            method, arguments = operation
+            try:
+                result = method(*arguments)
+            except IndexError:
+                outcomes.append("refused")
+            else:
+                assert result is None or np.size(result) == 0
+                outcomes.append("nothing selected")
+        assert len(set(outcomes)) == 1, outcomes  # the three operations agree on the expression
+        assert np.array_equal(whole(adapter, path, BOUNDS_SHAPE), data)
+        assert empty_cells(path) == 0

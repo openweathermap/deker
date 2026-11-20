@@ -16,6 +16,8 @@ from deker_local_adapters import AdaptersFactory, LocalArrayAdapter
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
 from pytest_mock import MockerFixture
 
+from tests.parameters.index_exp_params import valid_index_exp_params
+
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
@@ -491,3 +493,40 @@ class TestArrayAdapterEdges:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestArrayAdapterBounds:
+    """The bounds of every index expression DEKER accepts go through the adapter and its locks unchanged."""
+
+    @staticmethod
+    def adapter_of(root_path: Path, factory: AdaptersFactory, array: Array) -> LocalArrayAdapter:
+        coll_path = root_path / factory.ctx.config.collections_directory / array.collection
+        return factory.get_array_adapter(coll_path, HDF5StorageAdapter)
+
+    @pytest.mark.parametrize("index_exp", valid_index_exp_params)
+    def test_read_data_returns_the_cells_of_the_bounds(
+        self, root_path: Path, factory: AdaptersFactory, inserted_array: Array, array_data: np.ndarray, index_exp
+    ):
+        read = self.adapter_of(root_path, factory, inserted_array).read_data(inserted_array, index_exp)
+        assert np.ndim(read) == np.ndim(array_data[index_exp])
+        assert np.array_equal(np.asarray(read), array_data[index_exp])
+
+    @pytest.mark.parametrize("index_exp", valid_index_exp_params)
+    def test_update_writes_the_cells_of_the_bounds_only(
+        self, root_path: Path, factory: AdaptersFactory, inserted_array: Array, array_data: np.ndarray, index_exp
+    ):
+        adapter = self.adapter_of(root_path, factory, inserted_array)
+        expected = array_data.copy()
+        expected[index_exp] = -9999
+        adapter.update(inserted_array, index_exp, np.full(np.shape(array_data[index_exp]), -9999.0))
+        assert np.array_equal(np.asarray(adapter.read_data(inserted_array, np.index_exp[:])), expected)
+
+    @pytest.mark.parametrize("index_exp", valid_index_exp_params)
+    def test_clear_empties_the_cells_of_the_bounds_only(
+        self, root_path: Path, factory: AdaptersFactory, inserted_array: Array, array_data: np.ndarray, index_exp
+    ):
+        adapter = self.adapter_of(root_path, factory, inserted_array)
+        expected = array_data.copy()
+        expected[index_exp] = np.nan
+        adapter.clear(inserted_array, index_exp)
+        assert np.array_equal(np.asarray(adapter.read_data(inserted_array, np.index_exp[:])), expected, equal_nan=True)
