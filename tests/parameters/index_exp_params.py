@@ -1,3 +1,5 @@
+from datetime import datetime, timedelta
+
 import numpy as np
 import pytest
 
@@ -375,9 +377,9 @@ ellipsis_for_no_axis = [
     np.index_exp[0, :, ..., 0],
 ]
 
-valid_index_exp_params = misc + np_index_exp_params + slices + tuples + ints + ellipsis_for_no_axis
+valid_index_exps = misc + np_index_exp_params + slices + tuples + ints + ellipsis_for_no_axis
 
-invalid_index_params = [
+invalid_index_exps = [
     np.index_exp[0:0, 1],
     np.index_exp[:, 1:1:1],
     np.index_exp[True],
@@ -733,21 +735,59 @@ for _ndim, _exps in STEPPED_INDEX_EXPS.items():
     _exps.extend(exp for exp in _uniform_step_exps(_ndim) if exp not in _exps)
 
 
-def _exp_id(index_exp: tuple) -> str:
-    """Readable id of an index expression.
+def _duration_id(duration: timedelta) -> str:
+    """Readable id of a timedelta: whole days, else whole hours, else seconds.
 
-    :param index_exp: index expression
+    :param duration: the timedelta
     :returns: id
     """
-    parts = []
-    for item in index_exp:
-        if isinstance(item, slice):
-            parts.append(":".join("" if v is None else str(v) for v in (item.start, item.stop, item.step)))
-        elif item is Ellipsis:
-            parts.append("...")
-        else:
-            parts.append(str(item))
-    return "[" + ",".join(parts) + "]"
+    seconds = duration.total_seconds()
+    if seconds % 86400 == 0:
+        return f"{int(seconds // 86400)}d"
+    if seconds % 3600 == 0:
+        return f"{int(seconds // 3600)}h"
+    return f"{seconds:g}s"
+
+
+def _item_id(item: object) -> str:
+    """Readable id of one index of an expression.
+
+    :param item: the index: a slice, an ellipsis, a number, a label, a datetime or a timedelta
+    :returns: id
+    """
+    if isinstance(item, slice):
+        bounds = [item.start, item.stop] if item.step is None else [item.start, item.stop, item.step]
+        return ":".join("" if v is None else _item_id(v) for v in bounds)
+    if item is Ellipsis:
+        return "..."
+    if isinstance(item, datetime):
+        return item.isoformat()
+    if isinstance(item, timedelta):
+        return _duration_id(item)
+    return repr(item) if isinstance(item, str) else str(item)
+
+
+def exp_id(index_exp: object) -> str:
+    """Readable id of an index expression, as it is written between the brackets.
+
+    :param index_exp: index expression: a tuple of indices or a single index
+    :returns: id
+    """
+    items = index_exp if isinstance(index_exp, tuple) else (index_exp,)
+    return "[" + ",".join(_item_id(item) for item in items) + "]"
+
+
+def as_params(index_exps: list) -> list:
+    """Wrap index expressions into pytest params with readable ids.
+
+    :param index_exps: index expressions
+    :returns: pytest params
+    """
+    return [pytest.param(index_exp, id=exp_id(index_exp)) for index_exp in index_exps]
+
+
+valid_index_exp_params = as_params(valid_index_exps)
+invalid_index_params = as_params(invalid_index_exps)
 
 
 def array_step_cases() -> list:
@@ -756,7 +796,7 @@ def array_step_cases() -> list:
     :returns: pytest params ``(shape, index_exp)``
     """
     return [
-        pytest.param(shape, index_exp, id=f"{'x'.join(map(str, shape))}{_exp_id(index_exp)}")
+        pytest.param(shape, index_exp, id=f"{'x'.join(map(str, shape))}{exp_id(index_exp)}")
         for ndim, shape in STEP_SHAPES.items()
         for index_exp in STEPPED_INDEX_EXPS[ndim]
     ]
@@ -773,7 +813,7 @@ def varray_step_cases(every_grid: bool = True) -> list:
         pytest.param(
             (shape, vgrid),
             index_exp,
-            id=f"{'x'.join(map(str, shape))}-grid{'x'.join(map(str, vgrid))}{_exp_id(index_exp)}",
+            id=f"{'x'.join(map(str, shape))}-grid{'x'.join(map(str, vgrid))}{exp_id(index_exp)}",
         )
         for ndim, shape in STEP_SHAPES.items()
         for vgrid in (STEP_VGRIDS[ndim] if every_grid else STEP_VGRIDS[ndim][:1])
@@ -782,7 +822,7 @@ def varray_step_cases(every_grid: bool = True) -> list:
 
 
 # Steps that are not valid on any array, whatever the dimension types
-invalid_step_index_exp_params = [
+invalid_step_index_exps = [
     np.index_exp[::0],
     np.index_exp[:, ::0],
     np.index_exp[::True],
@@ -790,3 +830,5 @@ invalid_step_index_exp_params = [
     np.index_exp[:, :, ::True],
     np.index_exp[0:10:0],
 ]
+
+invalid_step_index_exp_params = as_params(invalid_step_index_exps)
