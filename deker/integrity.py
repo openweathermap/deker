@@ -33,6 +33,8 @@ from typing import TYPE_CHECKING, ClassVar, Generic, NoReturn, TypeVar
 import numpy as np
 import tqdm
 
+from deker_tools.typings import Sentinel, SentinelType, is_sentinel
+
 from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.errors import DekerBaseApplicationError, DekerCollectionNotExistsError, DekerIntegrityError
@@ -858,15 +860,15 @@ class IntegrityChecker(SelfLoggerMixin):
             storage.outdated[name] = (version, stored)
         storage.collections.append(collection)
 
-    def _scan_storage(self, collection_name: str | None) -> StorageFiles:
+    def _scan_storage(self, collection_name: str | SentinelType) -> StorageFiles:
         """Look at the root of the storage: the collections and their lock files.
 
-        :param collection_name: the only collection to look at, every collection if ``None``
+        :param collection_name: the only collection to look at; ``Sentinel`` - every collection
         :returns: the storage files
         """
         storage = StorageFiles(root=self.root_path)
         lock_ext = LocksExtensions.collection_lock.value
-        if collection_name is not None:
+        if not is_sentinel(collection_name):
             storage.names.append(collection_name)
             if (self.root_path / (collection_name + lock_ext)).is_file():
                 storage.lock_names.append(collection_name)
@@ -877,7 +879,7 @@ class IntegrityChecker(SelfLoggerMixin):
                 elif entry.name.endswith(lock_ext):
                     storage.lock_names.append(entry.name[: -len(lock_ext)])
         for name in storage.names:
-            self._init_collection(name, storage, named=collection_name is not None)
+            self._init_collection(name, storage, named=not is_sentinel(collection_name))
         return storage
 
     def _read_array(self, entry: ArrayOnDisk) -> ArrayOnDisk:
@@ -973,10 +975,10 @@ class IntegrityChecker(SelfLoggerMixin):
                 progress.close()
         self._repair(report.findings[first:])
 
-    def check(self, collection: str | None = None) -> IntegrityReport:
+    def check(self, collection: str | SentinelType = Sentinel) -> IntegrityReport:
         """Run the checks.
 
-        :param collection: name of the only collection to check, every collection if ``None``
+        :param collection: name of the only collection to check; not given - every collection
         :returns: the report
         :raises DekerCollectionNotExistsError: if there is no such collection
         :raises DekerIntegrityError: at the first finding if the checker stops on errors

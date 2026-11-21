@@ -1,4 +1,6 @@
 import fcntl
+import threading
+import time
 
 from multiprocessing.context import BaseContext
 from multiprocessing.synchronize import Event
@@ -8,7 +10,10 @@ from types import SimpleNamespace
 
 import pytest
 
+from cantok import DefaultToken, SimpleToken
 from deker_local_adapters import LocalArrayAdapter
+from deker_tools.cancel import TokenCancelledError
+from deker_tools.typings import Sentinel
 from pytest_mock import MockerFixture
 
 from deker.arrays import Array, VArray
@@ -54,6 +59,8 @@ def hold_shared_flock_forever(filepath: str, lock_set: Event) -> None:
         lock_set.set()
         sleep(3600)
 
+
+NOT_GIVEN = {"timeout": Sentinel, "token": DefaultToken()}
 
 LEGACY_MARKER = f"{{name}}:1:{'0' * 32}{LocksExtensions.varray_lock.value}"  # a VArray write marker of Deker < 2
 
@@ -200,7 +207,7 @@ class TestWriteArrayLock:
         acquire = mocker.patch.object(write_array_lock, "acquire", autospec=True)
         release = mocker.patch.object(write_array_lock, "release", autospec=True)
         write_array_lock.kwargs = {"array": inserted_array}
-        write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
+        write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array, **NOT_GIVEN})
         acquire.assert_called()
         release.assert_not_called()
 
@@ -216,7 +223,7 @@ class TestWriteArrayLock:
         process.start()
         file_created.wait(10)
         try:
-            write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
+            write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array, **NOT_GIVEN})
             release.assert_not_called()
             assert write_array_lock.lock is not None
         finally:
@@ -238,7 +245,7 @@ class TestWriteArrayLock:
         file_created.wait(10)
         try:
             with pytest.raises(DekerLockError):
-                write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
+                write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array, **NOT_GIVEN})
             release.assert_called()
             assert write_array_lock.lock is None
         finally:
@@ -256,7 +263,7 @@ class TestWriteArrayLock:
         process.start()
         file_created.wait(10)
         try:
-            write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
+            write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array, **NOT_GIVEN})
             try:
                 with pytest.raises(DekerLockError):
                     Flock(filepath).acquire()
@@ -281,7 +288,7 @@ class TestWriteArrayLock:
         process.kill()
         process.join(10)
 
-        write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
+        write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array, **NOT_GIVEN})
         write_array_lock.release()
 
     def test_leftover_marker_of_an_older_version_is_ignored(
@@ -293,7 +300,7 @@ class TestWriteArrayLock:
         marker = path.parent / LEGACY_MARKER.format(name=path.name)
         marker.touch()
         try:
-            write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array})
+            write_array_lock.check_existing_lock(func_args=[], func_kwargs={"array": inserted_array, **NOT_GIVEN})
             assert write_array_lock.lock is not None
             with pytest.raises(DekerLockError):
                 Flock(path).acquire()  # the writer holds the file itself
@@ -372,7 +379,9 @@ class TestArrayCreationLock:
 
     def test_lock_holds_the_directory_of_the_main_file_while_entered(self, inserted_varray: VArray, main_dir: Path):
         collection = inserted_varray._VArray__collection
-        lock = ArrayCreationLock(inserted_varray._adapter, inserted_varray, collection)
+        lock = ArrayCreationLock(
+            inserted_varray._adapter, inserted_varray, collection, timeout=Sentinel, token=DefaultToken()
+        )
         assert lock.path == main_dir
         with lock:
             assert lock.flock is not None
@@ -389,7 +398,9 @@ class TestArrayCreationLock:
     def test_lock_survives_the_replacement_of_the_main_file(self, inserted_varray: VArray, main_dir: Path):
         """An update of the custom attributes replaces the json file; the creation lock still holds."""
         collection = inserted_varray._VArray__collection
-        lock = ArrayCreationLock(inserted_varray._adapter, inserted_varray, collection)
+        lock = ArrayCreationLock(
+            inserted_varray._adapter, inserted_varray, collection, timeout=Sentinel, token=DefaultToken()
+        )
         with lock:
             main_file = main_dir / (inserted_varray.id + inserted_varray._adapter.file_ext)
             replacement = main_dir / "replacement.json"
@@ -407,7 +418,9 @@ class TestArrayCreationLock:
         timeout = config.write_lock_timeout
         config.write_lock_timeout = 1
         try:
-            lock = ArrayCreationLock(inserted_varray._adapter, inserted_varray, collection)
+            lock = ArrayCreationLock(
+                inserted_varray._adapter, inserted_varray, collection, timeout=Sentinel, token=DefaultToken()
+            )
             assert lock._try_acquire(main_dir) is False
             assert lock.flock is None
             with pytest.raises(DekerLockError, match="locked for the creation of its Arrays"):
@@ -423,7 +436,7 @@ class TestArrayCreationLock:
         """The server adapters keep their own order of creation: no path, no flock, no thread lock."""
         collection = inserted_varray._VArray__collection
         adapter = SimpleNamespace(ctx=inserted_varray._adapter.ctx)
-        lock = ArrayCreationLock(adapter, inserted_varray, collection)
+        lock = ArrayCreationLock(adapter, inserted_varray, collection, timeout=Sentinel, token=DefaultToken())
         assert lock.path is None
         with lock as entered:
             assert entered is lock
@@ -492,11 +505,11 @@ class TestUpdateMetaAttributeLock:
         holder.acquire()
         try:
             with pytest.raises(DekerLockError, match="is locked"):
-                lock.check_existing_lock(func_args=(), func_kwargs={})
+                lock.check_existing_lock(func_args=(), func_kwargs=dict(NOT_GIVEN))
             assert lock.lock is None
         finally:
             holder.release()
-        lock.check_existing_lock(func_args=(), func_kwargs={})
+        lock.check_existing_lock(func_args=(), func_kwargs=dict(NOT_GIVEN))
         assert lock.lock is not None
         lock.release()
 
@@ -513,3 +526,81 @@ class TestUpdateMetaAttributeLock:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestWaitingLocksTakeTheTimeoutAndTheTokenOfTheCall:
+    """The waiting locks take the limit of the wait and the token from the decorated call."""
+
+    @pytest.fixture
+    def held_file(self, write_array_lock: WriteArrayLock, inserted_array: Array):
+        write_array_lock.kwargs = {"array": inserted_array}
+        holder = Flock(write_array_lock.get_path(), shared=True)
+        holder.acquire()
+        yield
+        holder.release()
+
+    @pytest.mark.timeout(10)
+    def test_timeout_of_the_call_overrides_the_client(
+        self, write_array_lock: WriteArrayLock, inserted_array: Array, held_file, mocker: MockerFixture
+    ):
+        mocker.patch.object(write_array_lock.instance.ctx.config, "write_lock_timeout", 60)
+        start = time.monotonic()
+        with pytest.raises(DekerLockError):
+            write_array_lock.check_existing_lock(
+                func_args=[], func_kwargs={"array": inserted_array, "timeout": 1, "token": DefaultToken()}
+            )
+        assert time.monotonic() - start < 2.5
+        assert write_array_lock.lock is None
+
+    @pytest.mark.timeout(10)
+    def test_cancelled_token_stops_the_wait(self, write_array_lock: WriteArrayLock, inserted_array: Array, held_file):
+        token = SimpleToken()
+        canceller = threading.Timer(0.3, token.cancel)
+        canceller.start()
+        start = time.monotonic()
+        with pytest.raises(TokenCancelledError):
+            write_array_lock.check_existing_lock(
+                func_args=[], func_kwargs={"array": inserted_array, "timeout": 30, "token": token}
+            )
+        canceller.join()
+        assert time.monotonic() - start < 3
+        assert write_array_lock.lock is None
+
+    @pytest.mark.timeout(10)
+    def test_creation_lock_cancelled_while_it_waits_frees_the_thread_lock(self, inserted_varray: VArray):
+        adapter = inserted_varray._adapter
+        main_dir = get_main_path(inserted_varray.id, adapter.collection_path / adapter.data_dir)
+        holder = Flock(main_dir)
+        holder.acquire()
+        token = SimpleToken()
+        token.cancel()
+        try:
+            lock = ArrayCreationLock(
+                adapter, inserted_varray, inserted_varray._VArray__collection, timeout=30, token=token
+            )
+            with pytest.raises(TokenCancelledError):
+                with lock:
+                    pass
+            assert lock.thread_lock is None
+            assert not ArrayCreationLock._thread_locks[main_dir].locked()
+        finally:
+            holder.release()
+
+    @pytest.mark.timeout(10)
+    def test_creation_lock_takes_the_timeout_of_the_call(self, inserted_varray: VArray):
+        adapter = inserted_varray._adapter
+        main_dir = get_main_path(inserted_varray.id, adapter.collection_path / adapter.data_dir)
+        holder = Flock(main_dir)
+        holder.acquire()
+        try:
+            lock = ArrayCreationLock(
+                adapter, inserted_varray, inserted_varray._VArray__collection, timeout=1, token=DefaultToken()
+            )
+            assert lock.timeout == 1
+            start = time.monotonic()
+            with pytest.raises(DekerLockError):
+                with lock:
+                    pass
+            assert time.monotonic() - start < 2.5
+        finally:
+            holder.release()

@@ -978,8 +978,8 @@ class TestLocks:
     def test_varray_writer_times_out_on_a_long_reader(
         self, varray_schema: VArraySchema, root_path, inserted_varray_with_attributes: VArray, mp_context: BaseContext
     ):
-        """A VArray writer waits for the reader of an Array and gives up by timeout: update reports the Arrays it
-        could not write, clear raises the lock error of the first Array."""
+        """A VArray writer waits for the reader of an Array and gives up by timeout: update and clear both raise
+        DekerLockError, since every Array that failed was still held when the write lock timeout was over."""
         manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
@@ -1021,7 +1021,7 @@ class TestLocks:
                     ],
                 )
 
-                assert result == [DekerVSubsetError, DekerLockError]
+                assert result == [DekerLockError, DekerLockError]
             func_finished.set()
         finally:
             proc.kill()

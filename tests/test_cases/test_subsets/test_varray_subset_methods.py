@@ -14,8 +14,11 @@ import hdf5plugin
 import numpy as np
 import pytest
 
+from cantok import AbstractToken, DefaultToken, SimpleToken
 from deker_local_adapters import HDF5CompressionOpts, HDF5Options
+from deker_tools.cancel import cancellation_scope
 from deker_tools.slices import positive_bounds
+from deker_tools.typings import Sentinel
 from pytest_mock import MockerFixture
 
 from tests.fixtures.collection import SteppedCollections
@@ -24,7 +27,15 @@ from tests.parameters.index_exp_params import STEPPED_INDEX_EXPS, valid_index_ex
 from deker.arrays import VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerArrayError, DekerLockError, DekerSubsetError, DekerVSubsetError
+from deker.errors import (
+    DekerArrayError,
+    DekerCancelledError,
+    DekerLockError,
+    DekerSubsetError,
+    DekerTimeoutError,
+    DekerValidationError,
+    DekerVSubsetError,
+)
 from deker.flock import Flock
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.subset import Subset, VSubset, _array_positions, _ArrayBounds, _split_axis
@@ -281,7 +292,7 @@ class TestVArraySubset:
         find = varray._VArray__collection.filter({"id": varray.id})  # type: ignore[attr-defined]
         array = find.first()
         assert array is None
-        varray._adapter.create(varray)
+        varray._adapter.create(varray, timeout=Sentinel, token=DefaultToken())
         array = find.first()
         assert array is not None
         data = np.ones(shape=varray.shape, dtype=varray.dtype)
@@ -295,7 +306,7 @@ class TestVArraySubset:
     )
     def test_vsubset_update_with_scalar_fills_subset(self, varray: VArray, index_exp: Slice):
         """Tests if a scalar fills the whole VSubset, as it does for an Array subset."""
-        varray._adapter.create(varray)
+        varray._adapter.create(varray, timeout=Sentinel, token=DefaultToken())
         vsubset: VSubset = varray[index_exp]
         vsubset.update(5)
         result = vsubset.read()
@@ -987,17 +998,17 @@ class TestVSubsetArrayWorkers:
         vsubset: VSubset = inserted_varray[index_exp]
         expected = array_data[index_exp]
         for array_pos in vsubset._VSubset__arrays:
-            data_slice, data = vsubset._VSubset__read_array_data(array_pos)
+            data_slice, data = vsubset._VSubset__read_array_data(array_pos, timeout=Sentinel, token=DefaultToken())
             assert data_slice == array_pos.data_slice
             assert np.array_equal(np.asarray(data), np.asarray(expected)[data_slice])
 
     @pytest.mark.parametrize("index_exp", [np.index_exp[:], np.index_exp[0:5, 0:5, 0:5], np.index_exp[2, 3:9, 1]])
     def test_read_array_data_of_missing_arrays(self, varray: VArray, index_exp: Slice):
         """Tests if a missing Array is read as its fill value with the shape of its bounds."""
-        varray._adapter.create(varray)
+        varray._adapter.create(varray, timeout=Sentinel, token=DefaultToken())
         vsubset: VSubset = varray[index_exp]
         for array_pos in vsubset._VSubset__arrays:
-            data_slice, data = vsubset._VSubset__read_array_data(array_pos)
+            data_slice, data = vsubset._VSubset__read_array_data(array_pos, timeout=Sentinel, token=DefaultToken())
             assert data_slice == array_pos.data_slice
             assert np.all(np.isnan(data))
             assert np.asarray(data).shape == np.asarray(np.empty(varray.arrays_shape)[array_pos.bounds]).shape
@@ -1009,16 +1020,18 @@ class TestVSubsetArrayWorkers:
         array_pos = vsubset._VSubset__arrays[0]
         wrong = ArrayPosition(array_pos.vposition, bounds, array_pos.data_slice)
         with pytest.raises(IndexError):
-            vsubset._VSubset__read_array_data(wrong)
+            vsubset._VSubset__read_array_data(wrong, timeout=Sentinel, token=DefaultToken())
 
     def test_update_array_data_creates_missing_array(self, varray: VArray):
         """Tests if updating a missing Array creates it with the data."""
-        varray._adapter.create(varray)
+        varray._adapter.create(varray, timeout=Sentinel, token=DefaultToken())
         vsubset: VSubset = varray[:]
         array_pos = vsubset._VSubset__arrays[0]
         assert vsubset._create_array_from_vposition(array_pos.vposition) is None
         data = np.full(varray.arrays_shape, 7.0, dtype=varray.dtype)
-        vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
+        vsubset._VSubset__update_array_data(
+            ArrayPositionedData(array_pos.vposition, array_pos.bounds, data), timeout=Sentinel, token=DefaultToken()
+        )
         array = vsubset._create_array_from_vposition(array_pos.vposition)
         assert array is not None
         assert np.array_equal(array[:].read(), data)
@@ -1028,7 +1041,9 @@ class TestVSubsetArrayWorkers:
         vsubset: VSubset = inserted_varray[:]
         array_pos = vsubset._VSubset__arrays[-1]
         data = np.full(inserted_varray.arrays_shape, -1.0, dtype=inserted_varray.dtype)
-        vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
+        vsubset._VSubset__update_array_data(
+            ArrayPositionedData(array_pos.vposition, array_pos.bounds, data), timeout=Sentinel, token=DefaultToken()
+        )
         array = vsubset._create_array_from_vposition(array_pos.vposition)
         assert np.array_equal(array[:].read(), data)
 
@@ -1077,7 +1092,11 @@ class TestVSubsetArrayWorkers:
             assert len(vsubset._VSubset__arrays) == np.prod(vgrid)
             for array_pos in vsubset._VSubset__arrays:
                 data = np.zeros(varray.arrays_shape, dtype=varray.dtype)
-                vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
+                vsubset._VSubset__update_array_data(
+                    ArrayPositionedData(array_pos.vposition, array_pos.bounds, data),
+                    timeout=Sentinel,
+                    token=DefaultToken(),
+                )
                 array = vsubset._create_array_from_vposition(array_pos.vposition)
                 expected = start + step * array_size * array_pos.vposition[time_index]
                 assert array.custom_attributes["parent.start"] == expected
@@ -1138,20 +1157,22 @@ class TestVSubsetArrayWorkers:
         vsubset: VSubset = inserted_varray[:]
         array_pos = vsubset._VSubset__arrays[0]
         with pytest.raises(error):
-            vsubset._VSubset__update_array_data(ArrayPositionedData(array_pos.vposition, array_pos.bounds, data))
+            vsubset._VSubset__update_array_data(
+                ArrayPositionedData(array_pos.vposition, array_pos.bounds, data), timeout=Sentinel, token=DefaultToken()
+            )
 
     def test_clear_array_deletes_fully_covered_array(self, inserted_varray: VArray):
         """Tests if an Array fully covered by the subset is deleted."""
         vsubset: VSubset = inserted_varray[:]
         array_pos = vsubset._VSubset__arrays[0]
-        vsubset._VSubset__clear_array(array_pos)
+        vsubset._VSubset__clear_array(array_pos, timeout=Sentinel, token=DefaultToken())
         assert vsubset._create_array_from_vposition(array_pos.vposition) is None
 
     def test_clear_array_clears_partially_covered_array(self, inserted_varray: VArray, array_data: np.ndarray):
         """Tests if an Array partially covered by the subset is cleared only inside the bounds and kept."""
         vsubset: VSubset = inserted_varray[0:2, 0:2, 0:2]
         array_pos = vsubset._VSubset__arrays[0]
-        vsubset._VSubset__clear_array(array_pos)
+        vsubset._VSubset__clear_array(array_pos, timeout=Sentinel, token=DefaultToken())
         array = vsubset._create_array_from_vposition(array_pos.vposition)
         assert array is not None
         read = array[:].read()
@@ -1160,10 +1181,10 @@ class TestVSubsetArrayWorkers:
 
     def test_clear_array_ignores_missing_array(self, varray: VArray):
         """Tests if clearing an Array that was never written does nothing and raises nothing."""
-        varray._adapter.create(varray)
+        varray._adapter.create(varray, timeout=Sentinel, token=DefaultToken())
         vsubset: VSubset = varray[:]
         array_pos = vsubset._VSubset__arrays[0]
-        vsubset._VSubset__clear_array(array_pos)
+        vsubset._VSubset__clear_array(array_pos, timeout=Sentinel, token=DefaultToken())
         assert vsubset._create_array_from_vposition(array_pos.vposition) is None
 
 
@@ -1943,3 +1964,160 @@ class TestVSubsetArrayReads:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class CancelOnFirstCall:
+    """Stand for a method of an adapter: the first call cancels the scope, every call does the real work.
+
+    :param scope: token of the cancellation scope
+    :param method: the real method
+    """
+
+    def __init__(self, scope: SimpleToken, method):
+        self.scope = scope
+        self.method = method
+        self.calls = 0
+
+    def __call__(self, *args, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            self.scope.cancel()
+        return self.method(*args, **kwargs)
+
+
+def read_slowly(*args, **kwargs):
+    """Stand for a read of the storage that takes two seconds."""
+    time.sleep(2)
+    return np.zeros((5, 5, 5))
+
+
+class TestVSubsetTimeoutAndCancellation:
+    """A VSubset reads and writes its Arrays under one token of the operation."""
+
+    @pytest.fixture
+    def one_worker(self, inserted_varray: VArray, mocker) -> Iterator[None]:
+        """Run the Arrays of the VArray one after another, so the order of the cancellation is known."""
+        executor = ThreadPoolExecutor(1)
+        mocker.patch.object(inserted_varray._adapter, "executor", executor)
+        yield
+        executor.shutdown()
+
+    @pytest.mark.parametrize("operation", ["read", "update", "clear"])
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [pytest.param({"timeout": 5}, 5, id="given"), pytest.param({}, Sentinel, id="not-given")],
+    )
+    def test_timeout_reaches_the_adapter_of_every_array(
+        self, inserted_varray: VArray, mocker, operation, kwargs, expected
+    ):
+        adapter = inserted_varray._VArray__array_adapter
+        method = {"read": "read_data", "update": "update", "clear": "clear"}[operation]
+        adapter_call = mocker.patch.object(adapter, method, return_value=np.zeros((3, 3, 3)))
+        args = (1.0,) if operation == "update" else ()
+        getattr(inserted_varray[0:3, 0:3, 0:3], operation)(*args, **kwargs)
+        assert adapter_call.call_count == 1
+        assert adapter_call.call_args.kwargs["timeout"] == expected
+        assert isinstance(adapter_call.call_args.kwargs["token"], AbstractToken)
+
+    @pytest.mark.parametrize("operation", ["read", "update", "clear"])
+    @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
+    def test_invalid_timeout_is_rejected(self, inserted_varray: VArray, operation, timeout):
+        args = (1.0,) if operation == "update" else ()
+        with pytest.raises(DekerValidationError):
+            getattr(inserted_varray[:], operation)(*args, timeout=timeout)
+
+    @pytest.mark.parametrize("operation", ["read", "update", "clear"])
+    def test_cancelled_scope_stops_before_any_array(
+        self, inserted_varray: VArray, array_data: np.ndarray, mocker, operation
+    ):
+        adapter = inserted_varray._VArray__array_adapter
+        spies = [mocker.spy(adapter, method) for method in ("read_data", "update", "clear", "delete", "create")]
+        token = SimpleToken()
+        token.cancel()
+        args = (1.0,) if operation == "update" else ()
+        with cancellation_scope(token), pytest.raises(DekerCancelledError):
+            getattr(inserted_varray[:], operation)(*args)
+        assert all(spy.call_count == 0 for spy in spies)
+        np.testing.assert_array_equal(inserted_varray[:].read(), array_data)
+
+    @pytest.mark.timeout(20)
+    def test_read_cancelled_after_the_first_array_reads_no_other(self, inserted_varray: VArray, one_worker, mocker):
+        adapter = inserted_varray._VArray__array_adapter
+        scope = SimpleToken()
+        first_read = CancelOnFirstCall(scope, adapter.read_data)
+        mocker.patch.object(adapter, "read_data", side_effect=first_read)
+        with cancellation_scope(scope), pytest.raises(DekerCancelledError):
+            inserted_varray[:].read()
+        assert first_read.calls == 1
+
+    @pytest.mark.timeout(20)
+    def test_read_over_its_timeout_returns_no_data(self, inserted_varray: VArray, mocker):
+        adapter = inserted_varray._VArray__array_adapter
+        mocker.patch.object(adapter.storage_adapter, "read_data", side_effect=read_slowly)
+        start = time.monotonic()
+        with pytest.raises(DekerTimeoutError):
+            inserted_varray[:].read(timeout=1)
+        assert time.monotonic() - start < 10
+
+    @pytest.mark.timeout(20)
+    def test_write_cancelled_after_the_first_file_is_started_goes_to_its_end(
+        self, inserted_varray: VArray, one_worker, mocker
+    ):
+        adapter = inserted_varray._VArray__array_adapter
+        scope = SimpleToken()
+        first_write = CancelOnFirstCall(scope, adapter.storage_adapter.update_data)
+        mocker.patch.object(adapter.storage_adapter, "update_data", side_effect=first_write)
+        with cancellation_scope(scope):
+            inserted_varray[:].update(7.0)
+        assert first_write.calls == 8
+        np.testing.assert_array_equal(inserted_varray[:].read(), np.full((10, 10, 10), 7.0))
+
+    @pytest.mark.timeout(20)
+    def test_write_cancelled_before_any_file_changes_nothing(
+        self, inserted_varray: VArray, array_data: np.ndarray, mocker
+    ):
+        adapter = inserted_varray._VArray__array_adapter
+        update_data = mocker.spy(adapter.storage_adapter, "update_data")
+        token = SimpleToken()
+        token.cancel()
+        with cancellation_scope(token), pytest.raises(DekerCancelledError):
+            inserted_varray[:].update(7.0)
+        update_data.assert_not_called()
+        np.testing.assert_array_equal(inserted_varray[:].read(), array_data)
+
+    @pytest.mark.timeout(20)
+    def test_write_cancelled_after_its_start_before_any_file_changes_nothing(
+        self, inserted_varray: VArray, array_data: np.ndarray, mocker
+    ):
+        """The scope is cancelled after the entry check of the write: every Array stops at its own check."""
+        adapter = inserted_varray._VArray__array_adapter
+        scope = SimpleToken()
+        process_data = CancelOnFirstCall(scope, adapter._process_data)
+        mocker.patch.object(adapter, "_process_data", side_effect=process_data)
+        update_data = mocker.spy(adapter.storage_adapter, "update_data")
+        with cancellation_scope(scope), pytest.raises(DekerCancelledError) as error:
+            inserted_varray[:].update(7.0)
+        assert type(error.value) is DekerCancelledError
+        assert process_data.calls == 1
+        update_data.assert_not_called()
+        np.testing.assert_array_equal(inserted_varray[:].read(), array_data)
+
+    @pytest.mark.timeout(20)
+    @pytest.mark.parametrize("setting", [False, True], ids=["argument", "client-setting"])
+    def test_write_waits_for_a_held_array_up_to_its_timeout(self, inserted_varray: VArray, mocker, setting):
+        adapter = inserted_varray._VArray__array_adapter
+        kwargs = {"timeout": 1}
+        if setting:
+            mocker.patch.object(adapter.ctx.config, "write_lock_timeout", 1)
+            kwargs = {}
+        held = inserted_varray[0:5, 0:5, 0:5]._VSubset__arrays[0]
+        array = inserted_varray[:]._create_array_from_vposition(held.vposition)
+        holder = Flock(adapter._get_main_path_to_file(array), shared=True)
+        holder.acquire()
+        try:
+            start = time.monotonic()
+            with pytest.raises(DekerLockError, match="written partly: 1 of 8"):
+                inserted_varray[:].update(7.0, **kwargs)
+            assert time.monotonic() - start < 2.5
+        finally:
+            holder.release()

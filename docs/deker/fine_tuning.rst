@@ -15,8 +15,8 @@ tune. All of them shall be explicitly passed as keyword parameters, none of them
 ``executor``
 ------------
 
-DEKER™ creates its own ``ThreadPoolExecutor`` instance for working with ``VArray``. By default,
-this parameter is ``None``. You may want to use your own ``ThreadPoolExecutor`` (or some custom
+DEKER™ creates its own ``ThreadPoolExecutor`` instance for working with ``VArray``, unless this
+parameter is given. You may want to use your own ``ThreadPoolExecutor`` (or some custom
 executor, based on ``ThreadPoolExecutor``) instance. In this case DEKER™ will use the passed one::
 
    from deker import Client
@@ -36,7 +36,7 @@ executor, based on ``ThreadPoolExecutor``) instance. In this case DEKER™ will 
 
 This is a parameter for the native DEKER™ executor mentioned above.
 
-By default, it is ``None`` and in this case DEKER™ uses the maximum number of threads from the
+When it is not given, DEKER™ uses the maximum number of threads from the
 formula, provided by `Python documentation`_ : ``min(32, cpu_count() + 4)``
 (``process_cpu_count()`` is used instead of ``cpu_count()`` since Python 3.13).
 
@@ -60,7 +60,22 @@ process waits for the release of the locked file::
 
    client = Client(uri, write_lock_timeout=120)
 
-The default is ``60`` seconds. The units are immutable and only ``int`` is accepted.
+The default is ``60`` seconds. The units are immutable and only a positive ``int`` is accepted.
+A single write may be given its own ``timeout``, see :doc:`timeouts`.
+
+
+``read_timeout``
+----------------
+
+The number of seconds a read may take, from its start to its end. When the time is over, the read
+raises ``DekerTimeoutError``::
+
+   from deker import Client
+
+   client = Client(uri, read_timeout=120)
+
+The default is ``60`` seconds. Only a positive ``int`` is accepted. A single read may be given its
+own ``timeout``, see :doc:`timeouts`.
 
 
 ``write_lock_check_interval``

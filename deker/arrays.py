@@ -16,6 +16,10 @@
 
 from typing import TYPE_CHECKING
 
+from cantok import AbstractToken
+from deker_tools.cancel import check
+from deker_tools.typings import Sentinel, SentinelType
+
 from deker.ABC.base_array import BaseArray
 from deker.errors import DekerInvalidSchemaError
 from deker.schemas import ArraySchema, VArraySchema
@@ -88,9 +92,9 @@ class Array(BaseArray[Subset]):
         self,
         collection: "Collection",
         adapter: "BaseArrayAdapter",
-        id_: str | None = None,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
+        id_: str | SentinelType = Sentinel,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
     ) -> None:
         """Array constructor.
 
@@ -212,9 +216,9 @@ class VArray(BaseArray[VSubset]):
         collection: "Collection",
         adapter: "BaseVArrayAdapter",
         array_adapter: "BaseArrayAdapter",
-        id_: str | None = None,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
+        id_: str | SentinelType = Sentinel,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
     ) -> None:
         """VArray constructor.
 
@@ -273,10 +277,15 @@ class VArray(BaseArray[VSubset]):
         d["vgrid"] = self.vgrid
         return d
 
-    def delete(self) -> None:
-        """Delete the ``VArray`` from the storage: first every ``Array`` it is made of, then the ``VArray`` itself."""
-        self.__array_adapter.delete_all_by_vid(self.id, self.__collection)
-        self._adapter.delete(self)
+    def _delete(self, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+        """Delete the ``VArray`` from the storage: first every ``Array`` it is made of, then the ``VArray`` itself.
+
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        """
+        check(token)
+        self.__array_adapter.delete_all_by_vid(self.id, self.__collection, timeout=timeout, token=token)
+        self._adapter.delete(self, timeout=timeout, token=token)
         self.logger.debug("VArray %s is deleted", self.id)
 
     @property

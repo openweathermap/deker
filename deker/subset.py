@@ -17,21 +17,26 @@
 import traceback
 
 from collections.abc import Iterator, Sequence
+from functools import partial
 from itertools import product
 from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import numpy as np
 
+from cantok import AbstractToken
+from deker_tools.cancel import TokenCancelledError, check, read_token, resolve_timeout, write_token
 from deker_tools.slices import create_shape_from_slice, positive_bounds
+from deker_tools.typings import Sentinel, SentinelType
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
-from deker.errors import DekerArrayError, DekerLockError, DekerVSubsetError
+from deker.errors import DekerArrayError, DekerLockError, DekerVSubsetError, TokenErrorConverter
 from deker.locks import ArrayCreationLock
 from deker.tools import not_deleted
 from deker.tools.time import array_time_attributes
 from deker.types.private.classes import ArrayPosition, ArrayPositionedData
 from deker.types.private.typings import Arrays, Data, Numeric, Slice
+from deker.validators import validate_timeout
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
@@ -109,21 +114,51 @@ class Subset(BaseSubset["Array"]):
         super().__init__(slice_expression, shape, array, adapter)
         self.logger.debug("%s instantiated", self)
 
-    @not_deleted
-    def read(self) -> Numeric | np.ndarray:
-        """Read data from ``Array`` slice.
+    def _read(self, *, timeout: int | SentinelType, token: AbstractToken) -> Numeric | np.ndarray:
+        """Read the data under the token of an operation built already: a ``VSubset`` reads its ``Arrays`` so.
 
-        :returns: the data of the subset shape; a number for a single cell; the fill value where nothing was written
-        :raises DekerLockError: if a writer holds the ``Array``
-        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the read operation
+        :returns: the data of the subset shape; a number for a single cell
         """
+        check(token)
         self.logger.debug("Trying to read data from %s", self)
-        data = self.__adapter.read_data(self.__array, self.__bounds)
+        data = self.__adapter.read_data(self.__array, self.__bounds, timeout=timeout, token=token)
+        check(token)
         self.logger.info("%s data read", self)
         return data
 
     @not_deleted
-    def update(self, data: Data) -> None:
+    def read(self, *, timeout: int | SentinelType = Sentinel) -> Numeric | np.ndarray:
+        """Read data from ``Array`` slice.
+
+        :param timeout: seconds the read may take; not given - ``read_timeout`` of the client
+        :returns: the data of the subset shape; a number for a single cell; the fill value where nothing was written
+        :raises DekerValidationError: if the timeout is not a positive integer
+        :raises DekerLockError: if a writer holds the ``Array``
+        :raises DekerTimeoutError: if the read takes longer than its timeout; no data are returned then
+        :raises DekerCancelledError: if the read is cancelled from outside
+        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
+        """
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            token = read_token(resolve_timeout(timeout, self.__adapter.ctx.config.read_timeout))
+            return self._read(timeout=timeout, token=token)
+
+    def _update(self, data: Data, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+        """Write the data under the token of an operation built already: a ``VSubset`` writes its ``Arrays`` so.
+
+        :param data: new data which shall match subset slicing
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        """
+        check(token)
+        self.logger.debug("Trying to update data for %s", self)
+        self.__adapter.update(self.__array, self.__bounds, data, timeout=timeout, token=token)
+        self.logger.info("%s data updated", self)
+
+    @not_deleted
+    def update(self, data: Data, *, timeout: int | SentinelType = Sentinel) -> None:
         """Update data in ``Array`` by slice.
 
         * Data cannot be ``None``
@@ -131,32 +166,52 @@ class Subset(BaseSubset["Array"]):
         * Python numbers, lists and tuples are converted to the ``Array.dtype`` when every value fits it;
           NumPy arrays and scalars shall have the ``Array.dtype`` already
 
-        The write waits for the readers of the ``Array`` to leave, up to ``write_lock_timeout`` of the client.
+        The write waits for the readers of the ``Array`` to leave, up to its timeout; once the file is started,
+        the write goes to its end.
 
         :param data: new data which shall match subset slicing
+        :param timeout: seconds to wait for the lock of the ``Array``; not given - ``write_lock_timeout`` of the
+          client
         :raises DekerArrayError: if the data is ``None``
-        :raises DekerValidationError: if the data does not fit the shape or the dtype
+        :raises DekerValidationError: if the data does not fit the shape or the dtype, or the timeout is not a
+          positive integer
         :raises DekerLockError: if the ``Array`` is not released within the timeout
+        :raises DekerCancelledError: if the write is cancelled before it started
         :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
         """
-        self.logger.debug("Trying to update data for %s", self)
+        validate_timeout(timeout=timeout)
         if data is None:
             raise DekerArrayError("Updating data shall not be None")
-        self.__adapter.update(self.__array, self.__bounds, data)
-        self.logger.info("%s data updated", self)
+        with TokenErrorConverter():
+            self._update(data, timeout=timeout, token=write_token())
+
+    def _clear(self, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+        """Clear the cells under the token of an operation built already: a ``VSubset`` clears its ``Arrays`` so.
+
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        """
+        check(token)
+        self.logger.debug("Trying to clear data for %s", self)
+        self.__adapter.clear(self.__array, self.__bounds, timeout=timeout, token=token)
+        self.logger.info("%s data cleared", self)
 
     @not_deleted
-    def clear(self) -> None:
+    def clear(self, *, timeout: int | SentinelType = Sentinel) -> None:
         """Set the cells of the ``Array`` within the subset to the fill value.
 
         The data of an ``Array`` that becomes entirely empty are removed from its file.
 
+        :param timeout: seconds to wait for the lock of the ``Array``; not given - ``write_lock_timeout`` of the
+          client
+        :raises DekerValidationError: if the timeout is not a positive integer
         :raises DekerLockError: if the ``Array`` is not released within the timeout
+        :raises DekerCancelledError: if the clearing is cancelled before it started
         :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
         """
-        self.logger.debug("Trying to clear data for %s", self)
-        self.__adapter.clear(self.__array, self.__bounds)
-        self.logger.info("%s data cleared", self)
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            self._clear(timeout=timeout, token=write_token())
 
 
 class _ArrayBounds(NamedTuple):
@@ -345,31 +400,44 @@ class VSubset(BaseSubset["VArray"]):
             custom_attributes=array_time_attributes(self.__array, vpos, schema),
         )
 
-    def __clear_array(self, array_pos: ArrayPosition) -> None:
+    def __clear_array(self, array_pos: ArrayPosition, *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Clear the part of one ``Array`` of the ``VArray`` covered by the subset; a fully covered one is deleted.
 
         :param array_pos: position and bounds of the inner Array
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
         """
+        check(token)
         array = self._create_array_from_vposition(array_pos.vposition)
         if array:
             subset = array[array_pos.bounds]
             if subset.shape == array.shape:
-                array.delete()
+                array._delete(timeout=timeout, token=token)
             else:
-                subset.clear()
+                subset._clear(timeout=timeout, token=token)
 
     @not_deleted
-    def clear(self) -> None:
+    def clear(self, *, timeout: int | SentinelType = Sentinel) -> None:
         """Clear the data of the ``VArray`` within the subset.
 
         An ``Array`` the subset covers entirely is deleted, a partly covered one is cleared.
 
+        :param timeout: seconds to wait for the lock of each ``Array``; not given - ``write_lock_timeout`` of the
+          client
+        :raises DekerValidationError: if the timeout is not a positive integer
         :raises DekerLockError: if an ``Array`` is not released within the timeout
+        :raises DekerCancelledError: if the clearing is cancelled before any ``Array`` is started
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
         """
-        self.logger.debug("Trying to clear data for %s", self)
-        results = self.__adapter.executor.map(self.__clear_array, self.__arrays)
-        list(results)
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            self.logger.debug("Trying to clear data for %s", self)
+            results = self.__adapter.executor.map(
+                partial(self.__clear_array, timeout=timeout, token=token), self.__arrays
+            )
+            list(results)
         self.logger.info("%s data cleared", self)
 
     def __sum_results(self, arrays_data: Iterator) -> np.ndarray:
@@ -387,18 +455,23 @@ class VSubset(BaseSubset["VArray"]):
             return np.flip(results, self.__flipped_axes)
         return results
 
-    def __read_array_data(self, array_pos: ArrayPosition) -> tuple[Slice, Numeric | ndarray | None]:
+    def __read_array_data(
+        self, array_pos: ArrayPosition, *, timeout: int | SentinelType, token: AbstractToken
+    ) -> tuple[Slice, Numeric | ndarray | None]:
         """Read the part of one ``Array`` of the ``VArray`` covered by the subset.
 
         A missing ``Array`` reads as its fill value.
 
         :param array_pos: position and bounds of the inner Array and the slice of the subset data it fills
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the read operation
         :returns: slice of the subset data and the data read
         """
+        check(token)
         array = self._create_array_from_vposition(array_pos.vposition)
         if array:
             subset = array[array_pos.bounds]
-            result = subset.read()
+            result = subset._read(timeout=timeout, token=token)
         else:
             result = np.empty(
                 shape=create_shape_from_slice(self.__array.arrays_shape, array_pos.bounds),
@@ -408,20 +481,33 @@ class VSubset(BaseSubset["VArray"]):
         return array_pos.data_slice, result
 
     @not_deleted
-    def read(self) -> Numeric | np.ndarray:
+    def read(self, *, timeout: int | SentinelType = Sentinel) -> Numeric | np.ndarray:
         """Read data from ``VArray`` slice, assembled from its ``Arrays``.
 
+        :param timeout: seconds the whole read may take; not given - ``read_timeout`` of the client
         :returns: the data of the subset shape; a number for a single cell; the fill value where nothing was written
+        :raises DekerValidationError: if the timeout is not a positive integer
         :raises DekerLockError: if a writer holds one of the ``Arrays``
+        :raises DekerTimeoutError: if the read takes longer than its timeout; no data are returned then
+        :raises DekerCancelledError: if the read is cancelled from outside
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
         """
-        self.logger.debug("Trying to read data from %s", self)
-        arrays_data = self.__adapter.executor.map(self.__read_array_data, self.__arrays)
-        data = self.__sum_results(arrays_data)
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            token = read_token(resolve_timeout(timeout, self.__adapter.ctx.config.read_timeout))
+            check(token)
+            self.logger.debug("Trying to read data from %s", self)
+            arrays_data = self.__adapter.executor.map(
+                partial(self.__read_array_data, timeout=timeout, token=token), self.__arrays
+            )
+            data = self.__sum_results(arrays_data)
+            check(token)
         self.logger.info("%s data read", self)
         return data
 
-    def __create_array(self, vposition: tuple[int, ...]) -> "Array":
+    def __create_array(
+        self, vposition: tuple[int, ...], *, timeout: int | SentinelType, token: AbstractToken
+    ) -> "Array":
         """Create the missing ``Array`` of the ``VArray`` at the position.
 
         A new ``Array`` gets the start values of its time dimensions calculated from its position:
@@ -429,6 +515,8 @@ class VSubset(BaseSubset["VArray"]):
         (ATD - Array time dimension, VATD - VArray time dimension, vpos - v_position).
 
         :param vposition: ``v_position`` of the Array in the ``vgrid``
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
         :returns: the created Array
         """
         from deker.arrays import Array
@@ -439,52 +527,43 @@ class VSubset(BaseSubset["VArray"]):
             primary_attributes={"vid": self.__array.id, "v_position": vposition},
             custom_attributes=array_time_attributes(self.__array, vposition, self.__collection.array_schema),
         )
-        self.__array_adapter.create(array)
+        self.__array_adapter.create(array, timeout=timeout, token=token)
         return array
 
-    def __update_array_data(self, array_data: ArrayPositionedData) -> None:
+    def __update_array_data(
+        self, array_data: ArrayPositionedData, *, timeout: int | SentinelType, token: AbstractToken
+    ) -> None:
         """Update the part of one ``Array`` of the ``VArray`` covered by the subset, creating it if it is missing.
 
         The ``Array`` is held exclusively only while its part is written (its own write lock), so the Arrays
         of one ``VArray`` are written independently and a writer never holds an Array it is not writing.
 
         :param array_data: position and bounds of the inner Array and the data for it
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
         """
+        check(token)
         array = self._create_array_from_vposition(array_data.vposition)
         if not array:
-            with ArrayCreationLock(self.__adapter, self.__array, self.__collection):
+            with ArrayCreationLock(self.__adapter, self.__array, self.__collection, timeout=timeout, token=token):
                 # another writer may have created the Array while this one waited for the lock
                 array = self._create_array_from_vposition(array_data.vposition) or self.__create_array(
-                    array_data.vposition
+                    array_data.vposition, timeout=timeout, token=token
                 )
         subset = array[array_data.bounds]
-        subset.update(array_data.data)
+        subset._update(array_data.data, timeout=timeout, token=token)
 
-    @not_deleted
-    def update(self, data: Data) -> None:
-        """Update data in ``VArray`` by slice.
-
-        * Data cannot be ``None``
-        * Data ``shape`` should be equal to the ``VSubset.shape``, or data is a number that fills the whole subset
-        * Python numbers, lists and tuples are converted to the ``VArray.dtype`` when every value fits it;
-          NumPy arrays and scalars shall have the ``VArray.dtype`` already
-
-        The ``Arrays`` the subset covers are written one by one in the executor of the client, each under its own
-        write lock; a missing ``Array`` is created. The ``Arrays`` that failed are reported together, the others
-        are written. When every failed ``Array`` was not released within the write lock timeout, the error is
-        ``DekerLockError``: nothing is broken, the write can simply be repeated.
+    def __update(self, data: Data, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+        """Write the data into the ``Arrays`` of the ``VArray`` under the token of the operation.
 
         :param data: new data which shall match subset slicing
-        :raises DekerArrayError: if the data is ``None``
-        :raises DekerValidationError: if the data does not fit the shape or the dtype
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        :raises TokenCancelledError: if the write is cancelled before any ``Array`` is started
         :raises DekerLockError: if every ``Array`` that failed was not released within the write lock timeout
         :raises DekerVSubsetError: if one or more ``Arrays`` could not be written for other reasons, or for mixed ones
-        :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
         """
-        self.logger.debug("Trying to update data for %s", self)
-        if data is None:
-            raise DekerArrayError("Updating data shall not be None")
-
+        check(token)
         processed = self.__array_adapter._process_data(self.__array.dtype, self.__array.shape, data, self.__bounds)
         # a scalar fills the whole subset, as it does for an Array subset
         data_array = (
@@ -497,7 +576,10 @@ class VSubset(BaseSubset["VArray"]):
             ArrayPositionedData(vpos, array_bounds, data_array[data_bounds])
             for vpos, array_bounds, data_bounds in self.__arrays
         ]
-        futures = [self.__adapter.executor.submit(self.__update_array_data, position) for position in positions]
+        futures = [
+            self.__adapter.executor.submit(self.__update_array_data, position, timeout=timeout, token=token)
+            for position in positions
+        ]
 
         exceptions: list[Exception] = []
         descriptions: list[str] = []
@@ -508,6 +590,10 @@ class VSubset(BaseSubset["VArray"]):
                 exceptions.append(e)
                 descriptions.append(repr(e) + "\n" + traceback.format_exc(-1))
 
+        # a cancelled Array means no Array of the write was started: the write is cancelled as a whole
+        cancelled = [e for e in exceptions if isinstance(e, TokenCancelledError)]
+        if cancelled:
+            raise cancelled[0]
         if exceptions and all(isinstance(e, DekerLockError) for e in exceptions):
             causes = "; ".join(str(e) for e in exceptions)
             raise DekerLockError(
@@ -521,4 +607,36 @@ class VSubset(BaseSubset["VArray"]):
                 descriptions,
             )
 
+    @not_deleted
+    def update(self, data: Data, *, timeout: int | SentinelType = Sentinel) -> None:
+        """Update data in ``VArray`` by slice.
+
+        * Data cannot be ``None``
+        * Data ``shape`` should be equal to the ``VSubset.shape``, or data is a number that fills the whole subset
+        * Python numbers, lists and tuples are converted to the ``VArray.dtype`` when every value fits it;
+          NumPy arrays and scalars shall have the ``VArray.dtype`` already
+
+        The ``Arrays`` the subset covers are written one by one in the executor of the client, each under its own
+        write lock; a missing ``Array`` is created. The ``Arrays`` that failed are reported together, the others
+        are written. When every failed ``Array`` was not released within the write lock timeout, the error is
+        ``DekerLockError``: nothing is broken, the write can simply be repeated. A write cancelled from outside
+        stops only before any of its ``Arrays`` is started; once one is started, every ``Array`` is written.
+
+        :param data: new data which shall match subset slicing
+        :param timeout: seconds to wait for the lock of each ``Array``; not given - ``write_lock_timeout`` of the
+          client
+        :raises DekerArrayError: if the data is ``None``
+        :raises DekerValidationError: if the data does not fit the shape or the dtype, or the timeout is not a
+          positive integer
+        :raises DekerCancelledError: if the write is cancelled before any ``Array`` is started
+        :raises DekerLockError: if every ``Array`` that failed was not released within the write lock timeout
+        :raises DekerVSubsetError: if one or more ``Arrays`` could not be written for other reasons, or for mixed ones
+        :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
+        """
+        validate_timeout(timeout=timeout)
+        self.logger.debug("Trying to update data for %s", self)
+        if data is None:
+            raise DekerArrayError("Updating data shall not be None")
+        with TokenErrorConverter():
+            self.__update(data, timeout=timeout, token=write_token())
         self.logger.info("%s data updated OK", self)

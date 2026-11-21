@@ -1,3 +1,5 @@
+import time
+
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -7,7 +9,10 @@ import hdf5plugin
 import numpy as np
 import pytest
 
+from cantok import AbstractToken, SimpleToken
 from deker_local_adapters import HDF5CompressionOpts, HDF5Options
+from deker_tools.cancel import cancellation_scope
+from deker_tools.typings import Sentinel
 from numpy import ndarray
 
 from tests.fixtures.collection import SteppedCollections
@@ -16,7 +21,15 @@ from tests.parameters.index_exp_params import array_step_cases, valid_index_exp_
 from deker import ArraySchema, AttributeSchema, DimensionSchema, Scale, TimeDimensionSchema
 from deker.arrays import Array
 from deker.collection import Collection
-from deker.errors import DekerArrayError, DekerSubsetError
+from deker.errors import (
+    DekerArrayError,
+    DekerCancelledError,
+    DekerLockError,
+    DekerSubsetError,
+    DekerTimeoutError,
+    DekerValidationError,
+)
+from deker.flock import Flock
 from deker.subset import Subset
 from deker.tools import get_paths
 from deker.types.private.typings import Slice
@@ -912,3 +925,91 @@ class TestSubsetSteps:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+def read_slowly(*args, **kwargs):
+    """Stand for a read of the storage that takes two seconds."""
+    time.sleep(2)
+    return 0.0
+
+
+SUBSET_OPERATIONS = {
+    "read": ("read_data", ()),
+    "update": ("update", (1.0,)),
+    "clear": ("clear", ()),
+}
+
+
+class TestSubsetTimeoutAndCancellation:
+    """A read is limited by its timeout as a whole; a write waits for the lock of the Array up to its timeout."""
+
+    @pytest.mark.parametrize("operation", list(SUBSET_OPERATIONS))
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [pytest.param({"timeout": 5}, 5, id="given"), pytest.param({}, Sentinel, id="not-given")],
+    )
+    def test_timeout_reaches_the_adapter(self, inserted_array: Array, mocker, operation, kwargs, expected):
+        method, args = SUBSET_OPERATIONS[operation]
+        adapter_call = mocker.patch.object(inserted_array._adapter, method, return_value=0.0)
+        getattr(inserted_array[0, 0, 0], operation)(*args, **kwargs)
+        assert adapter_call.call_args.kwargs["timeout"] == expected
+        assert isinstance(adapter_call.call_args.kwargs["token"], AbstractToken)
+
+    @pytest.mark.parametrize("operation", list(SUBSET_OPERATIONS))
+    @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
+    def test_invalid_timeout_is_rejected_before_the_adapter(self, inserted_array: Array, mocker, operation, timeout):
+        method, args = SUBSET_OPERATIONS[operation]
+        adapter_call = mocker.patch.object(inserted_array._adapter, method, return_value=0.0)
+        with pytest.raises(DekerValidationError):
+            getattr(inserted_array[0, 0, 0], operation)(*args, timeout=timeout)
+        adapter_call.assert_not_called()
+
+    @pytest.mark.parametrize("operation", list(SUBSET_OPERATIONS))
+    def test_cancelled_scope_stops_before_the_adapter(self, inserted_array: Array, mocker, operation):
+        method, args = SUBSET_OPERATIONS[operation]
+        adapter_call = mocker.patch.object(inserted_array._adapter, method, return_value=0.0)
+        token = SimpleToken()
+        token.cancel()
+        with cancellation_scope(token), pytest.raises(DekerCancelledError) as error:
+            getattr(inserted_array[0, 0, 0], operation)(*args)
+        assert not isinstance(error.value, DekerTimeoutError)
+        adapter_call.assert_not_called()
+
+    @pytest.mark.timeout(10)
+    @pytest.mark.parametrize("setting", [False, True], ids=["argument", "client-setting"])
+    def test_read_over_its_timeout_returns_no_data(self, inserted_array: Array, mocker, setting):
+        mocker.patch.object(inserted_array._adapter.storage_adapter, "read_data", side_effect=read_slowly)
+        kwargs = {"timeout": 1}
+        if setting:
+            mocker.patch.object(inserted_array._adapter.ctx.config, "read_timeout", 1)
+            kwargs = {}
+        start = time.monotonic()
+        with pytest.raises(DekerTimeoutError):
+            inserted_array[0, 0, 0].read(**kwargs)
+        assert 1.9 < time.monotonic() - start < 4
+
+    @pytest.mark.timeout(10)
+    def test_read_within_its_timeout_returns_the_data(self, inserted_array: Array, array_data: np.ndarray):
+        assert inserted_array[0, 0, 0].read(timeout=60) == array_data[0, 0, 0]
+
+    @pytest.mark.timeout(10)
+    @pytest.mark.parametrize("operation", ["update", "clear"])
+    @pytest.mark.parametrize("setting", [False, True], ids=["argument", "client-setting"])
+    def test_write_waits_for_the_lock_up_to_its_timeout(
+        self, inserted_array: Array, array_data: np.ndarray, mocker, operation, setting
+    ):
+        args = SUBSET_OPERATIONS[operation][1]
+        kwargs = {"timeout": 1}
+        if setting:
+            mocker.patch.object(inserted_array._adapter.ctx.config, "write_lock_timeout", 1)
+            kwargs = {}
+        holder = Flock(inserted_array._adapter._get_main_path_to_file(inserted_array), shared=True)
+        holder.acquire()
+        try:
+            start = time.monotonic()
+            with pytest.raises(DekerLockError):
+                getattr(inserted_array[0, 0, 0], operation)(*args, **kwargs)
+            assert time.monotonic() - start < 2.5
+        finally:
+            holder.release()
+        assert inserted_array[0, 0, 0].read() == array_data[0, 0, 0]

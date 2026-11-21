@@ -6,6 +6,7 @@
    Collection Schema <deker/collection_schema>
    Data Access <deker/data_access>
    Fine Tuning <deker/fine_tuning>
+   Timeouts and Cancellation <deker/timeouts>
    Interactive Shell <deker/shell>
    DEKER™ Tools <deker/tools>
    Connecting to Server <deker/connecting_to_server>

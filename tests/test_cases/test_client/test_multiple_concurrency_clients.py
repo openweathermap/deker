@@ -5,8 +5,10 @@ from multiprocessing.pool import ThreadPool
 
 import pytest
 
+from cantok import DefaultToken
 from deker_local_adapters import LocalCollectionAdapter
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from deker_tools.typings import Sentinel
 
 from tests.parameters.common import random_string
 from tests.parameters.uri import embedded_uri
@@ -22,7 +24,7 @@ WORKERS = cores if cores > 2 else 2
 
 
 def collection_adapter_methods(method: str, path: str, name: str, array_schema: ArraySchema):
-    """Calls mocked collection adapter methods and checks for DekerLockError exceptions"""
+    """Calls collection adapter methods and checks for DekerLockError: a held collection is waited for one second."""
     client = Client(path, loglevel="ERROR")
     ctx = client._Client__ctx
     ctx.storage_adapter = HDF5StorageAdapter
@@ -33,12 +35,12 @@ def collection_adapter_methods(method: str, path: str, name: str, array_schema: 
     collection = Collection(name, array_schema, adapter, factory, storage_adapter)
     try:
         if method == "create":
-            adapter.create(collection)
+            adapter.create(collection, timeout=1, token=DefaultToken())
             return collection.name
         if method == "delete":
-            return adapter.delete(collection)
+            return adapter.delete(collection, timeout=Sentinel, token=DefaultToken())
         if method == "clear":
-            return adapter.clear(collection)
+            return adapter.clear(collection, timeout=1, token=DefaultToken())
     except DekerLockError:
         return DekerLockError
 

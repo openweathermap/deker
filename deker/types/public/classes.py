@@ -92,7 +92,7 @@ class IndexLabels(tuple, SelfLoggerMixin):
     """
 
     @classmethod
-    def __validate(cls, labels: Labels | None) -> tuple[str | float, ...]:
+    def __validate(cls, labels: Labels) -> tuple[str | float, ...]:
         """Check the labels and return them as a tuple.
 
         :param labels: labels
@@ -116,7 +116,7 @@ class IndexLabels(tuple, SelfLoggerMixin):
             raise error
         return labels if isinstance(labels, tuple) else tuple(labels)
 
-    def __new__(cls, labels: Labels | None) -> "IndexLabels":
+    def __new__(cls, labels: Labels) -> "IndexLabels":
         """Override python ``tuple.__new__`` method.
 
         Here we add values validation before an instance is created.
@@ -126,7 +126,7 @@ class IndexLabels(tuple, SelfLoggerMixin):
         """
         return super().__new__(cls, cls.__validate(labels))
 
-    def __init__(self, labels: Labels | None) -> None:  # noqa: ARG002
+    def __init__(self, labels: Labels) -> None:  # noqa: ARG002
         """Log the creation; the labels are set by ``__new__``.
 
         :param labels: list or tuple of unique strings or floats

@@ -11,6 +11,9 @@ import h5py
 import numpy as np
 import pytest
 
+from cantok import DefaultToken
+from deker_tools.typings import Sentinel
+
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
@@ -671,7 +674,7 @@ class TestDataCheck:
     def test_ok(self, client: Client, request, fixture: str):
         array = request.getfixturevalue(fixture)
         if fixture == "array":
-            array._adapter.create(array)
+            array._adapter.create(array, timeout=Sentinel, token=DefaultToken())
         assert checker(client, IntegrityCheck.data).check(array.collection).ok
 
     @pytest.mark.parametrize(
@@ -708,7 +711,7 @@ class TestCountersCheck:
     def test_ok(self, client: Client, request, fixture: str):
         array = request.getfixturevalue(fixture)
         if fixture == "array":
-            array._adapter.create(array)
+            array._adapter.create(array, timeout=Sentinel, token=DefaultToken())
         assert checker(client, IntegrityCheck.counters).check(array.collection).ok
 
     @pytest.mark.parametrize("stored", [0, 5, 1000])

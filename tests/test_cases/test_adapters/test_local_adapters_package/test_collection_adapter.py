@@ -1,14 +1,18 @@
 import errno
 import os
 import shutil
+import time
 
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
 
+from cantok import DefaultToken, SimpleToken
 from deker_local_adapters import AdaptersFactory, LocalCollectionAdapter
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
+from deker_tools.cancel import TokenCancelledError
+from deker_tools.typings import Sentinel
 from pytest_mock import MockerFixture
 
 from tests.parameters.common import random_string
@@ -19,8 +23,10 @@ from deker.errors import (
     DekerAdapterClosedError,
     DekerCollectionAlreadyExistsError,
     DekerCollectionNotExistsError,
+    DekerLockError,
     DekerMemoryError,
 )
+from deker.flock import Flock
 from deker.schemas import ArraySchema, DimensionSchema
 
 
@@ -49,7 +55,9 @@ class TestCollectionAdapter:
                 adapter=collection_adapter,
                 factory=factory,
                 storage_adapter=HDF5StorageAdapter,
-            )
+            ),
+            timeout=Sentinel,
+            token=DefaultToken(),
         )
         assert root_path.joinpath(factory.ctx.config.collections_directory).joinpath(name).exists()
         # the lock file of the creation stays as the marker of the collection
@@ -83,7 +91,9 @@ class TestCollectionAdapter:
                     adapter=collection_adapter,
                     factory=factory,
                     storage_adapter=HDF5StorageAdapter,
-                )
+                ),
+                timeout=Sentinel,
+                token=DefaultToken(),
             )
 
     @pytest.mark.parametrize(
@@ -178,7 +188,7 @@ class TestCollectionAdapter:
         :param array_collection: Pre created array_collection
         :param root_path: Path to collections directory
         """
-        collection_adapter.delete(array_collection)
+        collection_adapter.delete(array_collection, timeout=Sentinel, token=DefaultToken())
         assert not os.path.exists(array_collection.path)
         assert not os.path.exists(array_collection.path.parent / (array_collection.name + ".lock"))
 
@@ -189,7 +199,7 @@ class TestCollectionAdapter:
         shutil.rmtree(array_collection.path)
         lock = array_collection.path.parent / (array_collection.name + ".lock")
         assert lock.exists()
-        collection_adapter.delete(array_collection)
+        collection_adapter.delete(array_collection, timeout=Sentinel, token=DefaultToken())
         assert not lock.exists()
 
     def test_collection_adapter_delete_raises_when_the_directory_cannot_be_removed(
@@ -199,7 +209,7 @@ class TestCollectionAdapter:
         # a real OSError carries errno and strerror: rmtree of Python 3.12+ adds the filename to it before raising
         mocker.patch.object(os, "rmdir", side_effect=PermissionError(errno.EACCES, "read-only storage"))
         with pytest.raises(PermissionError, match="read-only storage"):
-            collection_adapter.delete(array_collection)
+            collection_adapter.delete(array_collection, timeout=Sentinel, token=DefaultToken())
         assert os.path.exists(array_collection.path)
 
     def test_collection_adapter_get_collection(
@@ -227,7 +237,7 @@ class TestCollectionAdapter:
         :param collection_adapter: collection adapter
         :param root_path: Path to collections directory
         """
-        collection_adapter.clear(array_collection)
+        collection_adapter.clear(array_collection, timeout=Sentinel, token=DefaultToken())
 
         collection_dir = None
         for child in root_path.joinpath(collection_adapter.ctx.config.collections_directory).iterdir():
@@ -291,8 +301,10 @@ class TestCollectionAdapterEdges:
         finally:
             shutil.rmtree(path)
 
-    def test_create_writes_nothing_without_path(self, collection_adapter: LocalCollectionAdapter, root_path: Path):
-        collection_adapter._LocalCollectionAdapter__create("ghost", {}, None)
+    def test_create_writes_nothing_into_a_missing_directory(
+        self, collection_adapter: LocalCollectionAdapter, root_path: Path
+    ):
+        collection_adapter._LocalCollectionAdapter__create("ghost", {}, root_path / "ghost")
         assert not list(root_path.rglob("ghost*"))
 
     def test_read_raises_for_missing_collection(self, collection_adapter: LocalCollectionAdapter):
@@ -324,3 +336,43 @@ class TestCollectionAdapterEdges:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestCollectionAdapterCancellation:
+    """The collection adapter stops a cancelled operation before the collection is touched."""
+
+    @pytest.mark.parametrize("operation", ["clear", "delete"])
+    def test_cancelled_token_changes_nothing(self, array_collection: Collection, collection_adapter, operation):
+        array = array_collection.create()
+        token = SimpleToken()
+        token.cancel()
+        with pytest.raises(TokenCancelledError):
+            getattr(collection_adapter, operation)(array_collection, timeout=Sentinel, token=token)
+        assert array_collection.path.exists()
+        assert [a.id for a in array_collection] == [array.id]
+
+    def test_create_with_a_cancelled_token_creates_nothing(
+        self, client: Client, collection_adapter, array_schema, name
+    ):
+        collection = Collection(
+            name=name,
+            schema=array_schema,
+            adapter=collection_adapter,
+            factory=client._factory,
+            storage_adapter=HDF5StorageAdapter,
+        )
+        token = SimpleToken()
+        token.cancel()
+        with pytest.raises(TokenCancelledError):
+            collection_adapter.create(collection, timeout=Sentinel, token=token)
+        assert not (collection_adapter.collections_resource / name).exists()
+
+    @pytest.mark.timeout(10)
+    def test_clear_waits_for_the_collection_up_to_the_timeout(self, array_collection: Collection, collection_adapter):
+        array = array_collection.create()
+        with Flock(collection_adapter.collections_resource / (array_collection.name + ".lock")):
+            start = time.monotonic()
+            with pytest.raises(DekerLockError):
+                collection_adapter.clear(array_collection, timeout=1, token=DefaultToken())
+            assert time.monotonic() - start < 2.5
+        assert [a.id for a in array_collection] == [array.id]

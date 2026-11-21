@@ -1,3 +1,5 @@
+import threading
+import time
 import uuid
 
 from datetime import datetime, timedelta, timezone
@@ -6,8 +8,11 @@ from io import BytesIO
 import hdf5plugin
 import pytest
 
+from cantok import AbstractToken, SimpleToken
 from deker_local_adapters import HDF5StorageAdapter, LocalCollectionAdapter
 from deker_local_adapters.storage_adapters.hdf5 import HDF5CompressionOpts, HDF5Options
+from deker_tools.cancel import cancellation_scope
+from deker_tools.typings import Sentinel
 
 from tests.parameters.collection_params import ClientParams
 
@@ -16,10 +21,13 @@ from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.errors import (
+    DekerCancelledError,
     DekerInvalidManagerCallError,
     DekerInvalidSchemaError,
+    DekerLockError,
     DekerValidationError,
 )
+from deker.flock import Flock
 from deker.schemas import (
     ArraySchema,
     AttributeSchema,
@@ -537,3 +545,112 @@ class TestCollectionRepr:
         assert repr(array_collection) == (
             f"Collection(name={array_collection.name}, array_schema={array_collection.array_schema})"
         )
+
+
+class TestCollectionTimeoutAndCancellation:
+    """The timeout of a creation, a clearing or a deletion is the limit of the wait for the locks it needs."""
+
+    @pytest.mark.parametrize(
+        ("operation", "adapter_of", "method"),
+        [
+            pytest.param("create", "arrays", "create", id="create"),
+            pytest.param("clear", "collection", "clear", id="clear"),
+            pytest.param("delete", "collection", "delete", id="delete"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [pytest.param({"timeout": 5}, 5, id="given"), pytest.param({}, Sentinel, id="not-given")],
+    )
+    def test_timeout_reaches_the_adapter(
+        self, array_collection: Collection, mocker, operation, adapter_of, method, kwargs, expected
+    ):
+        adapter = (
+            array_collection._Collection__adapter
+            if adapter_of == "collection"
+            else array_collection.arrays._DataManager__array_adapter
+        )
+        adapter_call = mocker.patch.object(adapter, method)
+        getattr(array_collection, operation)(**kwargs)
+        assert adapter_call.call_args.kwargs["timeout"] == expected
+        assert isinstance(adapter_call.call_args.kwargs["token"], AbstractToken)
+
+    @pytest.mark.parametrize("operation", ["create", "clear", "delete"])
+    @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
+    def test_invalid_timeout_is_rejected(self, array_collection: Collection, operation, timeout):
+        with pytest.raises(DekerValidationError):
+            getattr(array_collection, operation)(timeout=timeout)
+        assert array_collection.path.exists()
+
+    @pytest.mark.parametrize("operation", ["create", "clear", "delete"])
+    def test_cancelled_scope_changes_nothing(self, array_collection: Collection, operation):
+        array = array_collection.create()
+        token = SimpleToken()
+        token.cancel()
+        with cancellation_scope(token), pytest.raises(DekerCancelledError):
+            getattr(array_collection, operation)()
+        assert array_collection.path.exists()
+        assert [a.id for a in array_collection] == [array.id]
+
+    @pytest.fixture
+    def held_collection(self, array_collection: Collection):
+        """Hold the lock file of the collection, as another creation or clearing does."""
+        adapter = array_collection._Collection__adapter
+        holder = Flock(adapter.collections_resource / (array_collection.name + ".lock"))
+        holder.acquire()
+        yield holder
+        holder.release()
+
+    @pytest.mark.timeout(10)
+    @pytest.mark.parametrize("setting", [False, True], ids=["argument", "client-setting"])
+    def test_clear_waits_for_the_lock_up_to_its_timeout(
+        self, array_collection: Collection, held_collection: Flock, mocker, setting
+    ):
+        array = array_collection.create()
+        kwargs = {"timeout": 1}
+        if setting:
+            mocker.patch.object(array_collection._Collection__adapter.ctx.config, "write_lock_timeout", 1)
+            kwargs = {}
+        start = time.monotonic()
+        with pytest.raises(DekerLockError, match="is locked"):
+            array_collection.clear(**kwargs)
+        assert time.monotonic() - start < 2.5
+        assert [a.id for a in array_collection] == [array.id]
+
+    @pytest.mark.timeout(10)
+    def test_clear_goes_on_once_the_lock_is_released(self, array_collection: Collection, held_collection: Flock):
+        array_collection.create()
+        releaser = threading.Timer(0.3, held_collection.release)
+        releaser.start()
+        array_collection.clear(timeout=5)
+        releaser.join()
+        assert list(array_collection) == []
+
+    @pytest.mark.timeout(10)
+    def test_clear_cancelled_while_it_waits_changes_nothing(self, array_collection: Collection, held_collection: Flock):
+        array = array_collection.create()
+        token = SimpleToken()
+        canceller = threading.Timer(0.3, token.cancel)
+        canceller.start()
+        start = time.monotonic()
+        with cancellation_scope(token), pytest.raises(DekerCancelledError):
+            array_collection.clear(timeout=30)
+        canceller.join()
+        assert time.monotonic() - start < 3
+        assert [a.id for a in array_collection] == [array.id]
+
+
+class TestCreateWithoutArguments:
+    """Arguments not given take their defaults; an explicit ``None`` is not a value of theirs."""
+
+    def test_create_without_arguments_gives_a_new_id_and_no_attributes(self, array_collection: Collection):
+        array = array_collection.create()
+        assert array.id
+        assert array.primary_attributes == {}
+        assert array.custom_attributes == {}
+
+    @pytest.mark.parametrize("argument", ["primary_attributes", "custom_attributes", "id_"])
+    def test_explicit_none_is_rejected(self, array_collection: Collection, argument):
+        with pytest.raises(DekerValidationError):
+            array_collection.create(**{argument: None})
+        assert list(array_collection) == []

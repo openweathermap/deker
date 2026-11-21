@@ -1,5 +1,7 @@
 """Tests of the adapter interfaces: data validation shared by every array adapter."""
 
+import inspect
+
 from typing import Any
 
 import numpy as np
@@ -10,7 +12,7 @@ from deker_local_adapters.factory import AdaptersFactory
 
 from tests.parameters.fresh_copy import load_fresh_copy
 
-from deker.ABC.base_adapters import IArrayAdapter
+from deker.ABC.base_adapters import BaseArrayAdapter, BaseCollectionAdapter, IArrayAdapter
 from deker.errors import DekerArrayTypeError, DekerMetaDataError
 from deker.tools import schema as schema_module
 from deker.types.private import enums as enums_module
@@ -247,3 +249,38 @@ class TestCreateCollectionFromMeta:
         metadata = {**self.METADATA, "schema": {**self.METADATA["schema"], "dtype": "numpy.int128"}}
         with pytest.raises(DekerMetaDataError, match="invalid/corrupted"):
             collection_adapter.create_collection_from_meta(metadata, factory)
+
+
+@pytest.mark.parametrize(
+    ("interface", "method"),
+    [
+        *[
+            (IArrayAdapter, name)
+            for name in ("create", "update_meta_custom_attributes", "delete", "read_data", "update", "clear")
+        ],
+        (BaseArrayAdapter, "delete_all_by_vid"),
+        *[(BaseCollectionAdapter, name) for name in ("create", "clear", "delete")],
+    ],
+)
+def test_operations_of_the_adapters_take_the_timeout_and_the_token(interface, method):
+    parameters = inspect.signature(getattr(interface, method)).parameters
+    assert parameters["timeout"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["token"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+@pytest.mark.parametrize(
+    ("interface", "method"),
+    [(IArrayAdapter, "read_meta"), (IArrayAdapter, "get_by_id"), (BaseCollectionAdapter, "read")],
+)
+def test_reads_of_the_metadata_take_no_token(interface, method):
+    parameters = inspect.signature(getattr(interface, method)).parameters
+    assert "timeout" not in parameters
+    assert "token" not in parameters
+
+
+def test_storage_adapter_not_given_is_the_default():
+    from deker_local_adapters import HDF5StorageAdapter
+
+    from deker.ABC.base_adapters import BaseCollectionAdapter as Adapter
+
+    assert Adapter.get_storage_adapter() is HDF5StorageAdapter

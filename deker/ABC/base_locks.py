@@ -20,13 +20,42 @@ from abc import ABC, abstractmethod
 from collections.abc import Callable, Sequence
 from functools import wraps
 from pathlib import Path
+from time import sleep
 from typing import Any, ParamSpec, TypeVar
 
+from cantok import AbstractToken, TimeoutToken
+from deker_tools.cancel import check, resolve_timeout
+
+from deker.errors import DekerLockError
 from deker.flock import Flock
 from deker.log import SelfLoggerMixin
 
 P = ParamSpec("P")
 R = TypeVar("R")
+
+
+def wait_for_unlock(
+    check_func: Callable[..., bool], check_func_args: tuple, *, timeout: int, interval: float, token: AbstractToken
+) -> bool:
+    """Call the check until it succeeds, sleeping between the attempts, for the timeout at most.
+
+    The token of the operation is checked between the attempts: a cancelled operation stops waiting at once.
+
+    :param check_func: function that returns ``True`` when the lock is taken (or the wait is over)
+    :param check_func_args: arguments of the function
+    :param timeout: seconds to keep trying, counted from the start of the wait
+    :param interval: seconds between the attempts
+    :param token: token of the operation
+    :returns: ``True`` if the check succeeded, ``False`` if the timeout is over
+    :raises TokenCancelledError: if the operation is cancelled while it waits
+    """
+    deadline = TimeoutToken(timeout)
+    while not deadline.cancelled:
+        if check_func(*check_func_args):
+            return True
+        check(token)
+        sleep(interval)
+    return False
 
 
 class BaseLock(SelfLoggerMixin, ABC):
@@ -87,6 +116,46 @@ class BaseLock(SelfLoggerMixin, ABC):
             lock.acquire()  # a refused lock is not kept: the next attempt starts afresh
             self.lock = lock
             self.logger.debug("Set flock for %s", path)
+
+    def _try_acquire(self, path: Path) -> bool:
+        """Try to take the ``flock`` once.
+
+        :param path: path to the file or the directory to lock
+        :returns: ``True`` if the lock is held now, ``False`` if someone else holds the file
+        """
+        try:
+            self.acquire(path)
+        except DekerLockError:
+            return False
+        return True
+
+    def _wait_and_acquire(self, func_kwargs: dict, locked_message: str) -> None:
+        """Take the ``flock``, waiting for its holders up to the timeout of the decorated call.
+
+        The decorated call carries ``timeout`` (``Sentinel`` when not given: ``write_lock_timeout`` of the client)
+        and ``token`` of its operation.
+
+        :param func_kwargs: keyword arguments of the decorated call
+        :param locked_message: text of the error when the holders do not leave in time
+        :raises DekerLockError: if the file is not released within the timeout
+        :raises TokenCancelledError: if the operation is cancelled while it waits
+        """
+        path = self.get_path()
+        if path is None or self._try_acquire(path):  # pragma: no cover  # a waiting lock always has a path
+            return
+        config = self.instance.ctx.config
+        timeout = resolve_timeout(func_kwargs["timeout"], config.write_lock_timeout)
+        if wait_for_unlock(
+            self._try_acquire,
+            (path,),
+            timeout=timeout,
+            interval=config.write_lock_check_interval,
+            token=func_kwargs["token"],
+        ):
+            return
+        # If we hit the timeout, release whatever is held and raise DekerLockError
+        self.release()
+        raise DekerLockError(locked_message)
 
     def release(self, e: Exception | None = None) -> None:  # noqa: ARG002
         """Release Flock.

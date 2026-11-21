@@ -14,6 +14,10 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+from types import TracebackType
+
+from deker_tools.cancel import TokenCancelledError, TokenTimeoutError
+
 
 class DekerBaseApplicationError(Exception):
     """Base exception of Deker: every Deker error is its subclass."""
@@ -153,3 +157,49 @@ class DekerVSubsetError(DekerSubsetError, DekerExceptionGroup):
     so this exception is a group of the messages of the ``Arrays`` that failed; the other ``Arrays``
     are processed.
     """
+
+
+class DekerCancelledError(DekerBaseApplicationError):
+    """The operation is cancelled from outside, for instance its client went away; nothing is changed by it.
+
+    A write is cancelled only before any of its files is started; once one is started, the write goes to its end.
+    """
+
+
+class DekerTimeoutError(DekerCancelledError):
+    """The read took longer than its timeout; no data are returned."""
+
+
+class TokenErrorConverter:
+    """Turn the errors of the cancellation tokens of deker-tools into the errors of DEKER.
+
+    Every public operation of DEKER runs its work inside: an operation stopped at one of its cancellation points
+    raises ``DekerTimeoutError`` or ``DekerCancelledError`` with the text of the token error and without its
+    traceback. Other exceptions pass as they are.
+    """
+
+    def __enter__(self) -> "TokenErrorConverter":
+        """Enter the work of the operation.
+
+        :returns: the converter itself
+        """
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Raise the error of DEKER for a token error of the work.
+
+        :param exc_type: type of the exception raised in the work, if any
+        :param exc_value: the exception raised in the work, if any
+        :param traceback: traceback of the exception, if any
+        :raises DekerTimeoutError: if a timeout token stopped the work
+        :raises DekerCancelledError: if any other token stopped the work
+        """
+        if isinstance(exc_value, TokenTimeoutError):
+            raise DekerTimeoutError(str(exc_value)) from None
+        if isinstance(exc_value, TokenCancelledError):
+            raise DekerCancelledError(str(exc_value)) from None

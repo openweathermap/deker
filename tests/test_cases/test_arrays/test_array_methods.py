@@ -9,8 +9,11 @@ from typing import Any
 import numpy as np
 import pytest
 
+from cantok import AbstractToken, SimpleToken
 from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter, LocalVArrayAdapter
 from deker_local_adapters.factory import AdaptersFactory
+from deker_tools.cancel import cancellation_scope
+from deker_tools.typings import Sentinel
 from numpy import ndarray
 
 from tests.parameters.array_params import attributes_validation_params
@@ -25,7 +28,12 @@ from deker.arrays import Array
 from deker.client import Client
 from deker.collection import Collection
 from deker.dimensions import TimeDimension
-from deker.errors import DekerCollectionAlreadyExistsError, DekerMemoryError, DekerValidationError
+from deker.errors import (
+    DekerCancelledError,
+    DekerCollectionAlreadyExistsError,
+    DekerMemoryError,
+    DekerValidationError,
+)
 from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema
 from deker.tools import get_paths
 from deker.tools.schema import create_dimensions
@@ -1047,3 +1055,72 @@ class TestArrayStepIndexing:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestArrayTimeoutAndCancellation:
+    """The timeout of an update of the attributes or of a deletion is the limit of the wait for the lock."""
+
+    @pytest.fixture
+    def target(self, inserted_array_with_attributes):
+        return inserted_array_with_attributes
+
+    @pytest.mark.parametrize(
+        ("operation", "method", "args"),
+        [
+            pytest.param(
+                "update_custom_attributes",
+                "update_meta_custom_attributes",
+                ({"custom_attribute": 0.7},),
+                id="attributes",
+            ),
+            pytest.param("delete", "delete", (), id="delete"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [pytest.param({"timeout": 5}, 5, id="given"), pytest.param({}, Sentinel, id="not-given")],
+    )
+    def test_timeout_reaches_the_adapter(self, target, mocker, operation, method, args, kwargs, expected):
+        adapter_call = mocker.patch.object(target._adapter, method)
+        getattr(target, operation)(*args, **kwargs)
+        assert adapter_call.call_args.kwargs["timeout"] == expected
+        assert isinstance(adapter_call.call_args.kwargs["token"], AbstractToken)
+
+    @pytest.mark.parametrize(
+        ("operation", "method", "args"),
+        [
+            pytest.param(
+                "update_custom_attributes",
+                "update_meta_custom_attributes",
+                ({"custom_attribute": 0.7},),
+                id="attributes",
+            ),
+            pytest.param("delete", "delete", (), id="delete"),
+        ],
+    )
+    @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
+    def test_invalid_timeout_is_rejected_before_the_adapter(self, target, mocker, operation, method, args, timeout):
+        adapter_call = mocker.patch.object(target._adapter, method)
+        with pytest.raises(DekerValidationError):
+            getattr(target, operation)(*args, timeout=timeout)
+        adapter_call.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("operation", "method", "args"),
+        [
+            pytest.param(
+                "update_custom_attributes",
+                "update_meta_custom_attributes",
+                ({"custom_attribute": 0.7},),
+                id="attributes",
+            ),
+            pytest.param("delete", "delete", (), id="delete"),
+        ],
+    )
+    def test_cancelled_scope_stops_before_the_adapter(self, target, mocker, operation, method, args):
+        adapter_call = mocker.patch.object(target._adapter, method)
+        token = SimpleToken()
+        token.cancel()
+        with cancellation_scope(token), pytest.raises(DekerCancelledError):
+            getattr(target, operation)(*args)
+        adapter_call.assert_not_called()

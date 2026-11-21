@@ -39,7 +39,7 @@ updated at once, and the satellite packages are released together with it: `deke
 - Filtering by anything but the id or all the primary attributes raises `DekerFilterError` instead of
   `NotImplementedError`; the adapters check the attributes themselves too, so a search without a criterion
   never returns an arbitrary array.
-- `Client.check_integrity` has a new signature: `check_integrity(collection=None, checks=
+- `Client.check_integrity` has a new signature: `check_integrity(collection=<all>, checks=
   DEFAULT_INTEGRITY_CHECKS, stop_on_error=False, repair=False, workers=1, to_file=False)` and
   returns an `IntegrityReport`. The `level` argument is gone, `stop_on_error` is off by default.
 - The types are precise. `Collection[Array]` and `Collection[VArray]` are distinct types,
@@ -55,9 +55,31 @@ updated at once, and the satellite packages are released together with it: `deke
   is taken from the current custom attributes, which hold it anyway.
 - The dependencies are pinned to the new majors: `deker-tools>=2,<3`, `deker-local-adapters>=2,<3`
   and, in the extras, `deker-server-adapters>=2,<3` and `deker-shell>=2,<3`.
+- The adapter interfaces take keyword-only `timeout` and `token` in every operation that reads or
+  changes data: `create`, `read_data`, `update`, `clear`, `delete` and `update_meta_custom_attributes`
+  of the array adapters, `delete_all_by_vid` of the VArray adapter, `create`, `clear` and `delete` of
+  the collection adapter. Code implementing the adapter interfaces must follow.
+- `None` no longer means an argument that is not given: leave the argument out instead. This concerns
+  `executor` and `workers` of `Client`, `storage_adapter_type` of `Client.create_collection`,
+  `primary_attributes`, `custom_attributes` and `id_` of `Collection.create`, `collection_name` of
+  `Client.clear_locks` and `collection` of `Client.check_integrity`. `None` stays where it is a value:
+  missing labels, fill values or storage options, `null` attributes, and the answers "not found".
+- `read_timeout` and `write_lock_timeout` of `Client` accept a positive `int` only; a `bool`, a
+  `float`, zero or a negative number raises `DekerValidationError`.
 
 ### Added
 
+- Timeouts. A read is limited from its start to its end by `read_timeout` of the client (60 seconds by
+  default) and raises `DekerTimeoutError` when the time is over. A write is never interrupted once it
+  has started changing files: its limit is the wait for the lock of each file, `write_lock_timeout`
+  of the client, as before. Every read and write takes a keyword-only `timeout` that overrides the
+  setting of the client for one call: `read`, `update` and `clear` of subsets, `delete` and
+  `update_custom_attributes` of arrays, `create`, `clear` and `delete` of collections,
+  `Client.create_collection` and `Client.collection_from_dict`.
+- Cancellation. The operations started inside `deker_tools.cancel.cancellation_scope(token)` are
+  cancelled with the token: a read stops and raises `DekerCancelledError`, a write stops only if none
+  of its files has been started yet. `DekerTimeoutError` is a subclass of `DekerCancelledError`.
+- Documentation: the Timeouts and Cancellation page.
 - Steps in slices: `array[::2]` and `array[::-1]` work for Array and VArray, in any number of
   dimensions. On a time dimension the step may be a `timedelta` multiple of the dimension step, on
   a scaled dimension a float multiple of the scale step; a labelled dimension takes integer steps
@@ -75,6 +97,8 @@ updated at once, and the satellite packages are released together with it: `deke
 
 ### Changed
 
+- Creating and clearing a collection wait for the lock of the collection, up to `write_lock_timeout`
+  or the `timeout` of the call, instead of failing at once when another process holds it.
 - `Client` that cannot be opened raises `DekerClientError` with the message of the cause and the
   cause itself chained to it; a `DekerClientError` raised by the adapters is passed through as it
   is instead of being wrapped into another one.

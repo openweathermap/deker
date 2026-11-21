@@ -21,6 +21,7 @@ from collections.abc import Sequence
 from typing import TYPE_CHECKING, Union
 
 from deker_tools.time import get_utc
+from deker_tools.typings import SentinelType, is_sentinel
 
 from deker.errors import DekerValidationError
 from deker.types import DTypeEnum
@@ -138,14 +139,14 @@ def __process_attributes_types(
 
 def process_attributes(
     schema: Union["ArraySchema", "VArraySchema"],
-    primary_attributes: dict | None,
-    custom_attributes: dict | None,
+    primary_attributes: dict | SentinelType,
+    custom_attributes: dict | SentinelType,
 ) -> tuple[dict, dict]:
     """Validate attributes over schema and return them.
 
     :param schema: ArraySchema or VArraySchema instance
-    :param primary_attributes: attributes to validate
-    :param custom_attributes: attributes to validate
+    :param primary_attributes: attributes to validate; ``Sentinel`` - none given
+    :param custom_attributes: attributes to validate; ``Sentinel`` - none given
     :returns: validated primary and custom attributes: the custom ones completed with ``None`` for the attributes
       left out, the datetimes in UTC
     :raises DekerValidationError: if attributes are given to a schema without them, the primary ones are missing,
@@ -157,8 +158,8 @@ def process_attributes(
 
     attrs_schema: tuple["AttributeSchema", ...] = tuple(schema.attributes or ()) if schema else ()
 
-    primary_attributes = primary_attributes or {}
-    custom_attributes = custom_attributes or {}
+    primary_attributes = {} if is_sentinel(primary_attributes) else primary_attributes
+    custom_attributes = {} if is_sentinel(custom_attributes) else custom_attributes
 
     if any((primary_attributes, custom_attributes)) and not attrs_schema:
         raise DekerValidationError(f"{array_type} attributes schema is missing".capitalize())
@@ -199,7 +200,7 @@ def validate_custom_attributes_update(
     schema: Union["ArraySchema", "VArraySchema"],
     primary_attributes: dict,
     custom_attributes: dict,
-    attributes: dict | None,
+    attributes: dict,
 ) -> dict:
     """Validate custom attributes update over schema.
 
@@ -237,3 +238,25 @@ def is_valid_uuid(id_: str) -> bool:
         return True
     except ValueError:
         return False
+
+
+def validate_collection_name(*, name: str | SentinelType) -> None:
+    """Check the name of a collection given to an operation over the storage: a string, or not given.
+
+    :param name: name of the collection, or ``Sentinel`` when not given
+    :raises DekerValidationError: if the name is not a string
+    """
+    if not is_sentinel(name) and not isinstance(name, str):
+        raise DekerValidationError(f"collection name shall be a string, got {name!r}")
+
+
+def validate_timeout(*, timeout: int | SentinelType) -> None:
+    """Check the timeout of an operation or a setting of the client: seconds, a positive integer, or not given.
+
+    :param timeout: seconds, or ``Sentinel`` when not given
+    :raises DekerValidationError: if the timeout is not a positive integer
+    """
+    if is_sentinel(timeout):
+        return
+    if isinstance(timeout, bool) or not isinstance(timeout, int) or timeout <= 0:
+        raise DekerValidationError(f"timeout shall be a positive integer number of seconds, got {timeout!r}")

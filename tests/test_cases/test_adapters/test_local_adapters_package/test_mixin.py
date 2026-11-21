@@ -3,14 +3,17 @@ import os
 
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
+from functools import partial
 from pathlib import Path
 from threading import Event
 
 import pytest
 
+from cantok import DefaultToken
 from deker_local_adapters import LocalArrayAdapter
 from deker_local_adapters.errors import DekerBrokenSymlinkError
 from deker_local_adapters.varray_adapter import LocalVArrayAdapter
+from deker_tools.typings import Sentinel
 from pytest_mock import MockerFixture
 
 from deker.arrays import Array, VArray
@@ -148,7 +151,7 @@ class TestMixinEdges:
 
         paths = get_paths(inserted_array, array_collection.path)
         shutil.rmtree(paths.main)
-        local_array_adapter.delete(inserted_array)
+        local_array_adapter.delete(inserted_array, timeout=Sentinel, token=DefaultToken())
         assert not (paths.symlink / (inserted_array.id + local_array_adapter.file_ext)).exists()
 
     def test_empty_symlink_directory_finds_nothing(
@@ -205,7 +208,9 @@ class TestMixinEdges:
 
         paths = get_paths(inserted_array, array_collection.path)
         os.remove(paths.main / (inserted_array.id + local_array_adapter.file_ext))
-        local_array_adapter.delete(inserted_array)  # the target is already gone, the symlink is removed anyway
+        local_array_adapter.delete(
+            inserted_array, timeout=Sentinel, token=DefaultToken()
+        )  # the target is already gone, the symlink is removed anyway
         assert not (paths.symlink / (inserted_array.id + local_array_adapter.file_ext)).exists()
 
 
@@ -231,7 +236,7 @@ class TestDeleteOfNeighbouringArrays:
             for n, tail in enumerate(("aa", "bb"))
         )
         for array in arrays:
-            local_array_adapter.create(array)
+            local_array_adapter.create(array, timeout=Sentinel, token=DefaultToken())
         return arrays
 
     @staticmethod
@@ -256,7 +261,7 @@ class TestDeleteOfNeighbouringArrays:
         with ThreadPoolExecutor(max_workers=2) as executor:
             for _ in range(self.REPEATS):
                 arrays = self._neighbours(array_collection, local_array_adapter)
-                list(executor.map(local_array_adapter.delete, arrays))
+                list(executor.map(partial(local_array_adapter.delete, timeout=Sentinel, token=DefaultToken()), arrays))
                 assert self._directories_left(array_collection, local_array_adapter) == []
 
     def test_a_directory_removed_by_the_neighbour_is_skipped(
@@ -265,7 +270,7 @@ class TestDeleteOfNeighbouringArrays:
         """A shared directory that is gone by the time of rmdir was removed by the other thread: the climb goes on."""
         first, second = self._neighbours(array_collection, local_array_adapter)
         shared = array_collection.path / local_array_adapter.data_dir / "8" / "c"
-        local_array_adapter.delete(first)
+        local_array_adapter.delete(first, timeout=Sentinel, token=DefaultToken())
         assert shared.exists()
         real_rmdir = os.rmdir
 
@@ -275,7 +280,7 @@ class TestDeleteOfNeighbouringArrays:
                 raise FileNotFoundError(2, "the neighbour was first", str(path))
 
         mocker.patch("deker_local_adapters.mixin.os.rmdir", rmdir_lost_to_the_neighbour)
-        local_array_adapter.delete(second)
+        local_array_adapter.delete(second, timeout=Sentinel, token=DefaultToken())
         assert self._directories_left(array_collection, local_array_adapter) == []
 
     def test_a_directory_filled_meanwhile_is_left(
@@ -284,7 +289,7 @@ class TestDeleteOfNeighbouringArrays:
         """A directory that is not empty anymore at rmdir (something was created in it) stays, without an error."""
         first, second = self._neighbours(array_collection, local_array_adapter)
         shared = array_collection.path / local_array_adapter.data_dir / "8" / "c"
-        local_array_adapter.delete(first)
+        local_array_adapter.delete(first, timeout=Sentinel, token=DefaultToken())
         real_rmdir = os.rmdir
 
         def rmdir_of_a_filled_directory(path: str | os.PathLike, **kwargs: object) -> None:
@@ -294,7 +299,7 @@ class TestDeleteOfNeighbouringArrays:
             real_rmdir(path, **kwargs)
 
         mocker.patch("deker_local_adapters.mixin.os.rmdir", rmdir_of_a_filled_directory)
-        local_array_adapter.delete(second)
+        local_array_adapter.delete(second, timeout=Sentinel, token=DefaultToken())
         assert (shared / "newcomer").exists()
         left = [shared.parent, shared, shared / "newcomer"]
         assert self._directories_left(array_collection, local_array_adapter) == left
@@ -308,7 +313,7 @@ class TestDeleteOfNeighbouringArrays:
         array = array_collection.create()
         mocker.patch("deker_local_adapters.mixin.os.rmdir", side_effect=PermissionError(errno.EACCES, "no"))
         with pytest.raises(PermissionError):
-            local_array_adapter.delete(array)
+            local_array_adapter.delete(array, timeout=Sentinel, token=DefaultToken())
 
     def test_a_data_file_removed_meanwhile_is_not_an_error(
         self, array_collection: Collection, local_array_adapter: LocalArrayAdapter, mocker: MockerFixture
@@ -324,7 +329,7 @@ class TestDeleteOfNeighbouringArrays:
             raise FileNotFoundError(2, "gone meanwhile", str(path))
 
         mocker.patch("deker_local_adapters.mixin.os.remove", remove_of_a_file_gone_meanwhile)
-        local_array_adapter.delete(array)
+        local_array_adapter.delete(array, timeout=Sentinel, token=DefaultToken())
         assert not (paths.main / file).exists()
         assert not (paths.symlink / file).exists()
         assert self._directories_left(array_collection, local_array_adapter) == []
@@ -343,9 +348,9 @@ class TestSymlinkDirectoryLock:
         mocker.patch.object(adapter, "check_symlink_existence", held)
         other = twin(array)
         with ThreadPoolExecutor(max_workers=2) as pool:
-            first = pool.submit(adapter.create, array)
+            first = pool.submit(adapter.create, array, timeout=Sentinel, token=DefaultToken())
             assert held.inside.wait(10)
-            second = pool.submit(adapter.create, other)
+            second = pool.submit(adapter.create, other, timeout=Sentinel, token=DefaultToken())
             with pytest.raises(FutureTimeoutError):
                 second.result(timeout=0.5)  # the directory is held by the first creator
             held.go.set()
@@ -365,7 +370,7 @@ class TestSymlinkDirectoryLock:
         paths = get_paths(array, adapter.collection_path)
         paths.create()
         with Flock(paths.symlink), pytest.raises(DekerLockError):
-            adapter.create(array)
+            adapter.create(array, timeout=Sentinel, token=DefaultToken())
         assert os.listdir(paths.symlink) == []
         assert not (paths.main / (array.id + adapter.file_ext)).exists()
 
@@ -373,7 +378,7 @@ class TestSymlinkDirectoryLock:
         """The directory is free once the (V)Array is created."""
         array = request.getfixturevalue(array_)
         adapter = array._adapter
-        adapter.create(array)
+        adapter.create(array, timeout=Sentinel, token=DefaultToken())
         paths = get_paths(array, adapter.collection_path)
         with Flock(paths.symlink):
             pass
@@ -382,9 +387,9 @@ class TestSymlinkDirectoryLock:
         """The directory is free once a creator is refused."""
         array = request.getfixturevalue(array_)
         adapter = array._adapter
-        adapter.create(array)
+        adapter.create(array, timeout=Sentinel, token=DefaultToken())
         with pytest.raises(DekerValidationError):
-            adapter.create(twin(array))
+            adapter.create(twin(array), timeout=Sentinel, token=DefaultToken())
         with Flock(get_paths(array, adapter.collection_path).symlink):
             pass
 

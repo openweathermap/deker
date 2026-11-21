@@ -70,9 +70,10 @@ class TestStorageAdapterFactory:
         assert storage_adapter_factory() is HDF5StorageAdapter
         assert storage_adapter_factory("HDF5StorageAdapter") is HDF5StorageAdapter
 
-    def test_unknown_adapter_raises(self):
+    @pytest.mark.parametrize("name", ["ZarrStorageAdapter", "", None])
+    def test_unknown_adapter_raises(self, name):
         with pytest.raises(DekerStorageError):
-            storage_adapter_factory("ZarrStorageAdapter")
+            storage_adapter_factory(name)
 
 
 if __name__ == "__main__":

@@ -20,6 +20,9 @@ from collections.abc import Generator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Generic, Union, cast
 
+from deker_tools.cancel import check, write_token
+from deker_tools.typings import Sentinel, SentinelType
+
 from deker.ABC.base_adapters import BaseCollectionAdapter, BaseStorageAdapter, BaseVArrayAdapter
 from deker.ABC.base_collection import BaseCollectionOptions
 from deker.ABC.base_schemas import BaseDimensionSchema
@@ -29,6 +32,7 @@ from deker.errors import (
     DekerInvalidManagerCallError,
     DekerInvalidSchemaError,
     DekerValidationError,
+    TokenErrorConverter,
 )
 from deker.log import SelfLoggerMixin
 from deker.managers import ArrayManager, DataManager, FilteredManager, VArrayManager
@@ -43,6 +47,7 @@ from deker.schemas import (
 from deker.tools import not_deleted
 from deker.types import Serializer
 from deker.types.private.typings import ArrayT
+from deker.validators import validate_timeout
 
 if TYPE_CHECKING:
     from deker.ABC.base_factory import BaseAdaptersFactory
@@ -278,9 +283,11 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
     @not_deleted
     def create(
         self,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
-        id_: str | None = None,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
+        id_: str | SentinelType = Sentinel,
+        *,
+        timeout: int | SentinelType = Sentinel,
     ) -> ArrayT:
         """Create ``Array`` or ``VArray`` according to collection main schema.
 
@@ -291,12 +298,16 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
         :param primary_attributes: ``Array`` or ``VArray`` primary attributes; all of the schema, no other
         :param custom_attributes: ``Array`` or ``VArray`` custom attributes
         :param id_: ``Array`` or ``VArray`` unique UUID string; generated if not passed
+        :param timeout: seconds to wait for the lock of the symlink directory of the primary attributes; not given -
+          ``write_lock_timeout`` of the client
         :returns: the created ``Array`` or ``VArray``
-        :raises DekerValidationError: if the attributes do not match the schema, or an array with these primary
-          attributes already exists
+        :raises DekerValidationError: if the attributes do not match the schema, an array with these primary
+          attributes already exists, or the timeout is not a positive integer
+        :raises DekerLockError: if the symlink directory is not released within the timeout
+        :raises DekerCancelledError: if the creation is cancelled before it started
         :raises DekerInstanceNotExistsError: if the collection was deleted
         """
-        array = self.__manager.create(primary_attributes, custom_attributes, id_)
+        array = self.__manager.create(primary_attributes, custom_attributes, id_, timeout=timeout)
         self.logger.debug(
             "%s id=%s primary_attributes=%r, custom_attributes=%r created",
             array.__class__.__name__,
@@ -306,20 +317,41 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
         )
         return array
 
-    def delete(self) -> None:
-        """Remove ``Collection`` and all its contents from the database."""
+    def delete(self, *, timeout: int | SentinelType = Sentinel) -> None:
+        """Remove ``Collection`` and all its contents from the database.
+
+        The deletion takes no lock, so there is nothing to wait for: the timeout is accepted for the uniformity of
+        the operations. Once started, the deletion goes to its end.
+
+        :param timeout: seconds to wait for the locks; not used
+        :raises DekerValidationError: if the timeout is not a positive integer
+        :raises DekerCancelledError: if the deletion is cancelled before it started
+        """
+        validate_timeout(timeout=timeout)
         self.logger.debug("Removing collection %s from database", self.__name)
-        self.__adapter.delete(self)
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            self.__adapter.delete(self, timeout=timeout, token=token)
         self.logger.debug("Collection %s deleted OK", self.__name)
 
     @not_deleted
-    def clear(self) -> None:
+    def clear(self, *, timeout: int | SentinelType = Sentinel) -> None:
         """Remove all ``Arrays`` and/or ``VArrays`` from the ``Collection``; the collection itself stays.
 
+        :param timeout: seconds to wait for the lock of the collection; not given - ``write_lock_timeout`` of the
+          client
+        :raises DekerValidationError: if the timeout is not a positive integer
+        :raises DekerLockError: if the lock of the collection is not released within the timeout
+        :raises DekerCancelledError: if the clearing is cancelled before it started
         :raises DekerInstanceNotExistsError: if the collection was deleted
         """
+        validate_timeout(timeout=timeout)
         self.logger.debug("Clearing data from collection %s", self.__name)
-        self.__adapter.clear(self)
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            self.__adapter.clear(self, timeout=timeout, token=token)
         self.logger.debug("Collection %s cleared OK", self.__name)
 
     def filter(self, filters: dict) -> FilteredManager[ArrayT]:

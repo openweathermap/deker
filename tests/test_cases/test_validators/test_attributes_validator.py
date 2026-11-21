@@ -301,9 +301,11 @@ class TestNoVgridValidateAttributes:
         finally:
             collection.delete()
 
-    @pytest.mark.parametrize("custom_attributes", [None, {}])
-    def test_custom_attributes_schema_attrs_no_attrs_provided(self, client: Client, custom_attributes: dict):
-        """Tests None and empty dict custom attributes return attributes=None."""
+    @pytest.mark.parametrize(
+        "kwargs", [pytest.param({}, id="not-given"), pytest.param({"custom_attributes": {}}, id="empty")]
+    )
+    def test_custom_attributes_schema_attrs_no_attrs_provided(self, client: Client, kwargs: dict):
+        """Tests custom attributes not given or empty give every custom attribute as None."""
         coll_params = ClientParams.ArraySchema.OK.no_vgrid_custom_attributes()
         try:
             collection: Collection = client.create_collection(**coll_params)
@@ -312,7 +314,7 @@ class TestNoVgridValidateAttributes:
             coll.delete()
             collection: Collection = client.create_collection(**coll_params)
         try:
-            array = collection.create(custom_attributes=custom_attributes)
+            array = collection.create(**kwargs)
             for attr in coll_params["schema"].attributes:
                 assert attr.name in array.custom_attributes
                 assert array.custom_attributes[attr.name] is None
@@ -560,9 +562,11 @@ class TestNoVgridValidateAttributesTimeDimension:
         finally:
             collection.delete()
 
-    @pytest.mark.parametrize("custom_attributes", [None, {}])
-    def test_custom_attributes_schema_attrs_no_attrs_provided(self, client: Client, custom_attributes: dict):
-        """Tests None and empty dict custom attributes return attributes=None."""
+    @pytest.mark.parametrize(
+        "kwargs", [pytest.param({}, id="not-given"), pytest.param({"custom_attributes": {}}, id="empty")]
+    )
+    def test_custom_attributes_schema_attrs_no_attrs_provided(self, client: Client, kwargs: dict):
+        """Tests custom attributes not given or empty give every custom attribute as None."""
         coll_params = ClientParams.ArraySchema.OK.time_params_no_vgrid_custom_attributes()
         try:
             collection: Collection = client.create_collection(**coll_params)
@@ -571,7 +575,7 @@ class TestNoVgridValidateAttributesTimeDimension:
             coll.delete()
             collection: Collection = client.create_collection(**coll_params)
         try:
-            array = collection.create(custom_attributes=custom_attributes)
+            array = collection.create(**kwargs)
             for attr in coll_params["schema"].attributes:
                 assert attr.name in array.custom_attributes
                 assert array.custom_attributes[attr.name] is None

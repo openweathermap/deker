@@ -19,6 +19,8 @@ import math
 
 from typing import Any
 
+from deker_tools.typings import Sentinel, SentinelType
+
 from deker.ABC.base_dimension import BaseDimension
 from deker.errors import DekerValidationError
 from deker.log import SelfLoggerMixin
@@ -260,8 +262,8 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         self,
         name: str,
         size: int,
-        start_value: datetime.datetime | str | None = None,
-        step: datetime.timedelta | None = None,
+        start_value: datetime.datetime | str | SentinelType = Sentinel,
+        step: datetime.timedelta | SentinelType = Sentinel,
         **kwargs: Any,  # noqa: ARG002
     ) -> None:
         r"""Validate the constructor arguments.

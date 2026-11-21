@@ -6,7 +6,9 @@ import shutil
 import string
 
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from multiprocessing import cpu_count
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -15,8 +17,11 @@ from uuid import uuid4
 import numpy as np
 import pytest
 
+from cantok import AbstractToken, SimpleToken
 from deker_local_adapters import LocalCollectionAdapter
+from deker_tools.cancel import cancellation_scope
 from deker_tools.data import convert_size_to_human
+from deker_tools.typings import Sentinel
 
 from tests.parameters.collection_params import ClientParams
 from tests.parameters.common import random_string
@@ -28,6 +33,7 @@ from deker.client import Client
 from deker.collection import Collection
 from deker.ctx import CTX
 from deker.errors import (
+    DekerCancelledError,
     DekerClientError,
     DekerCollectionAlreadyExistsError,
     DekerCollectionNotExistsError,
@@ -1183,3 +1189,105 @@ class TestClearLocks:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestClientSettings:
+    """The timeouts of the client and the settings it takes when they are not given."""
+
+    def test_timeouts_default_to_a_minute(self, root_path):
+        with Client(str(embedded_uri(root_path))) as client:
+            assert client._ctx.config.read_timeout == 60
+            assert client._ctx.config.write_lock_timeout == 60
+
+    @pytest.mark.parametrize("setting", ["read_timeout", "write_lock_timeout"])
+    @pytest.mark.parametrize("value", [1, 300])
+    def test_timeouts_go_to_the_config(self, root_path, setting, value):
+        with Client(str(embedded_uri(root_path)), **{setting: value}) as client:
+            assert getattr(client._ctx.config, setting) == value
+
+    @pytest.mark.parametrize("setting", ["read_timeout", "write_lock_timeout"])
+    @pytest.mark.parametrize("value", [0, -1, 1.5, True, "10", None])
+    def test_invalid_timeouts_are_rejected(self, root_path, setting, value):
+        with pytest.raises(DekerValidationError, match="positive integer number of seconds"):
+            Client(str(embedded_uri(root_path)), **{setting: value})
+
+    def test_workers_not_given_are_the_cpus_and_four(self, root_path):
+        with Client(str(embedded_uri(root_path))) as client:
+            assert client._ctx.config.workers == cpu_count() + 4
+
+    def test_workers_none_is_rejected(self, root_path):
+        with pytest.raises(DekerClientError, match="workers"):
+            Client(str(embedded_uri(root_path)), workers=None)
+
+    def test_executor_not_given_is_made_by_the_client(self, root_path):
+        with Client(str(embedded_uri(root_path))) as client:
+            assert isinstance(client._ctx.executor, ThreadPoolExecutor)
+
+    def test_executor_given_is_used(self, root_path):
+        executor = ThreadPoolExecutor(2)
+        try:
+            with Client(str(embedded_uri(root_path)), executor=executor) as client:
+                assert client._ctx.executor is executor
+        finally:
+            executor.shutdown()
+
+    @pytest.mark.parametrize("executor", [None, 4, "pool"])
+    def test_executor_of_another_type_is_rejected(self, root_path, executor):
+        with pytest.raises(DekerValidationError, match="executor"):
+            Client(str(embedded_uri(root_path)), executor=executor)
+
+
+class TestCreateCollectionTimeout:
+    """The timeout of the creation of a collection is the limit of the wait for the lock of the collection."""
+
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [
+            pytest.param({"timeout": 5}, 5, id="given"),
+            pytest.param({}, Sentinel, id="not-given"),
+        ],
+    )
+    def test_timeout_reaches_the_adapter(
+        self, client: Client, name: str, array_schema: ArraySchema, mocker, kwargs, expected
+    ):
+        create = mocker.patch.object(client._adapter, "create")
+        client.create_collection(name, array_schema, **kwargs)
+        assert create.call_args.kwargs["timeout"] == expected
+        assert isinstance(create.call_args.kwargs["token"], AbstractToken)
+
+    @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
+    def test_invalid_timeout_is_rejected_before_the_adapter(
+        self, client: Client, name: str, array_schema: ArraySchema, mocker, timeout
+    ):
+        create = mocker.patch.object(client._adapter, "create")
+        with pytest.raises(DekerValidationError):
+            client.create_collection(name, array_schema, timeout=timeout)
+        create.assert_not_called()
+
+    def test_cancelled_scope_stops_before_the_adapter(
+        self, client: Client, name: str, array_schema: ArraySchema, mocker
+    ):
+        create = mocker.patch.object(client._adapter, "create")
+        token = SimpleToken()
+        token.cancel()
+        with cancellation_scope(token), pytest.raises(DekerCancelledError):
+            client.create_collection(name, array_schema)
+        create.assert_not_called()
+        assert client.get_collection(name) is None
+
+
+class TestCollectionNameNotGiven:
+    """The name of a collection is either a string or left out: an explicit ``None`` is rejected on entry."""
+
+    @pytest.mark.parametrize("method", ["clear_locks", "check_integrity"])
+    @pytest.mark.parametrize("name", [None, 5, b"name"])
+    def test_invalid_name_is_rejected(self, client: Client, method: str, name):
+        with pytest.raises(DekerValidationError, match="collection name shall be a string"):
+            getattr(client, method)(name)
+
+    @pytest.mark.parametrize("method", ["clear_locks", "check_integrity"])
+    def test_name_left_out_means_every_collection(self, client: Client, inserted_array: Array, method: str):
+        getattr(client, method)()
+
+    def test_check_integrity_of_one_collection(self, client: Client, inserted_array: Array):
+        assert client.check_integrity(inserted_array.collection).ok

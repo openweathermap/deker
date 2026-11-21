@@ -19,6 +19,8 @@
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Generic, Optional, cast
 
+from deker_tools.typings import Sentinel, SentinelType
+
 from deker.ABC.base_schemas import BaseArraysSchema
 from deker.errors import DekerInvalidManagerCallError
 from deker.schemas import VArraySchema
@@ -105,15 +107,19 @@ class BaseManager(BaseAbstractManager[ArrayT]):
     @abstractmethod
     def create(
         self,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
-        id_: str | None = None,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
+        id_: str | SentinelType = Sentinel,
+        *,
+        timeout: int | SentinelType = Sentinel,
     ) -> ArrayT:
         """Create an array.
 
         :param primary_attributes: (V)array primary attributes
         :param custom_attributes: (V)array custom attributes
         :param id_: unique UUID string; generated if not passed
+        :param timeout: seconds to wait for the lock of the symlink directory of the primary attributes; not given -
+          ``write_lock_timeout`` of the client
         :returns: the created array
         """
         pass

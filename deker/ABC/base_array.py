@@ -26,12 +26,15 @@ from typing import TYPE_CHECKING, Any, Generic, Optional, TypeGuard, TypeVar, Un
 
 import numpy as np
 
+from cantok import AbstractToken
+from deker_tools.cancel import check, write_token
 from deker_tools.slices import create_shape_from_slice
 from deker_tools.time import get_utc
+from deker_tools.typings import Sentinel, SentinelType, is_sentinel
 
 from deker.ABC.base_subset import BaseSubset
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerInvalidSchemaError, DekerMetaDataError, DekerValidationError
+from deker.errors import DekerInvalidSchemaError, DekerMetaDataError, DekerValidationError, TokenErrorConverter
 from deker.log import SelfLoggerMixin
 from deker.schemas import ArraySchema, VArraySchema
 from deker.tools.array import check_memory, get_id
@@ -40,7 +43,7 @@ from deker.tools.schema import create_dimensions
 from deker.tools.time import get_start_datetime
 from deker.types.private.classes import ArrayMeta, Serializer
 from deker.types.private.typings import FancySlice, Numeric, Slice
-from deker.validators import is_valid_uuid, process_attributes, validate_custom_attributes_update
+from deker.validators import is_valid_uuid, process_attributes, validate_custom_attributes_update, validate_timeout
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter, IArrayAdapter
@@ -281,9 +284,9 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
 
     def _validate(
         self,
-        id_: str | None,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
+        id_: str | SentinelType,
+        primary_attributes: dict | SentinelType,
+        custom_attributes: dict | SentinelType,
     ) -> None:
         """Validate the id and the types of the attributes.
 
@@ -292,10 +295,10 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         :param custom_attributes: custom attributes, if given
         :raises DekerValidationError: if the id is not a uuid string or the attributes are not dictionaries
         """
-        if id_ is not None and not is_valid_uuid(id_):
-            raise DekerValidationError(f"{self.__class__.__name__} id shall be a non-empty uuid string or None")
+        if not is_sentinel(id_) and not is_valid_uuid(id_):
+            raise DekerValidationError(f"{self.__class__.__name__} id shall be a non-empty uuid string")
         for attrs in (primary_attributes, custom_attributes):
-            if attrs is not None and not isinstance(attrs, dict):
+            if not is_sentinel(attrs) and not isinstance(attrs, dict):
                 raise DekerValidationError(f"Invalid attributes type: {type(attrs)}")
 
     def __init__(
@@ -303,15 +306,15 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         collection: "Collection",
         adapter: Union["BaseArrayAdapter", "BaseVArrayAdapter"],
         array_adapter: Optional["BaseArrayAdapter"] = None,
-        id_: str | None = None,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
+        id_: str | SentinelType = Sentinel,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
         *args: Any,  # noqa: ARG002
         **kwargs: Any,  # noqa: ARG002
     ) -> None:
         r"""BaseArray constructor.
 
-        Validates id, primary and custom attributes, sets attributes to empty dict if None.
+        Validates id, primary and custom attributes; the attributes not given are empty.
 
         :param collection: Collection instance, to which the array is bound
         :param adapter: Array or VArray adapter instance
@@ -327,7 +330,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         self.__is_deleted = False
         self._validate(id_, primary_attributes, custom_attributes)
         self.__collection: "Collection" = collection
-        self.__id: str = id_ if id_ else get_id()
+        self.__id: str = get_id() if is_sentinel(id_) else id_
         self.__adapter = adapter
         self.__array_adapter = array_adapter
 
@@ -421,23 +424,30 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
             raise DekerInvalidSchemaError("Schema fill_value is not set")
         return fill_value
 
-    def update_custom_attributes(self, attributes: dict) -> None:
+    def update_custom_attributes(self, attributes: dict, *, timeout: int | SentinelType = Sentinel) -> None:
         """Update array custom attributes in the storage and in the object.
 
         This method accepts attributes that should be changed.
         Any attribute that is not in the given dict will be kept in the object attributes without any change.
 
         :param attributes: attributes for updating
-        :raises DekerValidationError: if no attributes are passed, or an attribute is not in the schema, is primary
-          or has a wrong type
+        :param timeout: seconds to wait for the lock of the array; not given - ``write_lock_timeout`` of the client
+        :raises DekerValidationError: if no attributes are passed, an attribute is not in the schema, is primary
+          or has a wrong type, or the timeout is not a positive integer
+        :raises DekerLockError: if the array is not released within the timeout
+        :raises DekerCancelledError: if the update is cancelled before it started
         """
+        validate_timeout(timeout=timeout)
         attributes = validate_custom_attributes_update(
             self.schema,
             self.primary_attributes,
             self.custom_attributes,
             attributes,
         )
-        self._adapter.update_meta_custom_attributes(self, attributes)
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            self._adapter.update_meta_custom_attributes(self, attributes, timeout=timeout, token=token)
         self.custom_attributes = attributes
         self.__dimensions = ()
         self.logger.info("%s custom attributes updated: %s", self, attributes)
@@ -472,12 +482,29 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         self.logger.info("%s meta data read: %s", self, meta)
         return meta
 
-    def delete(self) -> None:
+    def _delete(self, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+        """Delete the array under the token of an operation built already: a ``VSubset`` deletes its ``Arrays`` so.
+
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        """
+        check(token)
+        self._adapter.delete(self, timeout=timeout, token=token)
+
+    def delete(self, *, timeout: int | SentinelType = Sentinel) -> None:
         """Delete the array from the storage with its data and metadata.
 
-        The deletion waits for the readers and the writers of the array.
+        The deletion waits for the readers and the writers of the array, up to its timeout.
+
+        :param timeout: seconds to wait for the lock of each file of the array; not given - ``write_lock_timeout``
+          of the client
+        :raises DekerValidationError: if the timeout is not a positive integer
+        :raises DekerLockError: if a file of the array is not released within the timeout
+        :raises DekerCancelledError: if the deletion is cancelled before any file of it is started
         """
-        self._adapter.delete(self)
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            self._delete(timeout=timeout, token=write_token())
         self.logger.info("%s deleted", self)
 
     @staticmethod

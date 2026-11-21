@@ -60,6 +60,7 @@ def config(root_path: Path, workers) -> DekerConfig:
         varray_data_directory="varray_data",
         array_symlinks_directory="array_symlinks",
         varray_symlinks_directory="varray_symlinks",
+        read_timeout=60,
         write_lock_timeout=60,
         write_lock_check_interval=1,
         memory_limit=104857600,

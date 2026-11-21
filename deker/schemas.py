@@ -24,6 +24,7 @@ import numpy as np
 
 from attr import dataclass
 from deker_tools.time import get_utc
+from deker_tools.typings import Sentinel, SentinelType, is_sentinel
 
 from deker.ABC.base_schemas import BaseArraysSchema, BaseAttributeSchema, BaseDimensionSchema
 from deker.dimensions import validate_labels
@@ -277,12 +278,12 @@ def __common_arrays_attributes_post_init__(self: BaseArraysSchema) -> None:  # n
     if len({attr.name for attr in self.attributes}) != len(self.attributes):
         raise DekerValidationError("Attribute name shall be unique")
 
-    time_attribute_name = None
+    time_attribute_name: str | SentinelType = Sentinel
     for dim in self.dimensions:
         if isinstance(dim, TimeDimensionSchema) and isinstance(dim.start_value, str):
             time_attribute_name = dim.start_value[1:]
 
-        if time_attribute_name and not any(
+        if not is_sentinel(time_attribute_name) and not any(
             attr.name == time_attribute_name and attr.dtype == datetime.datetime for attr in self.attributes
         ):
             raise DekerValidationError(f"No {time_attribute_name} attribute with dtype `datetime.datetime` is provided")

@@ -15,12 +15,9 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 
-import time
-
-from collections.abc import Callable, Sequence
+from collections.abc import Sequence
 from pathlib import Path
 from threading import Lock
-from time import sleep
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -29,7 +26,11 @@ from typing import (
     Union,
 )
 
-from deker.ABC.base_locks import BaseLock
+from cantok import AbstractToken
+from deker_tools.cancel import resolve_timeout
+from deker_tools.typings import SentinelType
+
+from deker.ABC.base_locks import BaseLock, wait_for_unlock
 from deker.errors import DekerLockError, DekerMemoryError
 from deker.flock import Flock
 from deker.tools.path import get_main_path
@@ -72,23 +73,6 @@ class LockWithArrayMixin(Generic[T]):
     def dir_path(self) -> Path:
         """Get the directory of the main file of the array."""
         return get_main_path(self.array_id, self.instance.collection_path / self.instance.data_dir)
-
-
-def wait_for_unlock(check_func: Callable, check_func_args: tuple, timeout: float, interval: float) -> bool:
-    """Call the check until it succeeds, sleeping between the attempts, for the timeout at most.
-
-    :param check_func: function that returns ``True`` when the lock is taken (or the wait is over)
-    :param check_func_args: arguments of the function
-    :param timeout: seconds to keep trying
-    :param interval: seconds between the attempts
-    :returns: ``True`` if the check succeeded, ``False`` if the timeout is over
-    """
-    start_time = time.monotonic()
-    while (time.monotonic() - start_time) <= timeout:
-        if check_func(*check_func_args):
-            return True
-        sleep(interval)
-    return False
 
 
 class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
@@ -140,39 +124,14 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         self.logger.debug("Got path for array.id %s lock file: %s", self.array.id, path)
         return path
 
-    def _try_acquire(self, path: Path) -> bool:
-        """Try to take the exclusive flock once.
-
-        :param path: path to the main file
-        :returns: ``True`` if the lock is held now, ``False`` if readers or a writer hold the file
-        """
-        try:
-            self.acquire(path)
-        except DekerLockError:
-            return False
-        return True
-
     def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
         """Take the exclusive flock, waiting for the readers and the writers to leave.
 
         :param func_args: arguments of method call
-        :param func_kwargs: keyword arguments of method call
-        :raises DekerLockError: if the file is not released within ``write_lock_timeout`` of the client
+        :param func_kwargs: keyword arguments of method call: ``timeout`` and ``token`` of the operation
+        :raises DekerLockError: if the file is not released within the timeout of the operation
         """
-        path = self.get_path()
-        if self._try_acquire(path):
-            return
-        if wait_for_unlock(
-            self._try_acquire,
-            (path,),
-            self.instance.ctx.config.write_lock_timeout,
-            self.instance.ctx.config.write_lock_check_interval,
-        ):
-            return
-
-        # If we hit the timeout, release whatever is held and raise DekerLockError
-        self.release()
-        raise DekerLockError(f"{self.array} is locked by its readers or a writer")
+        self._wait_and_acquire(func_kwargs, f"{self.array} is locked by its readers or a writer")
 
 
 class ArrayCreationLock:
@@ -187,20 +146,31 @@ class ArrayCreationLock:
     :param adapter: VArray adapter; the lock is a no-op for the server adapters, the server keeps its own order
     :param varray: the VArray whose Array is created
     :param collection: collection of the VArray
+    :param timeout: seconds to wait for the lock; ``Sentinel`` - ``write_lock_timeout`` of the client
+    :param token: token of the write operation
     """
 
     POLL_INTERVAL = 0.05
     _thread_locks: dict[Path, Lock] = {}
     _thread_locks_guard = Lock()
 
-    def __init__(self, adapter: "BaseVArrayAdapter", varray: "VArray", collection: "Collection") -> None:
+    def __init__(
+        self,
+        adapter: "BaseVArrayAdapter",
+        varray: "VArray",
+        collection: "Collection",
+        *,
+        timeout: int | SentinelType,
+        token: AbstractToken,
+    ) -> None:
         # Circular import otherwise
         from deker_local_adapters.varray_adapter import LocalVArrayAdapter
 
         self.path: Path | None = None
         if isinstance(adapter, LocalVArrayAdapter):
             self.path = get_main_path(varray.id, adapter.collection_path / adapter.data_dir)
-        self.timeout = adapter.ctx.config.write_lock_timeout
+        self.timeout = resolve_timeout(timeout, adapter.ctx.config.write_lock_timeout)
+        self.token = token
         self.flock: Flock | None = None
         self.thread_lock: Lock | None = None
 
@@ -222,14 +192,23 @@ class ArrayCreationLock:
         """Take the thread lock, then the flock.
 
         :returns: the held lock
-        :raises DekerLockError: if the flock is not taken within ``write_lock_timeout`` of the client
+        :raises DekerLockError: if the flock is not taken within the timeout
+        :raises TokenCancelledError: if the write is cancelled while it waits
         """
         if self.path is None:  # the server keeps its own order of creation
             return self
         with self._thread_locks_guard:
             self.thread_lock = self._thread_locks.setdefault(self.path, Lock())
         self.thread_lock.acquire()
-        if not wait_for_unlock(self._try_acquire, (self.path,), self.timeout, self.POLL_INTERVAL):
+        try:
+            acquired = wait_for_unlock(
+                self._try_acquire, (self.path,), timeout=self.timeout, interval=self.POLL_INTERVAL, token=self.token
+            )
+        except BaseException:
+            self.thread_lock.release()
+            self.thread_lock = None
+            raise
+        if not acquired:
             self.thread_lock.release()
             self.thread_lock = None
             raise DekerLockError(f"VArray {self.path} is locked for the creation of its Arrays")
@@ -273,6 +252,15 @@ class CollectionLock(BaseLock):
     """
 
     ALLOWED_TYPES = ["LocalCollectionAdapter"]
+
+    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
+        """Take the flock of the collection, waiting for its holder to leave.
+
+        :param func_args: arguments of method call
+        :param func_kwargs: keyword arguments of method call: ``timeout`` and ``token`` of the operation
+        :raises DekerLockError: if the collection is not released within the timeout of the operation
+        """
+        self._wait_and_acquire(func_kwargs, f"Collection {self.args[1].name} is locked by another creation or clearing")
 
     def get_path(self) -> Path:  # noqa: ARG002
         """Get path to the ``<collection>.lock`` file next to the directory of the collection."""

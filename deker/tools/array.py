@@ -24,13 +24,13 @@ from psutil import swap_memory, virtual_memory
 from deker.errors import DekerMemoryError, DekerValidationError
 
 
-def calculate_total_cells_in_array(seq: tuple[int, ...] | list[int]) -> int:
+def calculate_total_cells_in_array(shape: tuple[int, ...] | list[int]) -> int:
     """Get total quantity of cells in the array.
 
-    :param seq: sequence of integers (normally array shape)
+    :param shape: array shape (sequence of integers)
     :returns: number of cells
     """
-    return int(np.prod(np.array(seq)))
+    return int(np.prod(np.array(shape)))
 
 
 def convert_human_memory_to_bytes(memory_limit: int | str) -> int:

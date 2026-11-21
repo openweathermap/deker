@@ -17,6 +17,8 @@
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
+from deker_tools.typings import Sentinel, SentinelType, is_sentinel
+
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseStorageAdapter
     from deker.config import DekerConfig
@@ -31,7 +33,7 @@ class CTX:
     :param storage_adapter: type of the adapter of the files, if set
     :param executor: thread pool of the client, created by the adapters factory if not given
     :param is_closed: ``True`` once the client is closed; the adapters refuse to work then
-    :param extra: extra keyword arguments of the client, passed to the adapters as they are
+    :param extra: extra keyword arguments of the client, passed to the adapters as they are; not given - none
     """
 
     def __init__(
@@ -41,11 +43,11 @@ class CTX:
         storage_adapter: type["BaseStorageAdapter"] | None = None,
         executor: ThreadPoolExecutor | None = None,
         is_closed: bool = False,
-        extra: Any | None = None,
+        extra: dict[str, Any] | SentinelType = Sentinel,
     ):
         self.uri = uri
         self.storage_adapter = storage_adapter
         self.executor = executor
         self.is_closed = is_closed
         self.config = config
-        self.extra: dict = extra if extra else dict()
+        self.extra: dict[str, Any] = {} if is_sentinel(extra) else extra

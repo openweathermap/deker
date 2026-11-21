@@ -28,15 +28,17 @@ from multiprocessing import cpu_count
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Concatenate, ParamSpec, TypeVar, overload
 
+from deker_tools.cancel import check, write_token
 from deker_tools.data import convert_size_to_human
 from deker_tools.log import set_logger
 from deker_tools.path import is_path_valid
+from deker_tools.typings import Sentinel, SentinelType, is_sentinel
 from psutil import swap_memory, virtual_memory
 from tqdm import tqdm
 
 from deker.arrays import Array, VArray
 from deker.collection import Collection
-from deker.config import DekerConfig
+from deker.config import DEFAULT_READ_TIMEOUT, DEFAULT_WRITE_LOCK_TIMEOUT, DekerConfig
 from deker.ctx import CTX
 from deker.errors import (
     DekerAdapterClosedError,
@@ -44,6 +46,7 @@ from deker.errors import (
     DekerCollectionNotExistsError,
     DekerMetaDataError,
     DekerValidationError,
+    TokenErrorConverter,
 )
 from deker.integrity import IntegrityChecker
 from deker.log import _ROOT_DEKER_LOGGER_NAME, SelfLoggerMixin, format_string, set_logging_level
@@ -60,6 +63,7 @@ from deker.types import (
     StorageSize,
 )
 from deker.uri import Uri
+from deker.validators import validate_collection_name, validate_timeout
 from deker.warnings import DekerWarning
 
 if TYPE_CHECKING:
@@ -232,9 +236,10 @@ class Client(SelfLoggerMixin):
         self,
         uri: str = "",
         *,
-        executor: ThreadPoolExecutor | None = None,
-        workers: int | None = None,
-        write_lock_timeout: int = 60,
+        executor: ThreadPoolExecutor | SentinelType = Sentinel,
+        workers: int | SentinelType = Sentinel,
+        read_timeout: int = DEFAULT_READ_TIMEOUT,
+        write_lock_timeout: int = DEFAULT_WRITE_LOCK_TIMEOUT,
         write_lock_check_interval: int = 1,
         loglevel: str = "ERROR",
         memory_limit: int | str = 0,
@@ -244,10 +249,11 @@ class Client(SelfLoggerMixin):
         r"""Deker client constructor.
 
         :param uri: uri to Deker storage: ``file:///path`` for a local storage, ``http(s)://host`` for a server
-        :param executor: external ThreadPoolExecutor instance (optional)
-        :param workers: number of threads for Deker; the number of CPUs plus 4 by default
-        :param write_lock_timeout: An amount of seconds during which a parallel writing process waits for release
-          of the locked file
+        :param executor: external ThreadPoolExecutor instance; not given - the client makes its own
+        :param workers: number of threads for Deker; not given - the number of CPUs plus 4
+        :param read_timeout: seconds a read may take, unless the read is given its own ``timeout``
+        :param write_lock_timeout: seconds a write waits for the lock of each of its files, unless the write is given
+          its own ``timeout``
         :param write_lock_check_interval: An amount of time (in seconds) during which a parallel writing process sleeps
           between checks for locks
         :param loglevel: Level of Deker loggers: ``DEBUG``, ``INFO``, ``WARNING``, ``ERROR`` or ``CRITICAL``
@@ -259,9 +265,15 @@ class Client(SelfLoggerMixin):
         :param skip_collection_create_memory_check: If we don't want to check size during collection creation
         :param \**kwargs: extra parameters passed to the adapters as they are, such as ``httpx_conf`` of the server
           adapters
+        :raises DekerValidationError: if a timeout is not a positive integer, or the executor is not a
+          ``ThreadPoolExecutor``
         :raises DekerClientError: if the client cannot be configured or opened: an invalid uri, a memory limit that
           cannot be parsed, no adapters for the scheme of the uri
         """
+        validate_timeout(timeout=read_timeout)
+        validate_timeout(timeout=write_lock_timeout)
+        if not is_sentinel(executor) and not isinstance(executor, ThreadPoolExecutor):
+            raise DekerValidationError(f"executor shall be a ThreadPoolExecutor, got {executor!r}")
         try:
             set_logger(format_string, _ROOT_DEKER_LOGGER_NAME)  # the loggers of the application keep their formats
             set_logging_level(loglevel.upper())
@@ -275,7 +287,8 @@ class Client(SelfLoggerMixin):
 
             self.__config = DekerConfig(
                 uri=uri,
-                workers=workers if workers is not None else cpu_count() + 4,
+                workers=cpu_count() + 4 if is_sentinel(workers) else workers,
+                read_timeout=read_timeout,
                 write_lock_timeout=write_lock_timeout,
                 write_lock_check_interval=write_lock_check_interval,
                 loglevel=loglevel.upper(),
@@ -287,7 +300,7 @@ class Client(SelfLoggerMixin):
             self.__adapter = None
             self.__factory = None
             self.__ctx = None
-            self.__executor = executor
+            self.__executor = None if is_sentinel(executor) else executor  # the factory makes its own then
             self.kwargs = kwargs
             self._open()
         except DekerClientError:
@@ -445,7 +458,9 @@ class Client(SelfLoggerMixin):
         name: str,
         schema: ArraySchema,
         collection_options: "BaseCollectionOptions | None" = None,
-        storage_adapter_type: str | None = None,
+        storage_adapter_type: str | SentinelType = Sentinel,
+        *,
+        timeout: int | SentinelType = Sentinel,
     ) -> Collection[Array]: ...
 
     @overload
@@ -455,7 +470,9 @@ class Client(SelfLoggerMixin):
         name: str,
         schema: VArraySchema,
         collection_options: "BaseCollectionOptions | None" = None,
-        storage_adapter_type: str | None = None,
+        storage_adapter_type: str | SentinelType = Sentinel,
+        *,
+        timeout: int | SentinelType = Sentinel,
     ) -> Collection[VArray]: ...
 
     @_open_client_only
@@ -464,7 +481,9 @@ class Client(SelfLoggerMixin):
         name: str,
         schema: ArraySchema | VArraySchema,
         collection_options: "BaseCollectionOptions | None" = None,
-        storage_adapter_type: str | None = None,
+        storage_adapter_type: str | SentinelType = Sentinel,
+        *,
+        timeout: int | SentinelType = Sentinel,
     ) -> Collection[Array] | Collection[VArray]:
         """Create a new ``Collection`` in the database.
 
@@ -474,11 +493,17 @@ class Client(SelfLoggerMixin):
         :param name: Name of new ``Collection``
         :param schema: ``Array`` or ``VArray`` schema
         :param collection_options: Options for compression and chunks (if applicable)
-        :param storage_adapter_type: Type of an adapter, which works with files; default is ``HDF5StorageAdapter``
+        :param storage_adapter_type: Type of an adapter, which works with files; not given - the default of the
+          adapters, ``HDF5StorageAdapter`` for the local storage
+        :param timeout: seconds to wait for the lock of the collection; not given - ``write_lock_timeout`` of the
+          client
         :returns: the created ``Collection``
-        :raises DekerValidationError: if the name is empty or the schema is neither ``ArraySchema`` nor
-          ``VArraySchema``
+        :raises DekerValidationError: if the name is empty, the schema is neither ``ArraySchema`` nor
+          ``VArraySchema``, or the timeout is not a positive integer
+        :raises DekerLockError: if the lock of the collection is not released within the timeout
+        :raises DekerCancelledError: if the creation is cancelled before it started
         """
+        validate_timeout(timeout=timeout)
         if not isinstance(name, str) or not name or name.isspace():
             raise DekerValidationError(f"Collection invalid name: {name}")
 
@@ -494,7 +519,10 @@ class Client(SelfLoggerMixin):
             storage_adapter=self._adapter.get_storage_adapter(storage_adapter_type),
         )
 
-        self._adapter.create(collection)
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            self._adapter.create(collection, timeout=timeout, token=token)
         self.logger.debug("Collection %s created", collection.name)
         return collection
 
@@ -558,24 +586,33 @@ class Client(SelfLoggerMixin):
         return self._adapter.create_collection_from_meta(collection_data, self._factory)
 
     @_open_client_only
-    def collection_from_dict(self, collection_data: dict) -> Collection:
+    def collection_from_dict(self, collection_data: dict, *, timeout: int | SentinelType = Sentinel) -> Collection:
         """Create a new ``Collection`` in the database from collection metadata dictionary.
 
         The dictionary has the shape of ``Collection.as_dict``; the fields it leaves out get their defaults.
 
         :param collection_data: Dictionary with collection metadata
+        :param timeout: seconds to wait for the lock of the collection; not given - ``write_lock_timeout`` of the
+          client
         :returns: the created ``Collection``
         :raises DekerMetaDataError: if the metadata has no version or a newer one than the adapters support
+        :raises DekerValidationError: if the timeout is not a positive integer
+        :raises DekerLockError: if the lock of the collection is not released within the timeout
+        :raises DekerCancelledError: if the creation is cancelled before it started
         """
+        validate_timeout(timeout=timeout)
         collection = self._validate_collection(collection_data)
-        self._adapter.create(collection)
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            self._adapter.create(collection, timeout=timeout, token=token)
         self.logger.debug("Collection %s created from dict", collection.name)
         return collection
 
     # TODO: remove in 3.0.0 with clear_locks: the markers are not made since 2.0.0
     @staticmethod
     def _iter_collection_locks(
-        path: Path, collection_name: str, lock_type: LocksTypes | None = None
+        path: Path, collection_name: str, lock_type: LocksTypes | SentinelType = Sentinel
     ) -> list[ArrayLockMeta]:
         """Return the lock files of the ``Arrays`` of a collection.
 
@@ -587,7 +624,7 @@ class Client(SelfLoggerMixin):
         :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
         :returns: lock files of the collection arrays
         """
-        if lock_type is not None and lock_type != LocksTypes.varray_lock:
+        if not is_sentinel(lock_type) and lock_type != LocksTypes.varray_lock:
             return []
         locks: list[ArrayLockMeta] = []
         for file in Path.rglob(path, f"*{LocksExtensions.varray_lock.value}"):
@@ -608,8 +645,8 @@ class Client(SelfLoggerMixin):
 
     def _get_locks(
         self,
-        collection_name: str | None = None,
-        lock_type: LocksTypes | None = None,
+        collection_name: str | SentinelType = Sentinel,
+        lock_type: LocksTypes | SentinelType = Sentinel,
     ) -> list[CollectionLockMeta | ArrayLockMeta]:
         """Return lockfiles of ``Collections`` and ``Arrays``.
 
@@ -623,7 +660,7 @@ class Client(SelfLoggerMixin):
         :raises DekerCollectionNotExistsError: if the collection does not exist
         """
         locks: list[CollectionLockMeta | ArrayLockMeta] = []
-        if collection_name:
+        if not is_sentinel(collection_name):
             collection = self.get_collection(collection_name)
             if not collection:
                 raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
@@ -631,7 +668,7 @@ class Client(SelfLoggerMixin):
         else:
             for entry in Path(self.root_path).iterdir():
                 if entry.is_file():
-                    if lock_type in (None, LocksTypes.collection_lock) and entry.name.endswith(
+                    if (is_sentinel(lock_type) or lock_type == LocksTypes.collection_lock) and entry.name.endswith(
                         LocksExtensions.collection_lock.value
                     ):
                         lock: CollectionLockMeta = {
@@ -647,7 +684,7 @@ class Client(SelfLoggerMixin):
 
     # TODO: remove in 3.0.0
     @_open_client_only
-    def clear_locks(self, collection_name: str | None = None) -> None:
+    def clear_locks(self, collection_name: str | SentinelType = Sentinel) -> None:
         """Remove the markers of VArray writes left by Deker < 2.
 
         .. deprecated:: 2.0.0
@@ -656,8 +693,10 @@ class Client(SelfLoggerMixin):
 
         :param collection_name: Name of a ``Collection``.
           If passed - clears locks only in the provided collection, else clears locks in every collection in the storage
+        :raises DekerValidationError: if the name of the collection is not a string
         :raises DekerCollectionNotExistsError: if the collection does not exist
         """
+        validate_collection_name(name=collection_name)
         warnings.warn(
             "clear_locks is deprecated and will be removed in 3.0.0: Deker leaves no lock files since 2.0.0",
             DeprecationWarning,
@@ -666,7 +705,7 @@ class Client(SelfLoggerMixin):
         root_path = self.root_path
         files_count = 0
 
-        if collection_name:
+        if not is_sentinel(collection_name):
             collection = self.get_collection(collection_name)
             if not collection:
                 raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
@@ -681,7 +720,7 @@ class Client(SelfLoggerMixin):
     @_open_client_only
     def check_integrity(
         self,
-        collection: str | None = None,
+        collection: str | SentinelType = Sentinel,
         checks: Iterable[IntegrityCheck] = DEFAULT_INTEGRITY_CHECKS,
         stop_on_error: bool = False,
         repair: bool = False,
@@ -706,7 +745,7 @@ class Client(SelfLoggerMixin):
         returned; its text goes to a file if ``to_file`` is set. Repairs and several workers are safe only
         when nobody else works with the storage.
 
-        :param collection: name of the only ``Collection`` to check, every collection if ``None``
+        :param collection: name of the only ``Collection`` to check; not given - every collection
         :param checks: the checks to run
         :param stop_on_error: raise ``DekerIntegrityError`` at the first finding instead of collecting them all
         :param repair: repair the repairable findings: missing or broken symlinks, lock files, markers,
@@ -715,8 +754,10 @@ class Client(SelfLoggerMixin):
         :param to_file: write the report to a file: ``True`` for a default-named file in the current directory,
           or the path of the file
         :returns: the report of the findings
+        :raises DekerValidationError: if the name of the collection is not a string
         :raises DekerIntegrityError: at the first finding if ``stop_on_error`` is set
         """
+        validate_collection_name(name=collection)
         report = IntegrityChecker(self, checks, stop_on_error, repair, workers).check(collection)
         if report.ok:
             self.logger.info("Integrity check found no errors")

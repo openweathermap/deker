@@ -27,8 +27,10 @@ from typing import TYPE_CHECKING, Generic, Optional, TypeVar, get_args
 
 import numpy as np
 
+from cantok import AbstractToken
 from deker_tools.slices import create_shape_from_slice
 from deker_tools.time import get_utc
+from deker_tools.typings import Sentinel, SentinelType
 from numpy import ndarray
 
 from deker.ctx import CTX
@@ -225,10 +227,13 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
         pass
 
     @abstractmethod
-    def create(self, collection: "Collection") -> None:
+    def create(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Add collection to storage and creates file structure.
 
         :param collection: Collection to be created
+        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
+          ``write_lock_timeout`` of the client
+        :param token: token of the write operation
         :raises DekerCollectionAlreadyExistsError: if a collection of the name exists
         """
         pass
@@ -244,18 +249,24 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
         pass
 
     @abstractmethod
-    def delete(self, collection: "Collection") -> None:
+    def delete(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Delete collection.
 
         :param collection: Collection to delete
+        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
+          ``write_lock_timeout`` of the client
+        :param token: token of the write operation
         """
         pass
 
     @abstractmethod
-    def clear(self, collection: "Collection") -> None:
+    def clear(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Remove every array of the collection; the collection itself stays.
 
         :param collection: Collection to be cleared
+        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
+          ``write_lock_timeout`` of the client
+        :param token: token of the write operation
         """
         pass
 
@@ -290,7 +301,11 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
                     "fill_value": fill_value,
                 }
             )
-            storage_adapter = self.get_storage_adapter(collection_data.get("storage_adapter"))
+            stored_storage_adapter = collection_data.get("storage_adapter")
+            # a missing or null name in the metadata is the default storage adapter
+            storage_adapter = self.get_storage_adapter(
+                Sentinel if stored_storage_adapter is None else stored_storage_adapter
+            )
             coll_params = storage_adapter.storage_options._process_options(collection_data.get("options"))
 
             collection_options = storage_adapter.storage_options(**coll_params) if coll_params else None
@@ -311,10 +326,10 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
             raise DekerMetaDataError(f'Collection "{name}" metadata is invalid/corrupted: {e}')
 
     @staticmethod
-    def get_storage_adapter(storage_adapter: str | None = None) -> type[BaseStorageAdapter]:
+    def get_storage_adapter(storage_adapter: str | SentinelType = Sentinel) -> type[BaseStorageAdapter]:
         """Get storage adapter type.
 
-        :param storage_adapter: Storage adapter name
+        :param storage_adapter: Storage adapter name; not given - the default storage adapter
         :returns: storage adapter class of the given type
         """
         from deker_local_adapters import storage_adapter_factory
@@ -408,7 +423,7 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         array_dtype: type[Numeric],
         array_shape: tuple[int, ...],
         data: Data,
-        bounds: Slice | None = None,
+        bounds: Slice = ...,
     ) -> ndarray | Numeric:
         """Validate data over array dtype and bounds.
 
@@ -435,7 +450,7 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         if isinstance(data, (int, float, complex)):
             return IArrayAdapter._convert_python_numbers(array_dtype, data)[()]
 
-        shape = create_shape_from_slice(array_shape, ... if bounds is None else bounds)
+        shape = create_shape_from_slice(array_shape, bounds)
         if isinstance(data, (list, tuple)):
             data = IArrayAdapter._convert_python_numbers(array_dtype, data)
         elif data.dtype != array_dtype:
@@ -445,10 +460,13 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         return data
 
     @abstractmethod
-    def create(self, array: ArrayT) -> ArrayT:
+    def create(self, array: ArrayT, *, timeout: int | SentinelType, token: AbstractToken) -> ArrayT:
         """Create Array or VArray in the storage.
 
         :param array: instance of Array or VArray
+        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
+          ``write_lock_timeout`` of the client
+        :param token: token of the write operation
         :returns: the same instance, once it is created in the storage
         :raises DekerArrayError: if the array cannot be created
         """
@@ -464,48 +482,68 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         pass
 
     @abstractmethod
-    def update_meta_custom_attributes(self, array: ArrayT, attributes: dict) -> None:
+    def update_meta_custom_attributes(
+        self, array: ArrayT, attributes: dict, *, timeout: int | SentinelType, token: AbstractToken
+    ) -> None:
         """Update custom attributes in meta.
 
         :param array: Array or VArray
         :param attributes: attributes to be updated
+        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
+          ``write_lock_timeout`` of the client
+        :param token: token of the write operation
         """
         pass
 
     @abstractmethod
-    def delete(self, array: ArrayT) -> None:
+    def delete(self, array: ArrayT, *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Delete a whole array with its data and metadata.
 
         :param array: Array or VArray
+        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
+          ``write_lock_timeout`` of the client
+        :param token: token of the write operation
         """
         pass
 
     @abstractmethod
-    def read_data(self, array: ArrayT, bounds: Slice) -> Numeric | ndarray:
+    def read_data(
+        self, array: ArrayT, bounds: Slice, *, timeout: int | SentinelType, token: AbstractToken
+    ) -> Numeric | ndarray:
         """Read data from a section of array.
 
         :param array: Array or VArray
         :param bounds: bounds of a section to be read
+        :param timeout: seconds of the read as the call gave them; ``Sentinel`` - ``read_timeout`` of the client
+        :param token: token of the read operation
         :returns: data within the bounds; a scalar for a single cell
         """
         pass
 
     @abstractmethod
-    def update(self, array: ArrayT, bounds: Slice, data: Data) -> None:
+    def update(
+        self, array: ArrayT, bounds: Slice, data: Data, *, timeout: int | SentinelType, token: AbstractToken
+    ) -> None:
         """Update a section of array.
 
         :param array: Array or VArray
         :param bounds: bounds of a section to be updated
         :param data: new data of the shape of the bounds, or a number that fills them; validated by ``_process_data``
+        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
+          ``write_lock_timeout`` of the client
+        :param token: token of the write operation
         """
         pass
 
     @abstractmethod
-    def clear(self, array: ArrayT, bounds: Slice) -> None:
+    def clear(self, array: ArrayT, bounds: Slice, *, timeout: int | SentinelType, token: AbstractToken) -> None:
         """Set a section of array to the fill value.
 
         :param array: Array or VArray
         :param bounds: bounds of a section to be cleared
+        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
+          ``write_lock_timeout`` of the client
+        :param token: token of the write operation
         """
         pass
 
@@ -661,11 +699,16 @@ class BaseArrayAdapter(IArrayAdapter[PathT, "Array"], ABC):
     """Interface for Arrays' adapters."""
 
     @abstractmethod
-    def delete_all_by_vid(self, vid: str, collection: "Collection") -> None:
+    def delete_all_by_vid(
+        self, vid: str, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken
+    ) -> None:
         """Delete all the Arrays a VArray is made of.
 
         :param vid: VArray id
         :param collection: Collection instance
+        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
+          ``write_lock_timeout`` of the client
+        :param token: token of the write operation
         """
         pass
 

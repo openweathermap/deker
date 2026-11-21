@@ -17,12 +17,17 @@
 from collections.abc import Generator
 from typing import TYPE_CHECKING, Optional, cast
 
+from cantok import AbstractToken
+from deker_tools.cancel import check, write_token
+from deker_tools.typings import Sentinel, SentinelType
+
 from deker.ABC.base_managers import BaseAbstractManager, BaseManager
 from deker.arrays import Array, VArray
-from deker.errors import DekerInvalidManagerCallError
+from deker.errors import DekerInvalidManagerCallError, TokenErrorConverter
 from deker.log import SelfLoggerMixin
 from deker.schemas import VArraySchema
 from deker.types.private.typings import ArrayT
+from deker.validators import validate_timeout
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
@@ -139,15 +144,20 @@ class DataManager(BaseManager[ArrayT]):
 
     def _create_array(
         self,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
-        id_: str | None = None,
+        primary_attributes: dict | SentinelType,
+        custom_attributes: dict | SentinelType,
+        id_: str | SentinelType,
+        *,
+        timeout: int | SentinelType,
+        token: AbstractToken,
     ) -> Array:
         """Create Array.
 
         :param primary_attributes: array primary attribute
         :param custom_attributes: array custom attributes
         :param id_: Array uuid string
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
         :returns: the created ``Array``
         """
         array = Array(
@@ -157,19 +167,24 @@ class DataManager(BaseManager[ArrayT]):
             primary_attributes=primary_attributes,
             custom_attributes=custom_attributes,
         )
-        return self.__array_adapter.create(array)
+        return self.__array_adapter.create(array, timeout=timeout, token=token)
 
     def _create_varray(
         self,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
-        id_: str | None = None,
+        primary_attributes: dict | SentinelType,
+        custom_attributes: dict | SentinelType,
+        id_: str | SentinelType,
+        *,
+        timeout: int | SentinelType,
+        token: AbstractToken,
     ) -> VArray:
         """Create VArray.
 
         :param primary_attributes: varray primary attribute
         :param custom_attributes: varray custom attributes
         :param id_: VArray uuid string
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
         :returns: the created ``VArray``
         :raises DekerInvalidManagerCallError: if the manager has no ``VArray`` adapter
         """
@@ -183,14 +198,17 @@ class DataManager(BaseManager[ArrayT]):
             primary_attributes=primary_attributes,
             custom_attributes=custom_attributes,
         )
-        return self.__varray_adapter.create(varray)
+        return self.__varray_adapter.create(varray, timeout=timeout, token=token)
 
     def _create(
         self,
         schema: "BaseArraysSchema",
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
-        id_: str | None = None,
+        primary_attributes: dict | SentinelType,
+        custom_attributes: dict | SentinelType,
+        id_: str | SentinelType,
+        *,
+        timeout: int | SentinelType,
+        token: AbstractToken,
     ) -> Array | VArray:
         """Create Array or VArray.
 
@@ -198,30 +216,44 @@ class DataManager(BaseManager[ArrayT]):
         :param custom_attributes: array custom attributes
         :param schema: schema decides which array will be created
         :param id_: (V)Array uuid string
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
         :returns: the created ``Array`` or ``VArray``
         """
         if isinstance(schema, VArraySchema):
-            return self._create_varray(primary_attributes, custom_attributes, id_)
-        return self._create_array(primary_attributes, custom_attributes, id_)
+            return self._create_varray(primary_attributes, custom_attributes, id_, timeout=timeout, token=token)
+        return self._create_array(primary_attributes, custom_attributes, id_, timeout=timeout, token=token)
 
     def create(
         self,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
-        id_: str | None = None,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
+        id_: str | SentinelType = Sentinel,
+        *,
+        timeout: int | SentinelType = Sentinel,
     ) -> ArrayT:
         """Create an array of the kind the schema of the collection decides.
 
         :param primary_attributes: primary attributes: all of the schema, no other
         :param custom_attributes: custom attributes
         :param id_: unique UUID string; generated if not passed
+        :param timeout: seconds to wait for the lock of the symlink directory of the primary attributes; not given -
+          ``write_lock_timeout`` of the client
         :returns: the created ``Array`` or ``VArray``
-        :raises DekerValidationError: if the attributes do not match the schema or an array with these primary
-          attributes exists
+        :raises DekerValidationError: if the attributes do not match the schema, an array with these primary
+          attributes exists, or the timeout is not a positive integer
+        :raises DekerLockError: if the symlink directory is not released within the timeout
+        :raises DekerCancelledError: if the creation is cancelled before it started
         """
+        validate_timeout(timeout=timeout)
         schema = self.__collection.varray_schema or self.__collection.array_schema
-        # the schema decides the kind of arrays, the same way it decides the manager's type parameter
-        return cast("ArrayT", self._create(schema, primary_attributes, custom_attributes, id_))
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            # the schema decides the kind of arrays, the same way it decides the manager's type parameter
+            return cast(
+                "ArrayT", self._create(schema, primary_attributes, custom_attributes, id_, timeout=timeout, token=token)
+            )
 
 
 class VArrayManager(SelfLoggerMixin, DataManager[VArray]):
@@ -267,22 +299,32 @@ class VArrayManager(SelfLoggerMixin, DataManager[VArray]):
 
     def create(
         self,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
-        id_: str | None = None,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
+        id_: str | SentinelType = Sentinel,
+        *,
+        timeout: int | SentinelType = Sentinel,
     ) -> VArray:
         """Create varray in collection.
 
         :param primary_attributes: VArray primary attributes
         :param custom_attributes: VArray custom attributes
         :param id_: VArray unique UUID string; generated if not passed
+        :param timeout: seconds to wait for the lock of the symlink directory of the primary attributes; not given -
+          ``write_lock_timeout`` of the client
         :returns: the created ``VArray``
         :raises DekerInvalidManagerCallError: if the collection has no ``VArraySchema``
-        :raises DekerValidationError: if the attributes do not match the schema or a ``VArray`` with these primary
-          attributes exists
+        :raises DekerValidationError: if the attributes do not match the schema, a ``VArray`` with these primary
+          attributes exists, or the timeout is not a positive integer
+        :raises DekerLockError: if the symlink directory is not released within the timeout
+        :raises DekerCancelledError: if the creation is cancelled before it started
         """
+        validate_timeout(timeout=timeout)
         self._get_schema()
-        return self._create_varray(primary_attributes, custom_attributes, id_)
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            return self._create_varray(primary_attributes, custom_attributes, id_, timeout=timeout, token=token)
 
     def __iter__(self) -> Generator[VArray, None, None]:
         """Yield every ``VArray`` of the collection.
@@ -331,20 +373,30 @@ class ArrayManager(SelfLoggerMixin, DataManager[Array]):
 
     def create(
         self,
-        primary_attributes: dict | None = None,
-        custom_attributes: dict | None = None,
-        id_: str | None = None,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
+        id_: str | SentinelType = Sentinel,
+        *,
+        timeout: int | SentinelType = Sentinel,
     ) -> Array:
         """Create array in collection.
 
         :param primary_attributes: Array primary attributes
         :param custom_attributes: Array custom attributes
         :param id_: Array unique UUID string; generated if not passed
+        :param timeout: seconds to wait for the lock of the symlink directory of the primary attributes; not given -
+          ``write_lock_timeout`` of the client
         :returns: the created ``Array``
-        :raises DekerValidationError: if the attributes do not match the schema or an ``Array`` with these primary
-          attributes exists
+        :raises DekerValidationError: if the attributes do not match the schema, an ``Array`` with these primary
+          attributes exists, or the timeout is not a positive integer
+        :raises DekerLockError: if the symlink directory is not released within the timeout
+        :raises DekerCancelledError: if the creation is cancelled before it started
         """
-        return self._create_array(primary_attributes, custom_attributes, id_)
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            return self._create_array(primary_attributes, custom_attributes, id_, timeout=timeout, token=token)
 
     def __iter__(self) -> Generator[Array, None, None]:
         """Yield every ``Array`` of the collection.

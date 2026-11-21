@@ -16,6 +16,10 @@
 
 from attr import asdict, dataclass, fields
 
+DEFAULT_READ_TIMEOUT = 60  # Seconds a read may take, the default of the client.
+
+DEFAULT_WRITE_LOCK_TIMEOUT = 60  # Seconds a writer waits for a locked file, the default of the client.
+
 
 @dataclass(kw_only=True)
 class DekerConfig:
@@ -23,6 +27,7 @@ class DekerConfig:
 
     :param uri: Deker uri string
     :param workers: number of threads for VArray management
+    :param read_timeout: seconds a read may take, unless the read is given its own timeout
     :param write_lock_timeout: seconds a writer waits for a locked file to be released
     :param write_lock_check_interval: seconds a writer sleeps between the checks of a lock
     :param memory_limit: RAM size in bytes available for Deker
@@ -39,6 +44,7 @@ class DekerConfig:
     # configurable attributes
     uri: str
     workers: int
+    read_timeout: int
     write_lock_timeout: int
     write_lock_check_interval: int
     memory_limit: int
