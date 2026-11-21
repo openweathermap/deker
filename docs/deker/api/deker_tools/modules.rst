@@ -8,5 +8,6 @@ Tools
    time
    data
    path
+   hash_ring
    cancel
    typings
