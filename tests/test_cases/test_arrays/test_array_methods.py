@@ -1,5 +1,7 @@
+import gc
 import os
 import string
+import sys
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +17,7 @@ from deker_local_adapters.factory import AdaptersFactory
 from deker_tools.cancel import cancellation_scope
 from deker_tools.typings import Sentinel
 from numpy import ndarray
+from pytest_mock import MockerFixture
 
 from tests.parameters.array_params import attributes_validation_params
 from tests.parameters.index_exp_params import (
@@ -790,6 +793,45 @@ class TestArrayMethods:
                 factory.get_array_adapter(array_collection.path, storage_adapter=HDF5StorageAdapter),
                 id_=id_,
             )
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            pytest.param({"id_": "not-a-uuid"}, id="invalid-id"),
+            pytest.param({"primary_attributes": "not-a-dict"}, id="invalid-primary-attributes"),
+            pytest.param({"custom_attributes": ["not-a-dict"]}, id="invalid-custom-attributes"),
+        ],
+    )
+    def test_array_rejected_by_validation_is_dropped_silently(self, mocker: MockerFixture, kwargs: dict):
+        """Tests that an Array rejected by the validation is destroyed without an error in its finalizer."""
+        gc.collect()  # the garbage of other tests is not counted
+        hook = mocker.patch.object(sys, "unraisablehook")
+        with pytest.raises(DekerValidationError) as excinfo:
+            Array(None, None, **kwargs)  # type: ignore[arg-type]
+        del excinfo
+        gc.collect()
+        assert [call.args[0].exc_value for call in hook.call_args_list] == []
+
+    @pytest.mark.parametrize("id_", [Sentinel, "c9b83915-95e7-5b8e-bf4a-65a7cf806edf"])
+    def test_valid_array_is_dropped_silently(
+        self,
+        mocker: MockerFixture,
+        array_collection: Collection,
+        factory: AdaptersFactory,
+        id_: Any,
+    ):
+        """Tests that a valid Array is destroyed without an error in its finalizer."""
+        gc.collect()  # the garbage of other tests is not counted
+        hook = mocker.patch.object(sys, "unraisablehook")
+        array = Array(
+            array_collection,
+            factory.get_array_adapter(array_collection.path, storage_adapter=HDF5StorageAdapter),
+            id_=id_,
+        )
+        assert array.id
+        del array
+        gc.collect()
+        assert [call.args[0].exc_value for call in hook.call_args_list] == []
 
     def test_array_str(self, array: Array, array_with_attributes: Array):
         arrays = (array, array_with_attributes)

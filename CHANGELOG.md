@@ -157,6 +157,9 @@ updated at once, and the satellite packages are released together with it: `deke
 - Small bugs found while bringing the coverage to 100%: the attributes were lost on an update,
   `None` inside attribute tuples was rejected, the errors of an attribute schema with a wrong field
   and of a filter by an invalid id were unreadable.
+- An Array, VArray or Collection whose constructor raised (an invalid id, name, schema or attributes)
+  printed `Exception ignored while calling deallocator` with an `AttributeError` to stderr when it
+  was dropped; it is dropped silently, and only the error of the constructor is left.
 
 ### Deprecated
 

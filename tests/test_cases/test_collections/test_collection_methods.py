@@ -1,3 +1,5 @@
+import gc
+import sys
 import threading
 import time
 import uuid
@@ -13,6 +15,7 @@ from deker_local_adapters import HDF5StorageAdapter, LocalCollectionAdapter
 from deker_local_adapters.storage_adapters.hdf5 import HDF5CompressionOpts, HDF5Options
 from deker_tools.cancel import cancellation_scope
 from deker_tools.typings import Sentinel
+from pytest_mock import MockerFixture
 
 from tests.parameters.collection_params import ClientParams
 
@@ -193,6 +196,75 @@ class TestCollectionMethods:
         assert collection.array_schema.attributes[0].name == "vid"
         assert collection.array_schema.attributes[1].name == "v_position"
         assert collection.array_schema.dimensions[0].size == 2
+
+    @pytest.mark.parametrize(
+        ("overrides", "raised", "fails_in_factory"),
+        [
+            pytest.param({"name": ""}, DekerValidationError, False, id="invalid-name"),
+            pytest.param({"schema": None}, DekerValidationError, False, id="invalid-schema"),
+            pytest.param({}, RuntimeError, True, id="factory-fails"),
+        ],
+    )
+    def test_collection_failed_in_constructor_is_dropped_silently(
+        self,
+        mocker: MockerFixture,
+        collection_adapter: LocalCollectionAdapter,
+        factory,
+        array_schema: ArraySchema,
+        name: str,
+        overrides: dict,
+        raised: type[Exception],
+        fails_in_factory: bool,
+    ):
+        """Tests that a Collection whose constructor raised is destroyed without an error in its finalizer."""
+        if fails_in_factory:
+            # a class, not an instance: a raised instance kept by the mock would keep the collection alive
+            mocker.patch.object(factory, "get_array_adapter", side_effect=RuntimeError)
+        gc.collect()  # the garbage of other tests is not counted
+        hook = mocker.patch.object(sys, "unraisablehook")
+        params = {
+            "name": name,
+            "schema": array_schema,
+            "adapter": collection_adapter,
+            "factory": factory,
+            "storage_adapter": collection_adapter.get_storage_adapter(),
+            **overrides,
+        }
+        with pytest.raises(raised) as excinfo:
+            Collection(**params)
+        del excinfo
+        gc.collect()
+        assert [call.args[0].exc_value for call in hook.call_args_list] == []
+
+    @pytest.mark.parametrize("schema_kind", ["array", "varray"])
+    def test_valid_collection_is_dropped_silently(
+        self,
+        mocker: MockerFixture,
+        collection_adapter: LocalCollectionAdapter,
+        factory,
+        array_schema: ArraySchema,
+        name: str,
+        schema_kind: str,
+    ):
+        """Tests that a valid Collection is destroyed without an error in its finalizer."""
+        gc.collect()  # the garbage of other tests is not counted
+        hook = mocker.patch.object(sys, "unraisablehook")
+        schema = (
+            array_schema
+            if schema_kind == "array"
+            else VArraySchema(dimensions=[DimensionSchema("a", 10)], vgrid=(5,), dtype=int)
+        )
+        collection = Collection(
+            name=name,
+            schema=schema,
+            adapter=collection_adapter,
+            factory=factory,
+            storage_adapter=collection_adapter.get_storage_adapter(),
+        )
+        assert collection.name == name
+        del collection
+        gc.collect()
+        assert [call.args[0].exc_value for call in hook.call_args_list] == []
 
     @pytest.mark.parametrize(
         ("labels", "scale"),

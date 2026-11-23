@@ -1,5 +1,7 @@
+import gc
 import os
 import string
+import sys
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -15,6 +17,7 @@ from deker_local_adapters.factory import AdaptersFactory
 from deker_tools.cancel import cancellation_scope
 from deker_tools.typings import Sentinel
 from numpy import ndarray
+from pytest_mock import MockerFixture
 
 from tests.parameters.array_params import attributes_validation_params
 from tests.parameters.index_exp_params import (
@@ -749,6 +752,43 @@ class TestVArrayMethods:
         array_adapter = factory.get_array_adapter(varray_collection.path, HDF5StorageAdapter, varray_collection.options)
         with pytest.raises(DekerValidationError):
             assert VArray(varray_collection, varray_adapter, array_adapter, id_=id_)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            pytest.param({"id_": "not-a-uuid"}, id="invalid-id"),
+            pytest.param({"primary_attributes": "not-a-dict"}, id="invalid-primary-attributes"),
+            pytest.param({"custom_attributes": ["not-a-dict"]}, id="invalid-custom-attributes"),
+        ],
+    )
+    def test_varray_rejected_by_validation_is_dropped_silently(self, mocker: MockerFixture, kwargs: dict):
+        """Tests that a VArray rejected by the validation is destroyed without an error in its finalizer."""
+        gc.collect()  # the garbage of other tests is not counted
+        hook = mocker.patch.object(sys, "unraisablehook")
+        with pytest.raises(DekerValidationError) as excinfo:
+            VArray(None, None, None, **kwargs)  # type: ignore[arg-type]
+        del excinfo
+        gc.collect()
+        assert [call.args[0].exc_value for call in hook.call_args_list] == []
+
+    @pytest.mark.parametrize("id_", [Sentinel, "c9b83915-95e7-5b8e-bf4a-65a7cf806edf"])
+    def test_valid_varray_is_dropped_silently(
+        self,
+        mocker: MockerFixture,
+        varray_collection: Collection,
+        factory: AdaptersFactory,
+        id_: Any,
+    ):
+        """Tests that a valid VArray is destroyed without an error in its finalizer."""
+        gc.collect()  # the garbage of other tests is not counted
+        hook = mocker.patch.object(sys, "unraisablehook")
+        varray_adapter = factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(varray_collection.path, HDF5StorageAdapter, varray_collection.options)
+        varray = VArray(varray_collection, varray_adapter, array_adapter, id_=id_)
+        assert varray.id
+        del varray
+        gc.collect()
+        assert [call.args[0].exc_value for call in hook.call_args_list] == []
 
     def test_varray_str(self, varray: VArray, varray_with_attributes: VArray):
         arrays = (varray, varray_with_attributes)

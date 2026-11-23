@@ -345,9 +345,10 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         self.__dimensions: tuple[Dimension | TimeDimension, ...] = ()
 
     def __del__(self) -> None:
-        del self.__adapter
-        del self.__array_adapter
-        del self.__collection
+        """Drop the references to the adapters and the collection."""
+        for attr in ("_BaseArray__adapter", "_BaseArray__array_adapter", "_BaseArray__collection"):
+            if getattr(self, attr, None) is not None:
+                delattr(self, attr)
 
     @property
     @abstractmethod

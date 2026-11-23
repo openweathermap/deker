@@ -211,10 +211,9 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
     def __del__(self) -> None:
         """Drop the references to the adapter and the managers."""
-        del self.__adapter
-        del self.__manager
-        del self.__arrays
-        del self.__varrays
+        for attr in ("_Collection__adapter", "_Collection__manager", "_Collection__arrays", "_Collection__varrays"):
+            if getattr(self, attr, None) is not None:
+                delattr(self, attr)
 
     @property
     def _storage_adapter(self) -> type[BaseStorageAdapter]:
