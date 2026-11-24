@@ -2,7 +2,7 @@
 
 import inspect
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import numpy as np
@@ -224,13 +224,13 @@ class TestCheckPrimaryAttributes:
     @pytest.mark.parametrize(
         "value",
         [
-            pytest.param(datetime(2077, 1, 2, tzinfo=UTC), id="datetime"),
+            pytest.param(datetime(2077, 1, 2, tzinfo=timezone.utc), id="datetime"),
             pytest.param("2077-01-02T03:00:00+03:00", id="iso-string"),
         ],
     )
     def test_a_datetime_or_an_iso_string_is_taken(self, value: datetime | str):
         assert IArrayAdapter._check_primary_attributes({"dt": value}, dated_schema()) == {
-            "dt": datetime(2077, 1, 2, tzinfo=UTC)
+            "dt": datetime(2077, 1, 2, tzinfo=timezone.utc)
         }
 
     @pytest.mark.parametrize("value", [20770102, 1.5, b"2077-01-02"], ids=["int", "float", "bytes"])
