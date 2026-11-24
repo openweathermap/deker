@@ -2,6 +2,7 @@
 
 import inspect
 
+from datetime import UTC, datetime
 from typing import Any
 
 import numpy as np
@@ -13,7 +14,8 @@ from deker_local_adapters.factory import AdaptersFactory
 from tests.parameters.fresh_copy import load_fresh_copy
 
 from deker.ABC.base_adapters import BaseArrayAdapter, BaseCollectionAdapter, IArrayAdapter
-from deker.errors import DekerArrayTypeError, DekerMetaDataError
+from deker.errors import DekerArrayTypeError, DekerMetaDataError, DekerValidationError
+from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema
 from deker.tools import schema as schema_module
 from deker.types.private import enums as enums_module
 
@@ -205,6 +207,36 @@ class TestProcessData:
     def test_rejection_message_names_the_dtype(self, dtype: type, data: Any):
         with pytest.raises(DekerArrayTypeError, match=dtype.__name__):
             IArrayAdapter._process_data(dtype, _shape_of(data), data)
+
+
+def dated_schema() -> ArraySchema:
+    """An Array schema with one primary attribute, a datetime.
+
+    :returns: the schema
+    """
+    attributes = [AttributeSchema(name="dt", dtype=datetime, primary=True)]
+    return ArraySchema(dtype=float, dimensions=[DimensionSchema(name="x", size=2)], attributes=attributes)
+
+
+class TestCheckPrimaryAttributes:
+    """A filter by a datetime primary attribute takes a datetime or an ISO string, turned into UTC."""
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            pytest.param(datetime(2077, 1, 2, tzinfo=UTC), id="datetime"),
+            pytest.param("2077-01-02T03:00:00+03:00", id="iso-string"),
+        ],
+    )
+    def test_a_datetime_or_an_iso_string_is_taken(self, value: datetime | str):
+        assert IArrayAdapter._check_primary_attributes({"dt": value}, dated_schema()) == {
+            "dt": datetime(2077, 1, 2, tzinfo=UTC)
+        }
+
+    @pytest.mark.parametrize("value", [20770102, 1.5, b"2077-01-02"], ids=["int", "float", "bytes"])
+    def test_another_type_is_refused(self, value: Any):
+        with pytest.raises(DekerValidationError, match="only datetime.datetime or datetime iso-string"):
+            IArrayAdapter._check_primary_attributes({"dt": value}, dated_schema())
 
 
 class TestCreateCollectionFromMeta:

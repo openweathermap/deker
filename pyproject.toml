@@ -335,7 +335,7 @@ exclude_lines = [
     "if typing.TYPE_CHECKING:",
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
-    "pass",
+    '^\s*pass\s*$',
     "raise NotImplementedError",
     "except ImportError",
     "except ModuleNotFoundError",

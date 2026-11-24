@@ -588,6 +588,8 @@ class DimensionSchemaCreationParams(TypedSchemaParams):
                 key="scale",
                 exception_types=[Scale, dict, NoneType],
             ),
+            # labels and scale together
+            {"name": "name", "size": 2, "labels": ["a", "b"], "scale": {"start_value": 0.0, "step": 0.5}},
         ]
 
 
