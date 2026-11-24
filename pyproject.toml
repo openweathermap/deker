@@ -37,7 +37,7 @@ dependencies = [
     "typing-extensions>=4.4.0,<5",
     "tqdm>=4.64.1,<5",
     "psutil>=5.9.5,<8",
-    "deker-local-adapters>=2.0.0b0,<3",
+    "deker-local-adapters>=2.0.0b1,<3",
 ]
 
 [project.optional-dependencies]
@@ -45,14 +45,14 @@ xarray = [
     "xarray>=2024.6.0",
 ]
 server-adapters = [
-    "deker-server-adapters>=2.0.0b0,<3",
+    "deker-server-adapters>=2.0.0b1,<3",
 ]
 shell = [
-    "deker-shell>=2.0.0b0,<3",
+    "deker-shell>=2.0.0b1,<3",
 ]
 all = [
-    "deker-shell>=2.0.0b0,<3",
-    "deker-server-adapters>=2.0.0b0,<3",
+    "deker-shell>=2.0.0b1,<3",
+    "deker-server-adapters>=2.0.0b1,<3",
     "xarray>=2024.6.0",
 ]
 
