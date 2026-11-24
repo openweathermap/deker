@@ -366,6 +366,54 @@ class TestCollectionAdapterCancellation:
         with pytest.raises(TokenCancelledError):
             collection_adapter.create(collection, timeout=Sentinel, token=token)
         assert not (collection_adapter.collections_resource / name).exists()
+        assert not (collection_adapter.collections_resource / (name + ".lock")).exists(), "no lock without a collection"
+
+    @pytest.mark.parametrize(
+        ("operation", "failure", "collection_left"),
+        [
+            pytest.param("create", "makedirs", False, id="create-fails-before-the-directory"),
+            pytest.param("create", "metadata", True, id="create-fails-after-the-directory"),
+            pytest.param("create", "exists", True, id="create-of-an-existing-collection"),
+            pytest.param("clear", "walk", True, id="clear-fails"),
+        ],
+    )
+    def test_a_failed_operation_leaves_the_lock_only_beside_a_collection(
+        self,
+        client: Client,
+        collection_adapter: LocalCollectionAdapter,
+        array_schema: ArraySchema,
+        name: str,
+        mocker: MockerFixture,
+        operation: str,
+        failure: str,
+        collection_left: bool,
+    ):
+        """The lock file marks a collection: a failure removes it only when no collection directory is left."""
+        collection = Collection(
+            name=name,
+            schema=array_schema,
+            adapter=collection_adapter,
+            factory=client._factory,
+            storage_adapter=HDF5StorageAdapter,
+        )
+        if failure in ("exists", "walk"):
+            collection_adapter.create(collection, timeout=Sentinel, token=DefaultToken())
+        error = OSError(errno.ENOSPC, "No space left on device")
+        if failure == "makedirs":
+            mocker.patch("deker_local_adapters.collection_adapter.os.makedirs", side_effect=error)
+        elif failure == "metadata":
+            mocker.patch.object(LocalCollectionAdapter, "_LocalCollectionAdapter__create", side_effect=error)
+        elif failure == "walk":
+            mocker.patch("deker_local_adapters.collection_adapter.os.walk", side_effect=error)
+        root = collection_adapter.collections_resource
+        try:
+            with pytest.raises((OSError, DekerCollectionAlreadyExistsError)):
+                getattr(collection_adapter, operation)(collection, timeout=Sentinel, token=DefaultToken())
+            assert (root / name).is_dir() is collection_left
+            assert (root / (name + ".lock")).exists() is collection_left
+        finally:
+            mocker.stopall()
+            collection_adapter.delete(collection, timeout=Sentinel, token=DefaultToken())
 
     @pytest.mark.timeout(10)
     def test_clear_waits_for_the_collection_up_to_the_timeout(self, array_collection: Collection, collection_adapter):

@@ -160,6 +160,9 @@ updated at once, and the satellite packages are released together with it: `deke
 - An Array, VArray or Collection whose constructor raised (an invalid id, name, schema or attributes)
   printed `Exception ignored while calling deallocator` with an `AttributeError` to stderr when it
   was dropped; it is dropped silently, and only the error of the constructor is left.
+- A creation of a collection that failed before its directory was made (cancelled, an error of the file
+  system) left its lock file behind, which `check_integrity` reported as an orphaned lock; only a creation
+  over the memory limit removed it. Any failure that leaves no collection directory removes the lock file now.
 
 ### Deprecated
 

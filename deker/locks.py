@@ -31,7 +31,7 @@ from deker_tools.cancel import resolve_timeout
 from deker_tools.typings import SentinelType
 
 from deker.ABC.base_locks import BaseLock, wait_for_unlock
-from deker.errors import DekerLockError, DekerMemoryError
+from deker.errors import DekerLockError
 from deker.flock import Flock
 from deker.tools.path import get_main_path
 
@@ -248,7 +248,7 @@ class CollectionLock(BaseLock):
     """Lock for collection creation and clearing: an flock on the ``<collection>.lock`` file next to the collection.
 
     The file stays after the creation as the marker of the collection, which ``check_integrity`` relies on;
-    it is removed only when the creation fails and leaves no collection behind.
+    it is removed only when an operation fails and leaves no collection directory behind.
     """
 
     ALLOWED_TYPES = ["LocalCollectionAdapter"]
@@ -270,12 +270,15 @@ class CollectionLock(BaseLock):
         return path
 
     def release(self, e: Exception | None = None) -> None:
-        """Release the lock; the lock file is removed only when the creation failed for the memory limit.
+        """Release the lock; after a failure the lock file is removed when no collection directory is left.
+
+        A creation may fail between the lock and the directory of the collection (cancelled, over the memory
+        limit, an error of the file system): its lock file would mark a collection that does not exist.
 
         :param e: Exception that might have been raised
         """
         if self.lock:
             self.lock.release()
-            if isinstance(e, DekerMemoryError):
-                self.lock.file.unlink()
+            if e is not None and not (self.instance.collections_resource / self.args[1].name).is_dir():
+                self.lock.file.unlink(missing_ok=True)
             self.lock = None
