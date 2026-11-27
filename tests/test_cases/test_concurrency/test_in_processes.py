@@ -38,7 +38,6 @@ from deker.locks import (
     CollectionLock,
     Flock,
     ReadArrayLock,
-    UpdateMetaAttributeLock,
     WriteArrayLock,
 )
 from deker.schemas import ArraySchema, DimensionSchema, VArraySchema
@@ -147,10 +146,10 @@ def call_array_method(
 
         elif method == "update_meta_custom_attributes":
             if wait:
-                with patch.object(
-                    UpdateMetaAttributeLock,
-                    "release",
-                    wait_unlock(UpdateMetaAttributeLock.release, lock_set, funcs_finished, wait),
+                # wait before the json file is replaced: the lock holds the file at the path until then
+                with patch(
+                    "deker_local_adapters.varray_adapter.os.replace",
+                    wait_unlock(os.replace, lock_set, funcs_finished, wait),
                 ):
                     array.update_custom_attributes(array.custom_attributes)
             else:

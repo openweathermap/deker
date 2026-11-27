@@ -14,6 +14,7 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
 
 from collections.abc import Sequence
 from pathlib import Path
@@ -24,6 +25,7 @@ from typing import (
     Generic,
     TypeVar,
     Union,
+    cast,
 )
 
 from cantok import AbstractToken
@@ -46,7 +48,10 @@ T = TypeVar("T", bound=Union[Path, "BaseArray"])
 
 
 class LockWithArrayMixin(Generic[T]):
-    """Mixin of the locks of arrays: finds the array among the arguments of the decorated adapter method."""
+    """Mixin of the locks of arrays: finds the array among the arguments of the decorated adapter method.
+
+    It also takes the flock on the main file of the array, making sure the file held is the one at the path.
+    """
 
     args: Sequence[Any]
     kwargs: dict[str, Any]
@@ -74,6 +79,33 @@ class LockWithArrayMixin(Generic[T]):
         """Get the directory of the main file of the array."""
         return get_main_path(self.array_id, self.instance.collection_path / self.instance.data_dir)
 
+    @staticmethod
+    def _flock(path: Path, shared: bool = False) -> Flock:
+        """Take the flock on the main file and make sure the file held is the one at the path.
+
+        A file replaced between its opening and the flock is locked again at the path.
+
+        :param path: path to the main file
+        :param shared: take a shared flock instead of an exclusive one
+        :returns: the held flock
+        :raises DekerLockError: if the file is held by another holder
+        :raises DekerInstanceNotExistsError: if the file does not exist, or is gone once the flock is taken
+        """
+        while True:
+            lock = Flock(path, shared)
+            try:
+                lock.acquire()
+            except FileNotFoundError:
+                raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
+            try:
+                at_path = os.path.samestat(os.fstat(cast("int", lock.fd)), os.stat(path))
+            except FileNotFoundError:
+                lock.release()
+                raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
+            if at_path:
+                return lock
+            lock.release()
+
 
 class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
     """Read lock for Array: a shared flock on the main file, held from acquire to release.
@@ -100,15 +132,42 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
         """
         if path is None:  # pragma: no cover
             raise DekerLockError(f"{self.__class__.__name__} has no path to lock")
-        lock = Flock(path, shared=True)
         try:
-            lock.acquire()
+            lock = self._flock(path, shared=True)
         except DekerLockError:
             raise DekerLockError(f"Array {self.array_id} is locked for update operation, cannot be read.")
-        except FileNotFoundError:
-            raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
         self.lock = lock
         self.logger.debug("Acquired shared lock for %s", path)
+
+
+class WaitingReadArrayLock(ReadArrayLock):
+    """Read lock that waits for the writer of the main file, up to the timeout of the call.
+
+    The same shared flock as the read lock, for a reader that is not refused by a short write: readers never
+    stop it, a writer is waited for. The wait takes the flock before the decorated call, so the second acquire
+    of the decorator takes nothing.
+    """
+
+    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
+        """Take the shared flock, waiting for the writer to leave.
+
+        :param func_args: arguments of method call
+        :param func_kwargs: keyword arguments of method call: ``timeout`` and ``token`` of the operation
+        :raises DekerLockError: if the writer does not release the file within the timeout of the operation
+        :raises TokenCancelledError: if the operation is cancelled while it waits
+        :raises DekerInstanceNotExistsError: if the file does not exist; nothing is waited for
+        """
+        self._wait_and_acquire(func_kwargs, f"{self.array} is locked by a writer")
+
+    def acquire(self, path: Path | None) -> None:
+        """Take the shared flock on the main file, unless the wait has taken it already.
+
+        :param path: path to the main file
+        :raises DekerLockError: if the file is held exclusively by a writer
+        :raises DekerInstanceNotExistsError: if the file does not exist
+        """
+        if not self.lock:
+            super().acquire(path)
 
 
 class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
@@ -126,6 +185,16 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         path = self.dir_path / (self.array_id + self.instance.file_ext)
         self.logger.debug("Got path for array.id %s lock file: %s", self.array.id, path)
         return path
+
+    def acquire(self, path: Path | None) -> None:
+        """Take the exclusive flock on the main file, unless the lock is held already.
+
+        :param path: path to the main file
+        :raises DekerLockError: if the file is held by another holder
+        :raises DekerInstanceNotExistsError: if the file does not exist
+        """
+        if not self.lock and path:
+            self.lock = self._flock(path)
 
     def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
         """Take the exclusive flock, waiting for the readers and the writers to leave.
@@ -146,6 +215,7 @@ class ArrayCreationLock:
     is replaced by every update of the custom attributes, the directory stays), so it works across processes
     and containers on one storage and dies with its holder; the threads of one process queue on a thread lock
     first, so only one of them holds the flock at a time. Creation is short, so the flock is polled often.
+    An update of the custom attributes locks the json file, not the directory, and does not wait for a creation.
 
     :param adapter: VArray adapter; the lock is a no-op for the server adapters, the server keeps its own order
     :param varray: the VArray whose Array is created
@@ -238,18 +308,13 @@ class ArrayCreationLock:
 class UpdateMetaAttributeLock(WriteArrayLock):
     """Lock for updating the custom attributes of a ``VArray``, waited for like a write lock.
 
-    The lock is an exclusive flock on the directory of the main file of the VArray, not on the json file: the
-    update replaces the file, and a lock on it would stay on the old file, letting the next writer in while the
-    holder is still at work. The same directory is held while an Array of the VArray is created.
+    The lock is an exclusive flock on the json file of the VArray. The update replaces the file; once the flock
+    is taken, the lock makes sure it holds the file that lies at the path, so the next writer works on the file
+    the holder has written. The update does not wait for the creation of the Arrays of the VArray, which holds
+    the directory of the file.
     """
 
     ALLOWED_TYPES = ["LocalVArrayAdapter"]
-
-    def get_path(self) -> Path:
-        """Get the directory of the main file of the VArray, which is the directory the exclusive lock is taken on."""
-        path = self.dir_path
-        self.logger.debug("Got path for array.id %s lock directory: %s", self.array_id, path)
-        return path
 
 
 class CollectionLock(BaseLock):

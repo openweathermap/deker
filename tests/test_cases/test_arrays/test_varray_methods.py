@@ -1117,16 +1117,15 @@ class TestVArrayWhoseFileIsGone:
     def test_file_gone_before_the_call(
         self, inserted_varray_with_attributes: VArray, tmp_path: Path, operation: str, directory_gone: bool
     ):
-        """The update of the attributes locks the directory first: without it, the directory is the one missing."""
+        """The update of the attributes locks the json file first: the file is the one missing."""
         varray = inserted_varray_with_attributes
         file = get_paths(varray, varray._adapter.collection_path).main / (varray.id + varray._adapter.file_ext)
         file.rename(tmp_path / file.name)
         if directory_gone:
             file.parent.rmdir()
-        missing = file.parent if directory_gone and operation == "update_custom_attributes" else file
         attributes = dict(varray.custom_attributes)
         args = ({"custom_attribute": 0.9},) if operation == "update_custom_attributes" else ()
         with pytest.raises(DekerInstanceNotExistsError) as error:
             getattr(varray, operation)(*args)
-        assert str(error.value) == f"{missing} doesn't exist"
+        assert str(error.value) == f"{file} doesn't exist"
         assert varray.custom_attributes == attributes

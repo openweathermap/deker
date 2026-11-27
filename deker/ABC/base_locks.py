@@ -26,7 +26,7 @@ from typing import Any, ParamSpec, TypeVar
 from cantok import AbstractToken, TimeoutToken
 from deker_tools.cancel import check, resolve_timeout
 
-from deker.errors import DekerInstanceNotExistsError, DekerLockError
+from deker.errors import DekerLockError
 from deker.flock import Flock
 from deker.log import SelfLoggerMixin
 
@@ -110,14 +110,10 @@ class BaseLock(SelfLoggerMixin, ABC):
 
         :param path: Path to file that should be flocked
         :raises DekerLockError: if the file is locked by another holder
-        :raises DekerInstanceNotExistsError: if the file or the directory does not exist
         """
         if not self.lock and path:
             lock = Flock(path)
-            try:
-                lock.acquire()  # a refused lock is not kept: the next attempt starts afresh
-            except FileNotFoundError:
-                raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
+            lock.acquire()  # a refused lock is not kept: the next attempt starts afresh
             self.lock = lock
             self.logger.debug("Set flock for %s", path)
 

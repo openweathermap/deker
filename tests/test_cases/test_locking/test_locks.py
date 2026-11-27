@@ -1,4 +1,7 @@
 import fcntl
+import json
+import os
+import shutil
 import threading
 import time
 
@@ -16,6 +19,8 @@ from deker_tools.cancel import TokenCancelledError
 from deker_tools.typings import Sentinel
 from pytest_mock import MockerFixture
 
+from tests.parameters.uri import embedded_uri
+
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.errors import DekerInstanceNotExistsError, DekerLockError, DekerMemoryError
@@ -25,6 +30,7 @@ from deker.locks import (
     Flock,
     ReadArrayLock,
     UpdateMetaAttributeLock,
+    WaitingReadArrayLock,
     WriteArrayLock,
 )
 from deker.schemas import ArraySchema, DimensionSchema
@@ -61,6 +67,65 @@ def hold_shared_flock_forever(filepath: str, lock_set: Event) -> None:
 
 
 NOT_GIVEN = {"timeout": Sentinel, "token": DefaultToken()}
+
+
+def open_descriptors() -> int:
+    """Count the open descriptors of this process."""
+    return len(os.listdir("/proc/self/fd"))
+
+
+class MoveAfterOpen:
+    """Stands in for ``os.open`` of ``deker.flock``: after the first opening of the path, moves a file once.
+
+    The move lands between the opening of the file and its ``flock``: ``source`` to ``target``.
+    """
+
+    def __init__(self, path: Path, source: Path, target: Path):
+        self.path = path
+        self.source = source
+        self.target = target
+        self.real = os.open
+        self.calls = 0
+
+    def __call__(self, file: Path, flags: int, *args) -> int:
+        descriptor = self.real(file, flags, *args)
+        if Path(file) == self.path:
+            self.calls += 1
+            if self.calls == 1:
+                os.replace(self.source, self.target)
+        return descriptor
+
+
+def add_one(self, array: VArray, *, timeout, token) -> None:
+    """Add one to a custom attribute in the json file of the VArray as the update of the attributes writes it.
+
+    :param self: the VArray adapter
+    :param array: the VArray
+    :param timeout: not used
+    :param token: not used
+    """
+    path = self._get_main_path_to_file(array)
+    meta = json.loads(path.read_text())
+    meta["custom_attributes"]["custom_attribute"] += 1
+    temporary = path.with_name(path.name + ".tmp")
+    temporary.write_text(json.dumps(meta))
+    os.replace(temporary, path)
+
+
+def add_under_the_update_lock(uri: str, collection_name: str, varray_id: str, times: int) -> None:
+    """Add one to the custom attribute of the VArray the given number of times, each under the update lock.
+
+    :param uri: uri of the storage
+    :param collection_name: name of the collection of the VArray
+    :param varray_id: id of the VArray
+    :param times: how many times to add one
+    """
+    locked_add_one = UpdateMetaAttributeLock()(add_one)
+    with Client(uri) as client:
+        varray = client.get_collection(collection_name).filter({"id": varray_id}).last()
+        for _ in range(times):
+            locked_add_one(varray._adapter, varray, timeout=Sentinel, token=DefaultToken())
+
 
 LEGACY_MARKER = f"{{name}}:1:{'0' * 32}{LocksExtensions.varray_lock.value}"  # a VArray write marker of Deker < 2
 
@@ -348,6 +413,152 @@ class TestWriteArrayLock:
         assert write_array_lock.lock is None
 
 
+@pytest.mark.parametrize("lock_name", ["read_array_lock", "write_array_lock"])
+class TestArrayLockTakesTheFileAtThePath:
+    """After the flock, the locks of the arrays hold the file that lies at the path."""
+
+    def test_file_replaced_between_the_open_and_the_lock_is_locked_again_at_the_path(
+        self, request: pytest.FixtureRequest, lock_name: str, inserted_array: Array, mocker: MockerFixture
+    ):
+        lock = request.getfixturevalue(lock_name)
+        lock.kwargs = {"array": inserted_array}
+        path = lock.get_path()
+        replacement = path.with_name("replacement")
+        shutil.copyfile(path, replacement)
+        probe = MoveAfterOpen(path, replacement, path)
+        mocker.patch("deker.flock.os.open", probe)
+        before = open_descriptors()
+        lock.acquire(path)
+        try:
+            assert os.fstat(lock.lock.fd).st_ino == os.stat(path).st_ino
+            assert probe.calls == 2
+            assert open_descriptors() == before + 1
+        finally:
+            lock.release()
+        assert open_descriptors() == before
+
+    def test_file_gone_between_the_open_and_the_lock_is_refused_as_not_existing(
+        self,
+        request: pytest.FixtureRequest,
+        lock_name: str,
+        inserted_array: Array,
+        mocker: MockerFixture,
+        tmp_path: Path,
+    ):
+        lock = request.getfixturevalue(lock_name)
+        lock.kwargs = {"array": inserted_array}
+        path = lock.get_path()
+        mocker.patch("deker.flock.os.open", MoveAfterOpen(path, path, tmp_path / path.name))
+        before = open_descriptors()
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            lock.acquire(path)
+        assert str(error.value) == f"{path} doesn't exist"
+        assert lock.lock is None
+        assert open_descriptors() == before
+
+
+class TestWaitingReadArrayLock:
+    """The shared flock on the main file that waits for the writer up to the timeout of the call."""
+
+    @pytest.fixture
+    def lock(self, local_array_adapter: LocalArrayAdapter, inserted_array: Array) -> WaitingReadArrayLock:
+        lock = WaitingReadArrayLock()
+        lock.instance = local_array_adapter
+        lock.args = (local_array_adapter, inserted_array)
+        lock.kwargs = {"array": inserted_array}
+        return lock
+
+    @pytest.fixture
+    def writer(self, lock: WaitingReadArrayLock):
+        writer = Flock(lock.get_path())
+        writer.acquire()
+        yield writer
+        writer.release()
+
+    @pytest.fixture
+    def interval(self, lock: WaitingReadArrayLock, mocker: MockerFixture) -> None:
+        mocker.patch.object(lock.instance.ctx.config, "write_lock_check_interval", 0.1)
+
+    @pytest.mark.timeout(10)
+    def test_lock_gives_up_after_the_timeout_while_the_writer_holds_the_file(
+        self, lock: WaitingReadArrayLock, inserted_array: Array, writer: Flock, interval
+    ):
+        before = open_descriptors()
+        start = time.monotonic()
+        with pytest.raises(DekerLockError) as error:
+            lock.check_existing_lock(func_args=(), func_kwargs={"timeout": 1, "token": DefaultToken()})
+        assert time.monotonic() - start >= 1
+        assert str(error.value) == f"{inserted_array} is locked by a writer"
+        assert lock.lock is None
+        assert open_descriptors() == before
+
+    @pytest.mark.timeout(10)
+    def test_lock_is_taken_once_the_writer_leaves(self, lock: WaitingReadArrayLock, writer: Flock, interval):
+        leaving = threading.Timer(1, writer.release)
+        start = time.monotonic()
+        leaving.start()
+        try:
+            lock.check_existing_lock(func_args=(), func_kwargs={"timeout": 5, "token": DefaultToken()})
+            elapsed = time.monotonic() - start
+            assert lock.lock is not None and lock.lock.shared
+        finally:
+            leaving.join()
+            lock.release()
+        assert 0.9 <= elapsed < 3
+
+    def test_lock_is_taken_at_once_while_the_readers_hold_the_file(self, lock: WaitingReadArrayLock):
+        reader = Flock(lock.get_path(), shared=True)
+        reader.acquire()
+        try:
+            start = time.monotonic()
+            lock.check_existing_lock(func_args=(), func_kwargs={"timeout": 5, "token": DefaultToken()})
+            assert time.monotonic() - start < 0.5
+            assert lock.lock is not None
+            lock.release()
+        finally:
+            reader.release()
+
+    def test_decorated_call_holds_one_shared_flock_and_leaves_no_descriptor(
+        self, lock: WaitingReadArrayLock, local_array_adapter: LocalArrayAdapter, inserted_array: Array
+    ):
+        """The wait takes the flock before the call; the second acquire of the decorator does not take another."""
+        path = lock.get_path()
+        before = open_descriptors()
+        during: list[int] = []
+
+        def read(self, array, *, timeout, token):
+            during.append(open_descriptors())
+            with pytest.raises(DekerLockError):
+                Flock(path).acquire()  # exclusive: refused
+            other = Flock(path, shared=True)  # shared: welcome
+            other.acquire()
+            other.release()
+
+        WaitingReadArrayLock()(read)(local_array_adapter, inserted_array, timeout=1, token=DefaultToken())
+        assert during == [before + 1]
+        assert open_descriptors() == before
+
+    @pytest.mark.timeout(10)
+    def test_cancelled_token_stops_the_wait(self, lock: WaitingReadArrayLock, writer: Flock, interval):
+        token = SimpleToken()
+        canceller = threading.Timer(0.3, token.cancel)
+        before = open_descriptors()
+        canceller.start()
+        with pytest.raises(TokenCancelledError):
+            lock.check_existing_lock(func_args=(), func_kwargs={"timeout": 30, "token": token})
+        canceller.join()
+        assert lock.lock is None
+        assert open_descriptors() == before
+
+    def test_lock_of_a_missing_file_is_refused_as_not_existing(self, lock: WaitingReadArrayLock, tmp_path: Path):
+        path = lock.get_path()
+        path.rename(tmp_path / path.name)
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            lock.check_existing_lock(func_args=(), func_kwargs={"timeout": 5, "token": DefaultToken()})
+        assert str(error.value) == f"{path} doesn't exist"
+        assert lock.lock is None
+
+
 class TestCollectionLock:
     def test_lock_deletes_after_memory_error(self, client: Client, collection_adapter):
         schema = ArraySchema(
@@ -504,16 +715,16 @@ class TestArrayCreationLock:
         assert not ArrayCreationLock._thread_locks[main_dir].locked()
 
 
-class DirectoryProbe:
-    """Stands in for a method of the adapter and notes whether the directory was locked when it was called."""
+class LockProbe:
+    """Stands in for a method of the adapter and notes whether the path was locked when it was called."""
 
-    def __init__(self, directory: Path, original):
-        self.directory = directory
+    def __init__(self, path: Path, original):
+        self.path = path
         self.original = original
         self.held: list[bool] = []
 
     def __call__(self, array: VArray) -> Path:
-        flock = Flock(self.directory)
+        flock = Flock(self.path)
         try:
             flock.acquire()
         except DekerLockError:
@@ -525,10 +736,10 @@ class DirectoryProbe:
 
 
 class TestUpdateMetaAttributeLock:
-    """The exclusive flock on the directory of the main file of a VArray while its custom attributes are updated.
+    """The exclusive flock on the json file of a VArray while its custom attributes are updated.
 
-    The directory, not the json file: the file is replaced by the update, and a lock on it would stay on the old
-    file, letting the next writer in while the holder is still at work.
+    The update replaces the file; the lock holds the file that lies at the path once the flock is taken, so the
+    next writer works on the file the holder has written. The directory is left to the creation of the Arrays.
     """
 
     @pytest.fixture
@@ -539,9 +750,10 @@ class TestUpdateMetaAttributeLock:
         lock.kwargs = {}
         return lock
 
-    def test_lock_path_is_the_directory_of_the_main_file(self, lock: UpdateMetaAttributeLock, inserted_varray: VArray):
+    def test_lock_path_is_the_main_file(self, lock: UpdateMetaAttributeLock, inserted_varray: VArray):
         adapter = inserted_varray._adapter
-        assert lock.get_path() == get_main_path(inserted_varray.id, adapter.collection_path / adapter.data_dir)
+        main_dir = get_main_path(inserted_varray.id, adapter.collection_path / adapter.data_dir)
+        assert lock.get_path() == main_dir / (inserted_varray.id + adapter.file_ext)
 
     def test_lock_allows_the_varray_adapter_only(self, lock: UpdateMetaAttributeLock, local_array_adapter):
         lock.check_type()
@@ -568,25 +780,55 @@ class TestUpdateMetaAttributeLock:
         assert lock.lock is not None
         lock.release()
 
-    def test_update_of_the_attributes_holds_the_directory(self, inserted_varray_with_attributes: VArray, mocker):
-        """The adapter method runs under the lock: the directory is held while it works."""
+    def test_update_of_the_attributes_holds_the_file(self, inserted_varray_with_attributes: VArray, mocker):
+        """The adapter method runs under the lock: the json file is held while it works."""
         varray = inserted_varray_with_attributes
         adapter = varray._adapter
-        directory = get_main_path(varray.id, adapter.collection_path / adapter.data_dir)
-        probe = DirectoryProbe(directory, adapter._get_main_path_to_file)
+        probe = LockProbe(adapter._get_main_path_to_file(varray), adapter._get_main_path_to_file)
         mocker.patch.object(adapter, "_get_main_path_to_file", side_effect=probe)
         varray.update_custom_attributes({"custom_attribute": 0.9})
         assert probe.held == [True]
 
-    def test_writer_of_a_missing_directory_is_refused_as_not_existing(
-        self, lock: UpdateMetaAttributeLock, tmp_path: Path
+    def test_update_of_the_attributes_does_not_wait_for_the_creation_of_arrays(
+        self, inserted_varray_with_attributes: VArray, mocker: MockerFixture
     ):
-        """The directory of a deleted VArray is gone: the VArray does not exist, without waiting."""
-        directory = lock.get_path()
-        directory.rename(tmp_path / directory.name)
+        """The creation of an Array holds the directory of the VArray; the update of its attributes goes on."""
+        varray = inserted_varray_with_attributes
+        mocker.patch.object(varray._adapter.ctx.config, "write_lock_timeout", 1)
+        creation = ArrayCreationLock(
+            varray._adapter, varray, varray._VArray__collection, timeout=Sentinel, token=DefaultToken()
+        )
+        start = time.monotonic()
+        with creation:
+            varray.update_custom_attributes({"custom_attribute": 0.9})
+        assert time.monotonic() - start < 1
+        assert varray.custom_attributes["custom_attribute"] == 0.9
+        assert varray._adapter.read_meta(varray)["custom_attributes"]["custom_attribute"] == 0.9
+
+    @pytest.mark.timeout(120)
+    def test_updaters_of_two_processes_lose_no_update(
+        self, inserted_varray_with_attributes: VArray, root_path: Path, mp_context: BaseContext
+    ):
+        """Every update replaces the file: each updater works on the file the previous one has written."""
+        varray = inserted_varray_with_attributes
+        start = varray.custom_attributes["custom_attribute"]
+        times = 2000
+        args = (embedded_uri(root_path), varray._VArray__collection.name, varray.id, times)
+        processes = [mp_context.Process(target=add_under_the_update_lock, args=args) for _ in range(2)]
+        for process in processes:
+            process.start()
+        for process in processes:
+            process.join(100)
+        assert [process.exitcode for process in processes] == [0, 0]
+        assert varray._adapter.read_meta(varray)["custom_attributes"]["custom_attribute"] == start + 2 * times
+
+    def test_writer_of_a_missing_file_is_refused_as_not_existing(self, lock: UpdateMetaAttributeLock, tmp_path: Path):
+        """The json file of a deleted VArray is gone: the VArray does not exist, without waiting."""
+        path = lock.get_path()
+        path.rename(tmp_path / path.name)
         with pytest.raises(DekerInstanceNotExistsError) as error:
             lock.check_existing_lock(func_args=(), func_kwargs=dict(NOT_GIVEN))
-        assert str(error.value) == f"{directory} doesn't exist"
+        assert str(error.value) == f"{path} doesn't exist"
         assert lock.lock is None
 
 
