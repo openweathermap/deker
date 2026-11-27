@@ -67,30 +67,30 @@ class BaseAdaptersFactory(SelfLoggerMixin, ABC):
 
     @abstractmethod
     def get_array_adapter(self, *args: Any, **kwargs: Any) -> "BaseArrayAdapter":
-        r"""Create ArrayAdapter instance.
+        """Create ArrayAdapter instance.
 
-        :param \*args: any arguments
-        :param \**kwargs: any keyword arguments
+        :param args: any arguments
+        :param kwargs: any keyword arguments
         :returns: ``ArrayAdapter`` instance
         """
         pass
 
     @abstractmethod
     def get_varray_adapter(self, *args: Any, **kwargs: Any) -> "BaseVArrayAdapter":
-        r"""Create VArrayAdapter instance.
+        """Create VArrayAdapter instance.
 
-        :param \*args: any arguments
-        :param \**kwargs: any keyword arguments
+        :param args: any arguments
+        :param kwargs: any keyword arguments
         :returns: ``VArrayAdapter`` instance
         """
         pass
 
     @abstractmethod
     def get_collection_adapter(self, *args: Any, **kwargs: Any) -> "BaseCollectionAdapter":
-        r"""Create collection adapter.
+        """Create collection adapter.
 
-        :param \*args: any arguments
-        :param \**kwargs: any keyword arguments
+        :param args: any arguments
+        :param kwargs: any keyword arguments
         :returns: ``CollectionAdapter`` instance
         """
         pass

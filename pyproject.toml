@@ -115,6 +115,7 @@ dev = [
     "pytest-mock>=3.17.0",
     "pytest-timeout>=2.4.0",
     "xarray>=2024.6.0",
+    "pytest-xdist>=3.8.0",
 ]
 docs = [
     "docutils>=0.21.2",
@@ -279,6 +280,7 @@ skip-checking-raises = true
 check-class-attributes = false
 check-arg-order = false  # darglint did not check the order either
 allow-init-docstring = true  # __init__ may keep its own docstring, as it does now
+omit-stars-when-documenting-varargs = true
 
 [tool.doc8]  # RST linter
 # https://github.com/PyCQA/doc8

@@ -312,7 +312,7 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         *args: Any,  # noqa: ARG002
         **kwargs: Any,  # noqa: ARG002
     ) -> None:
-        r"""BaseArray constructor.
+        """BaseArray constructor.
 
         Validates id, primary and custom attributes; the attributes not given are empty.
 
@@ -322,8 +322,8 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         :param id_: Array uuid string; generated if not passed
         :param primary_attributes: primary attributes keyword mapping
         :param custom_attributes: custom attributes keyword mapping
-        :param \*args: any arguments, ignored
-        :param \**kwargs: any keyword arguments, ignored
+        :param args: any arguments, ignored
+        :param kwargs: any keyword arguments, ignored
         :raises DekerValidationError: if the id is not a uuid string or the attributes do not match the schema
         """
         super().__init__()

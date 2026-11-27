@@ -35,11 +35,11 @@ def check_ctx_state(method: Callable[Concatenate[Any, P], R]) -> Callable[Concat
 
     @wraps(method)
     def ctx_checker(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
-        r"""Inner executor methods wrapper.
+        """Inner executor methods wrapper.
 
         :param self: Adapter instance
-        :param \*args: any
-        :param \**kwargs: any
+        :param args: any
+        :param kwargs: any
         :returns: result of the method
         """
         if self.ctx.is_closed:
@@ -60,11 +60,11 @@ def not_deleted(method: Callable[Concatenate[Any, P], R]) -> Callable[Concatenat
 
     @wraps(method)
     def _inner(self: Any, *args: P.args, **kwargs: P.kwargs) -> R:
-        r"""Check instance for flag.
+        """Check instance for flag.
 
         :param self: class instance
-        :param \*args: any
-        :param \**kwargs: any
+        :param args: any
+        :param kwargs: any
         :returns: result of the method
         """
         if self._is_deleted():

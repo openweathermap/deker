@@ -215,9 +215,9 @@ class ArrayCreationLock:
         return self
 
     def __exit__(self, *exc_info: Any) -> None:
-        r"""Release the flock and the thread lock.
+        """Release the flock and the thread lock.
 
-        :param \*exc_info: the exception raised in the block, if any
+        :param exc_info: the exception raised in the block, if any
         """
         if self.flock is not None:
             self.flock.release()

@@ -212,10 +212,10 @@ class BaseLock(SelfLoggerMixin, ABC):
 
         @wraps(func)
         def inner(*args: P.args, **kwargs: P.kwargs) -> R:
-            r"""Inner function of lock decorator.
+            """Inner function of lock decorator.
 
-            :param \*args: Arguments of decorated function
-            :param \**kwargs: Keyword arguments of decorated function
+            :param args: Arguments of decorated function
+            :param kwargs: Keyword arguments of decorated function
             :returns: result of the decorated method
             """
             # To keep different references for locks

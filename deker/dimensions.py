@@ -59,7 +59,7 @@ def validate_labels(name: str, size: int, labels: Any) -> None:
 
 
 class Dimension(SelfLoggerMixin, BaseDimension):
-    r"""``Dimension`` of a grid axes or any other series except time (for time series use ``TimeDimension``).
+    """``Dimension`` of a grid axes or any other series except time (for time series use ``TimeDimension``).
 
     May be used for defining the majority of parameters which may be stored in an array.
     You can use ``labels`` or ``scale`` parameter to create a mapping of some names or values to the dimension indexes,
@@ -78,7 +78,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
 
     :param scale: a regular scale of the dimension: a ``Scale(start_value, step, name)`` or a dictionary of its
       fields; the value of the cell ``i`` is ``start_value + step * i``; default None
-    :param \**kwargs: extra keyword arguments, ignored
+    :param kwargs: extra keyword arguments, ignored
     :raises DekerValidationError: if the name or the size is invalid, both labels and scale are passed, or the labels
       or the scale break their rules
     """
@@ -93,13 +93,13 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         scale: dict | Scale | None = None,
         **kwargs: Any,  # noqa: ARG002
     ) -> None:
-        r"""Validate the constructor arguments.
+        """Validate the constructor arguments.
 
         :param name: dimension name
         :param size: dimension size
         :param labels: dimension labels, if any
         :param scale: dimension scale, if any
-        :param \**kwargs: extra keyword arguments, ignored
+        :param kwargs: extra keyword arguments, ignored
         :raises DekerValidationError: if the name or the size is invalid, both labels and scale are passed, or the
           labels or the scale break their rules
         """
@@ -266,13 +266,13 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         step: datetime.timedelta | SentinelType = Sentinel,
         **kwargs: Any,  # noqa: ARG002
     ) -> None:
-        r"""Validate the constructor arguments.
+        """Validate the constructor arguments.
 
         :param name: dimension name
         :param size: dimension size
         :param start_value: time mark of the first cell
         :param step: step of the series
-        :param \**kwargs: extra keyword arguments, ignored
+        :param kwargs: extra keyword arguments, ignored
         :raises DekerValidationError: if the name or the size is invalid, the step is not a non-zero ``timedelta``,
           or the start value is neither a timezone-aware datetime, nor such an ISO string, nor an attribute reference
         """
