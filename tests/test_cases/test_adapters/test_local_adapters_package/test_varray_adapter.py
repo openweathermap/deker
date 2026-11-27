@@ -43,7 +43,7 @@ class TestVArrayAdapterMethods:
     def test_varray_adapter_leaves_a_foreign_main_file_untouched(self, varray: VArray):
         adapter = varray._adapter
         paths = get_paths(varray, adapter.collection_path)
-        paths.create()
+        paths.create(adapter.collection_path)
         filename = varray.id + adapter.file_ext
         (paths.main / filename).write_text("foreign")
         with pytest.raises(DekerArrayError) as e:

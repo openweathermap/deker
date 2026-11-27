@@ -169,6 +169,13 @@ class TestArrayMethods:
         assert isinstance(array.collection, str)
         assert array.collection == array_collection_with_attributes.name
 
+    @pytest.mark.parametrize("array_", ["inserted_array", "inserted_varray"])
+    def test_private_collection_property(self, array_: str, request):
+        """The adapters reach the collection object of an array, not only its name: its schemas, for one."""
+        array = request.getfixturevalue(array_)
+        collection = request.getfixturevalue("varray_collection" if array_ == "inserted_varray" else "array_collection")
+        assert array._collection is collection
+
     def test_delete_array(self, root_path, inserted_array: Array, ctx):
         """Tests array delete method.
 

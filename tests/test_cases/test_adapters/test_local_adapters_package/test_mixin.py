@@ -368,7 +368,7 @@ class TestSymlinkDirectoryLock:
         adapter = array._adapter
         mocker.patch.object(adapter.ctx.config, "write_lock_timeout", 1)
         paths = get_paths(array, adapter.collection_path)
-        paths.create()
+        paths.create(adapter.collection_path)
         with Flock(paths.symlink), pytest.raises(DekerLockError):
             adapter.create(array, timeout=Sentinel, token=DefaultToken())
         assert os.listdir(paths.symlink) == []

@@ -1,4 +1,6 @@
+import os
 import time
+import uuid
 
 from collections import OrderedDict
 from collections.abc import Iterator
@@ -40,8 +42,8 @@ from deker.errors import (
 from deker.flock import Flock
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.subset import Subset, VSubset, _array_positions, _ArrayBounds, _split_axis
-from deker.tools import get_main_path
-from deker.types.private.classes import ArrayPosition, ArrayPositionedData
+from deker.tools import get_main_path, get_paths
+from deker.types.private.classes import ArrayPosition, ArrayPositionedData, Paths
 from deker.types.private.typings import Slice
 from deker.types.public.classes import Scale
 
@@ -2345,3 +2347,208 @@ class TestVSubsetOfAVArrayWhoseFileIsGone:
         inserted_varray[:].update(7.0)
         assert is_deleted.call_count == 1
         np.testing.assert_array_equal(inserted_varray[:].read(), np.full(inserted_varray.shape, 7.0))
+
+
+# --- a write that creates an Array meets the deletion of its VArray: the real creator of the local adapters ---------
+
+BEFORE_FIRST_DIRECTORY = "before the first directory"
+BETWEEN_DIRECTORY_LEVELS = "between the levels of the directory of the main file"
+BEFORE_SYMLINK_DIRECTORIES = "between the directory of the main file and the directory of the symlink"
+BEFORE_MAIN_FILE = "after the directories, before the main file"
+WHILE_MAIN_FILE_IS_WRITTEN = "while the main file is written"
+BEFORE_SYMLINK = "before the symlink"
+BEFORE_CHECK = "before the check"
+AFTER_CHECK = "after the check"
+
+
+class AtPoint:
+    """Hook of a creator: runs an action once, when the creator reaches the point.
+
+    :param point: point of the creator the action runs at
+    :param action: function to call
+    :param arguments: arguments of the function
+    """
+
+    def __init__(self, point: str, action, *arguments) -> None:
+        self.point = point
+        self.action = action
+        self.arguments = arguments
+        self.done = False
+
+    def __call__(self, point: str) -> None:
+        if point == self.point and not self.done:
+            self.done = True
+            self.action(*self.arguments)
+
+
+class AroundCall:
+    """Stand for a function a creator calls on its way: tells the hook the points before and after the calls.
+
+    :param original: the real function
+    :param hook: hook of the creator
+    :param before: points told before the calls, by the number of the call from 0
+    :param after: points told after the calls, by the number of the call from 0, whatever the call ended with
+    """
+
+    def __init__(
+        self, original, hook, before: dict[int, str] | None = None, after: dict[int, str] | None = None
+    ) -> None:
+        self.original = original
+        self.hook = hook
+        self.before = before or {}
+        self.after = after or {}
+        self.calls = 0
+
+    def __call__(self, *args, **kwargs):
+        number = self.calls
+        self.calls += 1
+        if number in self.before:
+            self.hook(self.before[number])
+        try:
+            return self.original(*args, **kwargs)
+        finally:
+            if number in self.after:
+                self.hook(self.after[number])
+
+
+def watch_array_creator(mocker: MockerFixture, adapter, hook) -> None:
+    """Tell the hook every point the creator of the local Arrays adapter reaches, by the calls it makes on its way.
+
+    :param mocker: mocker of the test: the calls are restored after it
+    :param adapter: the local Arrays adapter
+    :param hook: hook of the creator
+    """
+    directories = AroundCall(Paths.create, hook, before={0: BEFORE_FIRST_DIRECTORY})
+    mocker.patch.object(Paths, "create", autospec=True, side_effect=directories)
+    # the levels of the directory of the main file are made first, one ``os.mkdir`` each: the data directory and
+    # the directories of the id; then those of the symlink
+    levels = len(get_main_path(str(uuid.uuid4()), Path(adapter.data_dir)).parts)
+    mkdir = AroundCall(os.mkdir, hook, before={levels: BEFORE_SYMLINK_DIRECTORIES}, after={0: BETWEEN_DIRECTORY_LEVELS})
+    mocker.patch.object(os, "mkdir", side_effect=mkdir)
+    main = AroundCall(adapter._create_main_file, hook, before={0: BEFORE_MAIN_FILE})
+    mocker.patch.object(adapter, "_create_main_file", side_effect=main)
+    storage = adapter.storage_adapter
+    written = AroundCall(storage._create_meta_dataset, hook, before={0: WHILE_MAIN_FILE_IS_WRITTEN})
+    mocker.patch.object(storage, "_create_meta_dataset", side_effect=written)
+    symlink = AroundCall(os.symlink, hook, before={0: BEFORE_SYMLINK}, after={0: BEFORE_CHECK})
+    mocker.patch.object(os, "symlink", side_effect=symlink)
+    created = AroundCall(adapter._create_on_disk, hook, after={0: AFTER_CHECK})
+    mocker.patch.object(adapter, "_create_on_disk", side_effect=created)
+
+
+class MovedAway:
+    """Stand for the trash of the deletion design: what is deleted leaves the collection in one rename.
+
+    :param directory: directory to move into, made here
+    """
+
+    def __init__(self, directory: Path) -> None:
+        directory.mkdir()
+        self.directory = directory
+
+    def move(self, path: Path) -> None:
+        """Move a file or a directory here under a new name; a missing one is not an error.
+
+        :param path: what to move
+        """
+        try:
+            os.rename(path, self.directory / uuid.uuid4().hex)
+        except FileNotFoundError:
+            pass
+
+    def delete_varray(self, varray_symlink: Path, varray_file: Path, symlinks: Path) -> None:
+        """Move a VArray here as its deletion does: its symlink, then every Array found by its symlinks, its json file.
+
+        :param varray_symlink: symlink of the VArray
+        :param varray_file: json file of the VArray
+        :param symlinks: directory of the symlinks of the Arrays of the VArray
+        """
+        self.move(varray_symlink)
+        for directory, _, names in os.walk(symlinks):
+            for name in names:
+                symlink = Path(directory) / name
+                self.move(symlink.readlink())
+                self.move(symlink)
+        self.move(varray_file)
+
+
+def collection_files(collection: Collection) -> list[str]:
+    """List the files and the symlinks of a collection, relative to it; the directories are not listed.
+
+    :param collection: the collection
+    :returns: sorted relative paths
+    """
+    root = collection.path
+    return sorted(os.path.relpath(os.path.join(path, name), root) for path, _, names in os.walk(root) for name in names)
+
+
+class TestVSubsetWriteMeetsTheDeletionOfItsVArray:
+    """A write that creates an Array of a VArray deleted meanwhile tells that the VArray does not exist (B8)."""
+
+    @staticmethod
+    def first_array(varray: VArray) -> VSubset:
+        """Take the subset of the first Array of a VArray: its write creates one Array.
+
+        :param varray: the VArray
+        :returns: the subset
+        """
+        return varray[tuple(slice(0, size) for size in varray.arrays_shape)]
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.parametrize(
+        "point",
+        [
+            BEFORE_FIRST_DIRECTORY,
+            BETWEEN_DIRECTORY_LEVELS,
+            BEFORE_SYMLINK_DIRECTORIES,
+            BEFORE_MAIN_FILE,
+            WHILE_MAIN_FILE_IS_WRITTEN,
+            BEFORE_SYMLINK,
+            BEFORE_CHECK,
+            AFTER_CHECK,
+        ],
+    )
+    def test_write_tells_that_the_varray_does_not_exist(
+        self, varray_collection: Collection, point: str, tmp_path: Path, mocker: MockerFixture
+    ):
+        varray = varray_collection.create()
+        adapter = varray._VArray__array_adapter
+        paths = get_paths(varray, varray._adapter.collection_path)
+        name = varray.id + varray._adapter.file_ext
+        trash = MovedAway(tmp_path / "trash")
+        symlinks = adapter.collection_path / adapter.symlinks_dir / varray.id
+        hook = AtPoint(point, trash.delete_varray, paths.symlink / name, paths.main / name, symlinks)
+        watch_array_creator(mocker, adapter, hook)
+        subset = self.first_array(varray)
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            subset.update(7.0)
+        assert str(error.value) == NOT_EXISTING_VSUBSET.format(subset=subset)
+        assert hook.done
+        # no file of the VArray or of its Arrays is left in the collection
+        assert collection_files(varray_collection) == [f"{varray_collection.name}.json"]
+
+    @pytest.mark.timeout(60)
+    def test_array_gone_from_a_living_varray_while_it_is_created_is_a_partial_write(
+        self, varray_collection: Collection, tmp_path: Path, mocker: MockerFixture
+    ):
+        """The symlinks of the Arrays of a living VArray leave before the creator makes its symlink."""
+        varray = varray_collection.create()
+        adapter = varray._VArray__array_adapter
+        trash = MovedAway(tmp_path / "trash")
+        symlinks = adapter.collection_path / adapter.symlinks_dir / varray.id
+        hook = AtPoint(BEFORE_SYMLINK, trash.move, symlinks)
+        watch_array_creator(mocker, adapter, hook)
+        subset = self.first_array(varray)
+        array_symlink = symlinks / "-".join(["0"] * len(varray.vgrid))
+        try:
+            with pytest.raises(DekerVSubsetError) as error:
+                subset.update(7.0)
+            assert error.value.message == f"{subset!s} is written partly: 1 of 1 Arrays failed, the others are written"
+            assert len(error.value.exceptions) == 1
+            assert error.value.exceptions[0].startswith(
+                repr(DekerInstanceNotExistsError(f"{array_symlink} doesn't exist"))
+            )
+            assert hook.done
+            assert [path for path in collection_files(varray_collection) if path.startswith(adapter.data_dir)] == []
+        finally:
+            varray.delete()

@@ -14,11 +14,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import os
+
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
 from typing_extensions import TypedDict
+
+from deker.errors import DekerInstanceNotExistsError
 
 if TYPE_CHECKING:
     from deker.types import Data
@@ -67,14 +71,25 @@ class Paths(NamedTuple):
     main: Path
     symlink: Path
 
-    def create(self) -> None:
-        """Create the directories in the file system, if they are missing."""
-        for attr in self._fields:
-            path: Path = getattr(self, attr)
-            # TODO: make universal string check for is_file. "path" is str, not Path
-            if str(path).endswith("hdf5") or str(path).endswith("json"):
-                path = path.parent
-            path.mkdir(parents=True, exist_ok=True)
+    def create(self, collection_path: Path) -> None:
+        """Create the directories inside the collection, level by level from it down, if they are missing.
+
+        The directory of the collection itself is never created: a creation never brings back a deleted collection.
+
+        :param collection_path: directory of the collection the directories are in
+        :raises DekerInstanceNotExistsError: if the directory of the collection, or a level above, is gone
+        """
+        collection = str(collection_path)
+        for directory in self:
+            current = collection  # strings, not paths: the levels are walked on every creation
+            for part in str(directory)[len(collection) + 1 :].split(os.sep):
+                current = os.path.join(current, part)
+                try:
+                    os.mkdir(current)
+                except FileExistsError:
+                    pass
+                except FileNotFoundError:
+                    raise DekerInstanceNotExistsError(f"{os.path.dirname(current)} doesn't exist") from None
 
 
 class ArrayPosition(NamedTuple):

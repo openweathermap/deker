@@ -26,7 +26,13 @@ from tests.parameters.index_exp_params import valid_index_exp_params
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerArrayError, DekerArrayTypeError, DekerLockError, DekerValidationError
+from deker.errors import (
+    DekerArrayError,
+    DekerArrayTypeError,
+    DekerInstanceNotExistsError,
+    DekerLockError,
+    DekerValidationError,
+)
 from deker.flock import Flock
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_paths
@@ -87,7 +93,7 @@ class TestArrayAdapter:
         """
         coll_path = root_path / factory.ctx.config.collections_directory / array.collection
         paths = get_paths(array, coll_path)
-        paths.create()
+        paths.create(coll_path)
         filename = str(array.id) + factory.ctx.storage_adapter.file_ext
         file_path = paths.main / filename
         file_path.write_text("foreign")
@@ -434,7 +440,7 @@ class TestArrayAdapter:
 
     def test_array_raises_varray_error(self, varray_collection: Collection):
         _id = str(uuid4())
-        with pytest.raises(DekerArrayError) as e:
+        with pytest.raises(DekerInstanceNotExistsError) as e:
             varray_collection.arrays.create({"vid": _id, "v_position": (0, 0, 0)})
 
         assert f"VArray with id={_id} doesn't exist" == str(e.value)

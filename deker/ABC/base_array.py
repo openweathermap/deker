@@ -394,6 +394,11 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         return self.__collection.name
 
     @property
+    def _collection(self) -> "Collection":
+        """Get the collection the array is bound to: the adapters read its schemas."""
+        return self.__collection
+
+    @property
     def dimensions(self) -> tuple[Dimension | TimeDimension, ...]:
         """Get array dimensions, built from the schema and the attributes the time dimensions refer to.
 
