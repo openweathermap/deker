@@ -19,6 +19,7 @@ import pytest
 
 from cantok import AbstractToken, SimpleToken
 from deker_local_adapters import LocalCollectionAdapter
+from deker_local_adapters.errors import DekerStorageError
 from deker_tools.cancel import cancellation_scope
 from deker_tools.data import convert_size_to_human
 from deker_tools.typings import Sentinel
@@ -38,6 +39,7 @@ from deker.errors import (
     DekerCollectionAlreadyExistsError,
     DekerCollectionNotExistsError,
     DekerIntegrityError,
+    DekerInvalidSchemaError,
     DekerMemoryError,
     DekerMetaDataError,
     DekerValidationError,
@@ -73,6 +75,7 @@ class TestClientMethods:
                 "x", ArraySchema(dtype=int, dimensions=[DimensionSchema(name="d", size=1)])
             ),
             lambda client: client.collection_from_dict({}),
+            lambda client: client.validate_collection({}),
             lambda client: client.meta_version,
             lambda client: client.root_path,
             lambda client: client.calculate_storage_size(),
@@ -841,6 +844,259 @@ class TestClientMethods:
         collection = client.collection_from_dict(old_meta)
         assert collection
         assert collection.as_dict["metadata_version"] == "0.2"
+
+
+class TestValidateCollection:
+    """``Client.validate_collection`` checks a metadata dictionary and builds a ``Collection`` without storing it."""
+
+    DUPLICATE_ATTRIBUTES = [
+        {"name": "a", "dtype": "int", "primary": True},
+        {"name": "a", "dtype": "int", "primary": False},
+    ]
+    DUPLICATE_DIMENSIONS = [{"type": "generic", "name": "x", "size": 3}, {"type": "generic", "name": "x", "size": 2}]
+    UNSUPPORTED = "Collection metadata version is not supported by this version: adapter metadata version: 0.2, "
+
+    @staticmethod
+    def metadata(kind: str, name: str, version: str = "0.2") -> dict:
+        """Build the smallest valid metadata dictionary: every optional field left out.
+
+        :param kind: ``array`` or ``varray``
+        :param name: name of the collection
+        :param version: version of the metadata
+        :returns: the dictionary
+        """
+        schema: dict = {"dtype": "numpy.int8", "dimensions": [{"type": "generic", "name": "x", "size": 3}]}
+        if kind == "varray":
+            schema["vgrid"] = [1]
+        return {"name": name, "metadata_version": version, "type": kind, "schema": schema}
+
+    @staticmethod
+    def changed(data: dict, path: tuple, value: Any) -> dict:
+        """Change one field of the dictionary in place.
+
+        :param data: the dictionary
+        :param path: keys to the field
+        :param value: the new value; ``Sentinel`` - remove the field
+        :returns: the same dictionary
+        """
+        target = data
+        for key in path[:-1]:
+            target = target[key]
+        if value is Sentinel:
+            del target[path[-1]]
+        else:
+            target[path[-1]] = value
+        return data
+
+    @staticmethod
+    def storage(root_path: Path) -> list[str]:
+        """List every path of the storage.
+
+        :param root_path: root of the storage
+        :returns: the sorted relative paths
+        """
+        return sorted(str(path.relative_to(root_path)) for path in root_path.rglob("*"))
+
+    @pytest.mark.parametrize("kind", ["array", "varray"])
+    def test_valid_metadata_gives_a_collection_and_stores_nothing(self, client: Client, root_path: Path, kind: str):
+        """The same dictionary passes again and then creates the collection with ``collection_from_dict``."""
+        name = random_string()
+        data = self.metadata(kind, name)
+        schema = {
+            "dimensions": ({"name": "x", "size": 3, "labels": None, "scale": None, "type": "generic"},),
+            "dtype": "numpy.int8",
+            "attributes": (),
+            "fill_value": "-128",
+        }
+        if kind == "varray":
+            schema["vgrid"] = (1,)
+        expected = {
+            "name": name,
+            "type": kind,
+            "schema": schema,
+            "options": None,
+            "storage_adapter": "HDF5StorageAdapter",
+            "metadata_version": "0.2",
+        }
+        stored_before = self.storage(root_path)
+
+        collection = client.validate_collection(data)
+        assert type(collection) is Collection
+        assert collection.as_dict == expected
+        assert client.get_collection(name) is None
+        assert self.storage(root_path) == stored_before
+
+        assert client.validate_collection(data).as_dict == expected
+        assert client.get_collection(name) is None
+        assert self.storage(root_path) == stored_before
+
+        created = client.collection_from_dict(data)
+        try:
+            assert created.as_dict == expected
+            stored = client.get_collection(name)
+            assert stored is not None
+            assert stored.as_dict == expected
+            assert self.storage(root_path) != stored_before
+        finally:
+            created.delete()
+
+    @pytest.mark.parametrize("version", ["0.1", "0.2"])
+    @pytest.mark.parametrize("kind", ["array", "varray"])
+    def test_metadata_without_the_optional_fields_gets_the_defaults_in_place(
+        self, client: Client, kind: str, version: str
+    ):
+        name = random_string()
+        data = self.metadata(kind, name, version)
+        expected = self.metadata(kind, name)
+        expected["schema"]["dimensions"][0].update(labels=None, scale=None)
+        expected["schema"].update(fill_value=None, attributes=[])
+        expected["options"] = None
+        collection = client.validate_collection(data)
+        assert data == expected
+        assert collection.as_dict["metadata_version"] == "0.2"
+        assert collection.as_dict["options"] is None
+
+    @pytest.mark.parametrize(
+        ("kind", "path", "value", "error", "message"),
+        [
+            pytest.param(
+                "array",
+                ("metadata_version",),
+                Sentinel,
+                DekerMetaDataError,
+                UNSUPPORTED + "collection metadata version: None",
+                id="no_version",
+            ),
+            pytest.param(
+                "array",
+                ("metadata_version",),
+                "99.0",
+                DekerMetaDataError,
+                UNSUPPORTED + "collection metadata version: 99.0",
+                id="newer_version",
+            ),
+            pytest.param(
+                "array",
+                ("schema", "attributes"),
+                DUPLICATE_ATTRIBUTES,
+                DekerValidationError,
+                "Attribute name shall be unique",
+                id="array_duplicate_attribute",
+            ),
+            pytest.param(
+                "varray",
+                ("schema", "attributes"),
+                DUPLICATE_ATTRIBUTES,
+                DekerValidationError,
+                "Attribute name shall be unique",
+                id="varray_duplicate_attribute",
+            ),
+            pytest.param(
+                "array",
+                ("schema", "dimensions"),
+                DUPLICATE_DIMENSIONS,
+                DekerValidationError,
+                "Dimensions shall have unique names",
+                id="array_duplicate_dimension",
+            ),
+            pytest.param(
+                "varray",
+                ("schema", "dimensions"),
+                DUPLICATE_DIMENSIONS,
+                DekerValidationError,
+                "Dimensions shall have unique names",
+                id="varray_duplicate_dimension",
+            ),
+            pytest.param(
+                "array",
+                ("schema", "dimensions"),
+                [{"type": "generic", "name": "x", "size": 0}],
+                DekerValidationError,
+                'Dimension schema "size" shall be a positive integer',
+                id="zero_size",
+            ),
+            pytest.param(
+                "varray",
+                ("schema", "vgrid"),
+                [2],
+                DekerValidationError,
+                "Dimensions shall be split by vgrid into equal parts without remainder: "
+                "x size % vgrid element = 3 % 2 = 1",
+                id="vgrid_with_a_remainder",
+            ),
+            pytest.param(
+                "array",
+                ("schema", "dimensions"),
+                [
+                    {
+                        "type": "time",
+                        "name": "t",
+                        "size": 3,
+                        "start_value": "$dt",
+                        "step": {"days": 0, "seconds": 3600, "microseconds": 0},
+                    }
+                ],
+                DekerValidationError,
+                "No dt attribute with dtype `datetime.datetime` is provided",
+                id="time_start_attribute_missing",
+            ),
+            pytest.param(
+                "array",
+                ("name",),
+                "",
+                DekerValidationError,
+                "Collection name shall be a non-empty string",
+                id="empty_name",
+            ),
+            pytest.param(
+                "array",
+                ("schema", "attributes"),
+                [{"name": "a", "dtype": "nonsense", "primary": True}],
+                DekerInvalidSchemaError,
+                "Schema \"AttributeSchema\" is invalid/corrupted : 'nonsense'",
+                id="attribute_dtype_unknown",
+            ),
+            pytest.param(
+                "array",
+                ("schema", "dtype"),
+                "nonsense",
+                DekerMetaDataError,
+                "Collection \"validated\" metadata is invalid/corrupted: 'nonsense'",
+                id="dtype_unknown",
+            ),
+            pytest.param(
+                "array",
+                ("storage_adapter",),
+                "Nonsense",
+                DekerStorageError,
+                "There is no adapter for Nonsense",
+                id="storage_adapter_unknown",
+            ),
+            pytest.param("array", ("name",), Sentinel, KeyError, "'name'", id="no_name"),
+            pytest.param("array", ("type",), "matrix", KeyError, "'matrix'", id="type_unknown"),
+            pytest.param("array", ("schema",), Sentinel, KeyError, "'schema'", id="no_schema"),
+        ],
+    )
+    def test_invalid_metadata_is_rejected_and_stores_nothing(
+        self, client: Client, root_path: Path, kind: str, path: tuple, value: Any, error: type, message: str
+    ):
+        data = self.changed(self.metadata(kind, "validated"), path, value)
+        stored_before = self.storage(root_path)
+        with pytest.raises(error) as info:
+            client.validate_collection(data)
+        assert type(info.value) is error
+        assert str(info.value) == message
+        assert self.storage(root_path) == stored_before
+
+    def test_adapter_error_of_closed_client_is_translated(self, root_path):
+        """The adapter closed by its context answers with its error; the client translates it without a chain."""
+        client = Client(str(embedded_uri(root_path)))
+        client._ctx.is_closed = True
+        with pytest.raises(DekerClientError) as info:
+            client.validate_collection(self.metadata("array", random_string()))
+        assert type(info.value) is DekerClientError
+        assert str(info.value) == "Client is closed"
+        assert info.value.__suppress_context__
 
 
 @pytest.mark.asyncio

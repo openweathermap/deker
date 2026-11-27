@@ -88,11 +88,11 @@ def _open_client_only(method: Callable[Concatenate["Client", P], T]) -> Callable
 
     @wraps(method)
     def open_client_method(self: "Client", *args: P.args, **kwargs: P.kwargs) -> T:
-        r"""Call the method of an open client.
+        """Call the method of an open client.
 
         :param self: Client instance
-        :param \*args: method arguments
-        :param \**kwargs: method keyword arguments
+        :param args: method arguments
+        :param kwargs: method keyword arguments
         :returns: result of the method
         """
         if self.is_closed:
@@ -246,7 +246,7 @@ class Client(SelfLoggerMixin):
         skip_collection_create_memory_check: bool = False,
         **kwargs: Any,
     ) -> None:
-        r"""Deker client constructor.
+        """Deker client constructor.
 
         :param uri: uri to Deker storage: ``file:///path`` for a local storage, ``http(s)://host`` for a server
         :param executor: external ThreadPoolExecutor instance; not given - the client makes its own
@@ -263,7 +263,7 @@ class Client(SelfLoggerMixin):
 
           .. note:: This parameter is used for early runtime break in case of potential memory overflow
         :param skip_collection_create_memory_check: If we don't want to check size during collection creation
-        :param \**kwargs: extra parameters passed to the adapters as they are, such as ``httpx_conf`` of the server
+        :param kwargs: extra parameters passed to the adapters as they are, such as ``httpx_conf`` of the server
           adapters
         :raises DekerValidationError: if a timeout is not a positive integer, or the executor is not a
           ``ThreadPoolExecutor``
@@ -550,15 +550,25 @@ class Client(SelfLoggerMixin):
             self.logger.info("Collection %s not found", name)
             return None
 
-    def _validate_collection(self, collection_data: dict) -> Collection:
-        """Build a ``Collection`` object from its metadata dictionary without creating it in the storage.
+    @_open_client_only
+    def validate_collection(self, collection_data: dict) -> Collection:
+        """Check a collection metadata dictionary and build the ``Collection`` from it, without storing it.
 
-        The fields a dictionary may leave out get their defaults: the fill value, the attributes, the labels
-        of the dimensions and the options. Not recommended to use except for validation.
+        Nothing is created in the storage: ``collection_from_dict`` creates the collection from the same dictionary.
+        The dictionary has the shape of ``Collection.as_dict`` and is completed in place: the fields it leaves out get
+        their defaults (the fill value, the attributes, the labels and the scale of the dimensions, the options) and
+        the metadata version is set to the current one.
 
         :param collection_data: Dictionary with collection metadata
-        :returns: validated ``Collection`` instance
-        :raises DekerMetaDataError: if the metadata has no version or a newer one than the adapters support
+        :returns: the ``Collection``, not stored
+        :raises DekerClientError: if the client is closed
+        :raises DekerMetaDataError: if the metadata has no version or a newer one than the adapters support, or the
+          dtype, the fill value or another field of the schema is invalid
+        :raises DekerInvalidSchemaError: if an attribute schema is invalid
+        :raises DekerValidationError: if the name, the dimensions, the attributes or the vgrid break the rules of
+          the schema, e.g. two attributes or two dimensions have the same name
+        :raises DekerStorageError: (of the local adapters) if there is no storage adapter of the given name
+        :raises KeyError: if the name, the type, the schema or its dimensions are missing, or the type is unknown
         """
         self._validate_collection_metadata_version(collection_data)  # fills the scale of the generic dimensions
         default_fields: dict = {
@@ -601,7 +611,7 @@ class Client(SelfLoggerMixin):
         :raises DekerCancelledError: if the creation is cancelled before it started
         """
         validate_timeout(timeout=timeout)
-        collection = self._validate_collection(collection_data)
+        collection = self.validate_collection(collection_data)
         with TokenErrorConverter():
             token = write_token()
             check(token)
