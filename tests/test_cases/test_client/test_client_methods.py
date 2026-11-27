@@ -52,6 +52,29 @@ from deker.types.private.enums import LocksTypes
 from deker.warnings import DekerWarning
 
 
+class MoveAwayOnSecondRead:
+    """Stand for ``read`` of the collection adapter: the second call moves the collection file away first, as a
+    deletion of the collection meanwhile does; every call does the real work then.
+
+    :param method: the real method
+    :param target: where the file is moved to
+    """
+
+    def __init__(self, method, target: Path) -> None:
+        self.method = method
+        self.target = target
+        self.calls = 0
+        self.gone: list[Path] = []
+
+    def __call__(self, adapter: LocalCollectionAdapter, name: str):
+        self.calls += 1
+        if self.calls == 2:
+            file = adapter.collections_resource / name / (name + adapter.file_ext)
+            file.rename(self.target / file.name)
+            self.gone.append(file)
+        return self.method(adapter, name)
+
+
 class TestClientMethods:
     def test_storage_path_is_created_on_client_initiation(self, tmp_path_factory):
         directory = tmp_path_factory.mktemp("test_storage_creation", numbered=False)
@@ -503,6 +526,28 @@ class TestClientMethods:
         finally:
             for col in collections:
                 col.delete()
+
+    def test_client_iter_skips_a_collection_gone_meanwhile(
+        self, client: Client, array_schema: ArraySchema, tmp_path: Path, mocker
+    ):
+        """A collection whose file disappears while the client is walked is skipped; the others are yielded."""
+        names = {random_string() for _ in range(3)}
+        for name in names:
+            client.create_collection(name, array_schema)
+        read = MoveAwayOnSecondRead(LocalCollectionAdapter.read, tmp_path)
+        mocker.patch.object(LocalCollectionAdapter, "read", autospec=True, side_effect=read)
+        try:
+            walked = {collection.name for collection in client}
+            assert read.calls >= 3
+            assert len(read.gone) == 1
+            gone = read.gone[0].stem
+            assert gone not in walked
+            assert names - {gone} <= walked
+        finally:
+            for file in read.gone:
+                (tmp_path / file.name).rename(file)
+            for name in names:
+                client.get_collection(name).delete()
 
     def test_client_check_integrity_ok(
         self, client: Client, array_schema: ArraySchema, deker_log: pytest.LogCaptureFixture

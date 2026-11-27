@@ -26,7 +26,7 @@ from typing import Any, ParamSpec, TypeVar
 from cantok import AbstractToken, TimeoutToken
 from deker_tools.cancel import check, resolve_timeout
 
-from deker.errors import DekerLockError
+from deker.errors import DekerInstanceNotExistsError, DekerLockError
 from deker.flock import Flock
 from deker.log import SelfLoggerMixin
 
@@ -110,10 +110,14 @@ class BaseLock(SelfLoggerMixin, ABC):
 
         :param path: Path to file that should be flocked
         :raises DekerLockError: if the file is locked by another holder
+        :raises DekerInstanceNotExistsError: if the file or the directory does not exist
         """
         if not self.lock and path:
             lock = Flock(path)
-            lock.acquire()  # a refused lock is not kept: the next attempt starts afresh
+            try:
+                lock.acquire()  # a refused lock is not kept: the next attempt starts afresh
+            except FileNotFoundError:
+                raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
             self.lock = lock
             self.logger.debug("Set flock for %s", path)
 
@@ -139,6 +143,7 @@ class BaseLock(SelfLoggerMixin, ABC):
         :param locked_message: text of the error when the holders do not leave in time
         :raises DekerLockError: if the file is not released within the timeout
         :raises TokenCancelledError: if the operation is cancelled while it waits
+        :raises DekerInstanceNotExistsError: if the file or the directory does not exist; nothing is waited for
         """
         path = self.get_path()
         if path is None or self._try_acquire(path):  # pragma: no cover  # a waiting lock always has a path

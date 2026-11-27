@@ -6,12 +6,13 @@ import uuid
 
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
+from pathlib import Path
 
 import hdf5plugin
 import pytest
 
 from cantok import AbstractToken, SimpleToken
-from deker_local_adapters import HDF5StorageAdapter, LocalCollectionAdapter
+from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter, LocalCollectionAdapter, LocalVArrayAdapter
 from deker_local_adapters.storage_adapters.hdf5 import HDF5CompressionOpts, HDF5Options
 from deker_tools.cancel import cancellation_scope
 from deker_tools.typings import Sentinel
@@ -726,3 +727,50 @@ class TestCreateWithoutArguments:
         with pytest.raises(DekerValidationError):
             array_collection.create(**{argument: None})
         assert list(array_collection) == []
+
+
+class MoveAwayOnSecondRead:
+    """Stand for ``read_meta`` of an adapter class: the second call moves the main file away first, as a deletion
+    meanwhile does; every call does the real work then.
+
+    :param method: the real method
+    :param target: where the file is moved to
+    """
+
+    def __init__(self, method, target: Path) -> None:
+        self.method = method
+        self.target = target
+        self.calls = 0
+        self.gone: list[str] = []
+
+    def __call__(self, adapter, path: Path):
+        self.calls += 1
+        if self.calls == 2:
+            path.rename(self.target / path.name)
+            self.gone.append(path.name.split(".")[0])
+        return self.method(adapter, path)
+
+
+class TestIterationSkipsWhatDisappears:
+    """An Array or a VArray whose main file disappears while the collection is walked is skipped."""
+
+    @pytest.mark.parametrize(
+        ("collection_", "adapter_class", "walk"),
+        [
+            pytest.param("array_collection", LocalArrayAdapter, "collection", id="arrays-collection"),
+            pytest.param("array_collection", LocalArrayAdapter, "arrays", id="arrays-manager"),
+            pytest.param("varray_collection", LocalVArrayAdapter, "collection", id="varrays-collection"),
+            pytest.param("varray_collection", LocalVArrayAdapter, "varrays", id="varrays-manager"),
+        ],
+    )
+    def test_disappeared_on_the_second_element(
+        self, request, mocker, tmp_path: Path, collection_: str, adapter_class, walk: str
+    ):
+        collection: Collection = request.getfixturevalue(collection_)
+        ids = {collection.create().id for _ in range(3)}
+        read = MoveAwayOnSecondRead(adapter_class.read_meta, tmp_path)
+        mocker.patch.object(adapter_class, "read_meta", autospec=True, side_effect=read)
+        walked = list(collection if walk == "collection" else getattr(collection, walk))
+        assert read.calls == 3
+        assert len(read.gone) == 1
+        assert sorted(array.id for array in walked) == sorted(ids - set(read.gone))

@@ -30,9 +30,16 @@ from deker_tools.typings import Sentinel, SentinelType
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
-from deker.errors import DekerArrayError, DekerLockError, DekerVSubsetError, TokenErrorConverter
+from deker.errors import (
+    DekerArrayError,
+    DekerInstanceNotExistsError,
+    DekerLockError,
+    DekerVSubsetError,
+    TokenErrorConverter,
+)
 from deker.locks import ArrayCreationLock
 from deker.tools import not_deleted
+from deker.tools.decorators import _NOT_EXISTING
 from deker.tools.time import array_time_attributes
 from deker.types.private.classes import ArrayPosition, ArrayPositionedData
 from deker.types.private.typings import Arrays, Data, Numeric, Slice
@@ -560,6 +567,7 @@ class VSubset(BaseSubset["VArray"]):
         :param timeout: timeout of the operation as it was given
         :param token: token of the write operation
         :raises TokenCancelledError: if the write is cancelled before any ``Array`` is started
+        :raises DekerInstanceNotExistsError: if an ``Array`` does not exist because the ``VArray`` was deleted
         :raises DekerLockError: if every ``Array`` that failed was not released within the write lock timeout
         :raises DekerVSubsetError: if one or more ``Arrays`` could not be written for other reasons, or for mixed ones
         """
@@ -594,6 +602,9 @@ class VSubset(BaseSubset["VArray"]):
         cancelled = [e for e in exceptions if isinstance(e, TokenCancelledError)]
         if cancelled:
             raise cancelled[0]
+        # an Array that does not exist: the VArray is looked at only now, never on the way of success
+        if any(isinstance(e, DekerInstanceNotExistsError) for e in exceptions) and self._is_deleted():
+            raise DekerInstanceNotExistsError(_NOT_EXISTING.format(instance=self, method=VSubset.update.__qualname__))
         if exceptions and all(isinstance(e, DekerLockError) for e in exceptions):
             causes = "; ".join(str(e) for e in exceptions)
             raise DekerLockError(

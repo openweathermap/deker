@@ -33,6 +33,7 @@ from deker.collection import Collection
 from deker.dimensions import TimeDimension
 from deker.errors import (
     DekerCancelledError,
+    DekerInstanceNotExistsError,
     DekerMemoryError,
     DekerValidationError,
 )
@@ -1106,3 +1107,26 @@ class TestVArrayTimeoutAndCancellation:
         with cancellation_scope(token), pytest.raises(DekerCancelledError):
             getattr(target, operation)(*args)
         adapter_call.assert_not_called()
+
+
+class TestVArrayWhoseFileIsGone:
+    """A VArray whose json file is gone does not exist: its metadata calls raise DekerInstanceNotExistsError."""
+
+    @pytest.mark.parametrize("operation", ["update_custom_attributes", "read_meta"])
+    @pytest.mark.parametrize("directory_gone", [False, True], ids=["file-gone", "file-and-directory-gone"])
+    def test_file_gone_before_the_call(
+        self, inserted_varray_with_attributes: VArray, tmp_path: Path, operation: str, directory_gone: bool
+    ):
+        """The update of the attributes locks the directory first: without it, the directory is the one missing."""
+        varray = inserted_varray_with_attributes
+        file = get_paths(varray, varray._adapter.collection_path).main / (varray.id + varray._adapter.file_ext)
+        file.rename(tmp_path / file.name)
+        if directory_gone:
+            file.parent.rmdir()
+        missing = file.parent if directory_gone and operation == "update_custom_attributes" else file
+        attributes = dict(varray.custom_attributes)
+        args = ({"custom_attribute": 0.9},) if operation == "update_custom_attributes" else ()
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            getattr(varray, operation)(*args)
+        assert str(error.value) == f"{missing} doesn't exist"
+        assert varray.custom_attributes == attributes

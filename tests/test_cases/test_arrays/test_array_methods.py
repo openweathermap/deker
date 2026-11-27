@@ -34,6 +34,7 @@ from deker.dimensions import TimeDimension
 from deker.errors import (
     DekerCancelledError,
     DekerCollectionAlreadyExistsError,
+    DekerInstanceNotExistsError,
     DekerMemoryError,
     DekerValidationError,
 )
@@ -1225,3 +1226,19 @@ class TestArrayTimeoutAndCancellation:
         with cancellation_scope(token), pytest.raises(DekerCancelledError):
             getattr(target, operation)(*args)
         adapter_call.assert_not_called()
+
+
+class TestArrayWhoseFileIsGone:
+    """An Array whose main file is gone does not exist: its metadata calls raise DekerInstanceNotExistsError."""
+
+    @pytest.mark.parametrize("operation", ["update_custom_attributes", "read_meta"])
+    def test_file_gone_before_the_call(self, inserted_array_with_attributes: Array, tmp_path: Path, operation: str):
+        array = inserted_array_with_attributes
+        file = get_paths(array, array._adapter.collection_path).main / (array.id + array._adapter.file_ext)
+        file.rename(tmp_path / file.name)
+        attributes = dict(array.custom_attributes)
+        args = ({"custom_attribute": 0.9},) if operation == "update_custom_attributes" else ()
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            getattr(array, operation)(*args)
+        assert str(error.value) == f"{file} doesn't exist"
+        assert array.custom_attributes == attributes

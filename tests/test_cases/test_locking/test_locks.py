@@ -18,7 +18,7 @@ from pytest_mock import MockerFixture
 
 from deker.arrays import Array, VArray
 from deker.client import Client
-from deker.errors import DekerLockError, DekerMemoryError
+from deker.errors import DekerInstanceNotExistsError, DekerLockError, DekerMemoryError
 from deker.locks import (
     ArrayCreationLock,
     CollectionLock,
@@ -159,6 +159,18 @@ class TestReadArrayLock:
             assert marker.exists()  # not ours to remove: client.clear_locks does it
         finally:
             marker.unlink()
+
+    def test_reader_of_a_missing_file_is_refused_as_not_existing(
+        self, read_array_lock: ReadArrayLock, inserted_array: Array, tmp_path: Path
+    ):
+        """Tests the file gone before the reader opens it is an Array that does not exist, not a raw error."""
+        read_array_lock.kwargs = {"array": inserted_array}
+        path = read_array_lock.get_path()
+        path.rename(tmp_path / path.name)
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            read_array_lock.acquire(path)
+        assert str(error.value) == f"{path} doesn't exist"
+        assert read_array_lock.lock is None
 
 
 class TestWriteArrayLock:
@@ -323,6 +335,18 @@ class TestWriteArrayLock:
         write_array_lock(check_files)(local_array_adapter, inserted_array)
         assert set(dir_path.iterdir()) == before
 
+    def test_writer_of_a_missing_file_is_refused_as_not_existing(
+        self, write_array_lock: WriteArrayLock, inserted_array: Array, tmp_path: Path
+    ):
+        """Tests the file gone before the writer opens it is an Array that does not exist, without waiting."""
+        write_array_lock.kwargs = {"array": inserted_array}
+        path = write_array_lock.get_path()
+        path.rename(tmp_path / path.name)
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            write_array_lock.check_existing_lock(func_args=[], func_kwargs=dict(NOT_GIVEN))
+        assert str(error.value) == f"{path} doesn't exist"
+        assert write_array_lock.lock is None
+
 
 class TestCollectionLock:
     def test_lock_deletes_after_memory_error(self, client: Client, collection_adapter):
@@ -351,6 +375,20 @@ class TestCollectionLock:
             assert lock_file.exists()
             with Flock(lock_file):
                 pass  # not held once the creation is over
+            collection.clear()
+            assert lock_file.exists()
+        finally:
+            collection.delete()
+
+    def test_lock_file_removed_meanwhile_is_created_again(self, client: Client, collection_adapter):
+        """Tests the lock of a collection whose lock file is missing creates the file, as before (a guard)."""
+        schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=2)], dtype=float)
+        collection = client.create_collection("lock_file_removed", schema)
+        lock_file = (
+            collection_adapter.collections_resource / f"{collection.name}{LocksExtensions.collection_lock.value}"
+        )
+        try:
+            lock_file.unlink()
             collection.clear()
             assert lock_file.exists()
         finally:
@@ -448,6 +486,23 @@ class TestArrayCreationLock:
         assert lock.flock is None
         assert lock.thread_lock is None
 
+    def test_lock_of_a_missing_directory_is_refused_as_not_existing(
+        self, inserted_varray: VArray, main_dir: Path, tmp_path: Path
+    ):
+        """The directory of a deleted VArray is gone: the VArray does not exist, and the thread lock is freed."""
+        collection = inserted_varray._VArray__collection
+        main_dir.rename(tmp_path / main_dir.name)
+        lock = ArrayCreationLock(
+            inserted_varray._adapter, inserted_varray, collection, timeout=Sentinel, token=DefaultToken()
+        )
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            with lock:
+                pass
+        assert str(error.value) == f"{main_dir} doesn't exist"
+        assert lock.flock is None
+        assert lock.thread_lock is None
+        assert not ArrayCreationLock._thread_locks[main_dir].locked()
+
 
 class DirectoryProbe:
     """Stands in for a method of the adapter and notes whether the directory was locked when it was called."""
@@ -522,6 +577,17 @@ class TestUpdateMetaAttributeLock:
         mocker.patch.object(adapter, "_get_main_path_to_file", side_effect=probe)
         varray.update_custom_attributes({"custom_attribute": 0.9})
         assert probe.held == [True]
+
+    def test_writer_of_a_missing_directory_is_refused_as_not_existing(
+        self, lock: UpdateMetaAttributeLock, tmp_path: Path
+    ):
+        """The directory of a deleted VArray is gone: the VArray does not exist, without waiting."""
+        directory = lock.get_path()
+        directory.rename(tmp_path / directory.name)
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            lock.check_existing_lock(func_args=(), func_kwargs=dict(NOT_GIVEN))
+        assert str(error.value) == f"{directory} doesn't exist"
+        assert lock.lock is None
 
 
 if __name__ == "__main__":

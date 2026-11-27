@@ -22,6 +22,8 @@ from deker.errors import DekerAdapterClosedError, DekerInstanceNotExistsError
 
 P = ParamSpec("P")
 R = TypeVar("R")
+# text of the error of an object that does not exist anymore, with the name of the method it was asked for
+_NOT_EXISTING = "{instance} doesn't exist, create new or get an instance again to be able to call {method}"
 
 
 def check_ctx_state(method: Callable[Concatenate[Any, P], R]) -> Callable[Concatenate[Any, P], R]:
@@ -68,9 +70,7 @@ def not_deleted(method: Callable[Concatenate[Any, P], R]) -> Callable[Concatenat
         :returns: result of the method
         """
         if self._is_deleted():
-            raise DekerInstanceNotExistsError(
-                f"{self} doesn't exist, create new or get an instance again to be able to call {method}"
-            )
+            raise DekerInstanceNotExistsError(_NOT_EXISTING.format(instance=self, method=method.__qualname__))
         return method(self, *args, **kwargs)
 
     return _inner

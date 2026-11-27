@@ -31,7 +31,7 @@ from deker_tools.cancel import resolve_timeout
 from deker_tools.typings import SentinelType
 
 from deker.ABC.base_locks import BaseLock, wait_for_unlock
-from deker.errors import DekerLockError
+from deker.errors import DekerInstanceNotExistsError, DekerLockError
 from deker.flock import Flock
 from deker.tools.path import get_main_path
 
@@ -96,6 +96,7 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
 
         :param path: path to the main file
         :raises DekerLockError: if the file is held exclusively by a writer
+        :raises DekerInstanceNotExistsError: if the file does not exist
         """
         if path is None:  # pragma: no cover
             raise DekerLockError(f"{self.__class__.__name__} has no path to lock")
@@ -104,6 +105,8 @@ class ReadArrayLock(LockWithArrayMixin[ArrayFromArgs], BaseLock):
             lock.acquire()
         except DekerLockError:
             raise DekerLockError(f"Array {self.array_id} is locked for update operation, cannot be read.")
+        except FileNotFoundError:
+            raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
         self.lock = lock
         self.logger.debug("Acquired shared lock for %s", path)
 
@@ -130,6 +133,7 @@ class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
         :param func_args: arguments of method call
         :param func_kwargs: keyword arguments of method call: ``timeout`` and ``token`` of the operation
         :raises DekerLockError: if the file is not released within the timeout of the operation
+        :raises DekerInstanceNotExistsError: if the file does not exist; nothing is waited for
         """
         self._wait_and_acquire(func_kwargs, f"{self.array} is locked by its readers or a writer")
 
@@ -179,12 +183,15 @@ class ArrayCreationLock:
 
         :param path: directory of the main file of the VArray
         :returns: ``True`` if the flock is held now
+        :raises DekerInstanceNotExistsError: if the directory does not exist
         """
         flock = Flock(path)
         try:
             flock.acquire()
         except DekerLockError:
             return False
+        except FileNotFoundError:
+            raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
         self.flock = flock
         return True
 
@@ -194,6 +201,7 @@ class ArrayCreationLock:
         :returns: the held lock
         :raises DekerLockError: if the flock is not taken within the timeout
         :raises TokenCancelledError: if the write is cancelled while it waits
+        :raises DekerInstanceNotExistsError: if the directory of the VArray does not exist
         """
         if self.path is None:  # the server keeps its own order of creation
             return self

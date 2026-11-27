@@ -24,6 +24,7 @@ from deker.collection import Collection
 from deker.errors import (
     DekerArrayError,
     DekerCancelledError,
+    DekerInstanceNotExistsError,
     DekerLockError,
     DekerSubsetError,
     DekerTimeoutError,
@@ -31,7 +32,7 @@ from deker.errors import (
 )
 from deker.flock import Flock
 from deker.subset import Subset
-from deker.tools import get_paths
+from deker.tools import get_main_path, get_paths
 from deker.types.private.typings import Slice
 
 
@@ -1013,3 +1014,62 @@ class TestSubsetTimeoutAndCancellation:
         finally:
             holder.release()
         assert inserted_array[0, 0, 0].read() == array_data[0, 0, 0]
+
+
+def main_file_of(array: Array) -> Path:
+    """Main file of an Array.
+
+    :param array: the Array
+    :returns: path to its hdf5 file
+    """
+    adapter = array._adapter
+    return get_main_path(array.id, adapter.collection_path / adapter.data_dir) / (array.id + adapter.file_ext)
+
+
+class MoveAwayOnCheck:
+    """Stand for ``is_deleted`` of the adapter: moves the main file away and answers that the Array is there.
+
+    The file leaves between the check of the subset and the opening of the file by the lock.
+
+    :param file: the main file
+    :param target: where the file is moved to
+    """
+
+    def __init__(self, file: Path, target: Path) -> None:
+        self.file = file
+        self.target = target
+
+    def __call__(self, array: Array) -> bool:
+        self.file.rename(self.target / self.file.name)
+        return False
+
+
+class TestSubsetOfAnArrayWhoseFileIsGone:
+    """An Array whose main file is gone does not exist: its subset raises DekerInstanceNotExistsError."""
+
+    @pytest.mark.parametrize("operation", ["read", "update", "clear"])
+    def test_file_gone_before_the_call(self, inserted_array: Array, tmp_path: Path, operation: str):
+        """The directory of the file stays: the subset still tells that the Array does not exist."""
+        file = main_file_of(inserted_array)
+        file.rename(tmp_path / file.name)
+        subset = inserted_array[:]
+        args = (1.0,) if operation == "update" else ()
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            getattr(subset, operation)(*args)
+        assert str(error.value) == (
+            f"{subset} doesn't exist, create new or get an instance again to be able to call Subset.{operation}"
+        )
+        assert file.parent.is_dir()
+
+    @pytest.mark.parametrize("operation", ["read", "update", "clear"])
+    def test_file_gone_between_the_check_and_the_lock(
+        self, inserted_array: Array, tmp_path: Path, mocker, operation: str
+    ):
+        file = main_file_of(inserted_array)
+        check = mocker.patch.object(inserted_array._adapter, "is_deleted", side_effect=MoveAwayOnCheck(file, tmp_path))
+        args = (1.0,) if operation == "update" else ()
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            getattr(inserted_array[:], operation)(*args)
+        assert str(error.value) == f"{file} doesn't exist"
+        assert check.call_count == 1
+        assert not file.exists()

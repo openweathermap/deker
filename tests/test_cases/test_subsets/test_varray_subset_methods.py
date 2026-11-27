@@ -16,7 +16,7 @@ import pytest
 
 from cantok import AbstractToken, DefaultToken, SimpleToken
 from deker_local_adapters import HDF5CompressionOpts, HDF5Options
-from deker_tools.cancel import cancellation_scope
+from deker_tools.cancel import TokenCancelledError, cancellation_scope
 from deker_tools.slices import positive_bounds
 from deker_tools.typings import Sentinel
 from pytest_mock import MockerFixture
@@ -30,6 +30,7 @@ from deker.collection import Collection
 from deker.errors import (
     DekerArrayError,
     DekerCancelledError,
+    DekerInstanceNotExistsError,
     DekerLockError,
     DekerSubsetError,
     DekerTimeoutError,
@@ -2121,3 +2122,226 @@ class TestVSubsetTimeoutAndCancellation:
             assert time.monotonic() - start < 2.5
         finally:
             holder.release()
+
+
+def varray_main_file(varray: VArray) -> Path:
+    """Json file of a VArray.
+
+    :param varray: the VArray
+    :returns: path to its json file
+    """
+    adapter = varray._adapter
+    return get_main_path(varray.id, adapter.collection_path / adapter.data_dir) / (varray.id + adapter.file_ext)
+
+
+# the text of a deleted VArray, as ``not_deleted`` gives it for the update
+NOT_EXISTING_VSUBSET = "{subset} doesn't exist, create new or get an instance again to be able to call VSubset.update"
+
+
+class MoveAwayOnFirstWrite:
+    """Stand for ``update`` of the Arrays adapter: the first call moves away the file of the Array being written, and
+    the json file of the VArray if it is given, as a deletion meanwhile does; every call does the real work then.
+
+    The Array is found already: its file leaves between the lookup and the lock.
+
+    :param method: the real method
+    :param target: where the files are moved to
+    :param varray_file: json file of the VArray, moved too when the VArray is deleted
+    """
+
+    def __init__(self, method, target: Path, varray_file: Path | None = None) -> None:
+        self.method = method
+        self.target = target
+        self.varray_file = varray_file
+        self.gone: list[Path] = []
+
+    def __call__(self, array, *args, **kwargs):
+        if not self.gone:
+            file = array_main_file(array)
+            for path in (self.varray_file, file):
+                if path is not None:
+                    path.rename(self.target / path.name)
+            self.gone.append(file)
+        return self.method(array, *args, **kwargs)
+
+
+class TestVSubsetOfAVArrayWhoseFileIsGone:
+    """A VArray whose json file is gone does not exist; an Array gone from a living VArray is a partial write."""
+
+    @pytest.fixture
+    def one_worker(self, inserted_varray: VArray, mocker) -> Iterator[None]:
+        """Run the Arrays of the VArray one after another, so the first written Array is known."""
+        executor = ThreadPoolExecutor(1)
+        mocker.patch.object(inserted_varray._adapter, "executor", executor)
+        yield
+        executor.shutdown()
+
+    @pytest.mark.parametrize("operation", ["read", "update", "clear"])
+    def test_file_gone_before_the_call(self, inserted_varray: VArray, tmp_path: Path, operation: str):
+        """The directory of the json file stays: the subset still tells that the VArray does not exist."""
+        file = varray_main_file(inserted_varray)
+        file.rename(tmp_path / file.name)
+        subset = inserted_varray[:]
+        args = (1.0,) if operation == "update" else ()
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            getattr(subset, operation)(*args)
+        assert str(error.value) == (
+            f"{subset} doesn't exist, create new or get an instance again to be able to call VSubset.{operation}"
+        )
+        assert file.parent.is_dir()
+
+    @pytest.mark.timeout(60)
+    def test_varray_deleted_during_the_write(self, inserted_varray: VArray, one_worker, tmp_path: Path, mocker):
+        adapter = inserted_varray._VArray__array_adapter
+        deletion = MoveAwayOnFirstWrite(adapter.update, tmp_path, varray_main_file(inserted_varray))
+        mocker.patch.object(adapter, "update", side_effect=deletion)
+        subset = inserted_varray[:]
+        try:
+            with pytest.raises(DekerInstanceNotExistsError) as error:
+                subset.update(7.0)
+            assert str(error.value) == NOT_EXISTING_VSUBSET.format(subset=subset)
+            assert len(deletion.gone) == 1
+        finally:
+            # the deleted VArray and its gone Array are put back for the deletion of the fixture
+            for path in [varray_main_file(inserted_varray), *deletion.gone] if deletion.gone else []:
+                (tmp_path / path.name).rename(path)
+
+    @pytest.mark.timeout(60)
+    def test_array_gone_from_a_living_varray_is_a_partial_write(
+        self, inserted_varray: VArray, one_worker, tmp_path: Path, mocker
+    ):
+        """The other Arrays are written; the gone one is reported as not existing, not as a raw FileNotFoundError."""
+        adapter = inserted_varray._VArray__array_adapter
+        subset = inserted_varray[:]
+        arrays = [subset._create_array_from_vposition(position.vposition) for position in subset._VSubset__arrays]
+        before = {array_main_file(array): array[:].read() for array in arrays}
+        move = MoveAwayOnFirstWrite(adapter.update, tmp_path)
+        mocker.patch.object(adapter, "update", side_effect=move)
+        try:
+            with pytest.raises(DekerVSubsetError) as error:
+                subset.update(7.0)
+            assert error.value.message == (
+                f"{subset!s} is written partly: 1 of {len(arrays)} Arrays failed, the others are written"
+            )
+            assert len(move.gone) == 1
+            assert len(error.value.exceptions) == 1
+            assert error.value.exceptions[0].startswith(
+                repr(DekerInstanceNotExistsError(f"{move.gone[0]} doesn't exist"))
+            )
+        finally:
+            for file in move.gone:
+                (tmp_path / file.name).rename(file)
+        for array in arrays:
+            file = array_main_file(array)
+            expected = before[file] if file in move.gone else np.full(inserted_varray.arrays_shape, 7.0)
+            np.testing.assert_array_equal(array[:].read(), expected)
+
+    def test_array_gone_before_its_lookup_is_a_broken_symlink(self, inserted_varray: VArray, tmp_path: Path):
+        """The file of an Array is gone and its symlink is left: the lookup of the Array finds a broken symlink.
+
+        The search by the primary attributes during a deletion is not decided yet: it stays as it is (a guard).
+        """
+        subset = inserted_varray[:]
+        positions = [position.vposition for position in subset._VSubset__arrays]
+        file = array_main_file(subset._create_array_from_vposition(positions[0]))
+        file.rename(tmp_path / file.name)
+        try:
+            with pytest.raises(DekerVSubsetError) as error:
+                subset.update(7.0)
+            assert error.value.message == (
+                f"{subset!s} is written partly: 1 of {len(positions)} Arrays failed, the others are written"
+            )
+            assert len(error.value.exceptions) == 1
+            assert error.value.exceptions[0].startswith("DekerBrokenSymlinkError(")
+        finally:
+            (tmp_path / file.name).rename(file)
+
+    @pytest.mark.parametrize(
+        "others",
+        [
+            pytest.param(None, id="alone"),
+            pytest.param(DekerLockError("held by a writer"), id="with-a-lock-error"),
+            pytest.param(OSError("disk full"), id="with-another-failure"),
+        ],
+    )
+    def test_missing_array_of_a_deleted_varray_raises_not_exists(self, inserted_varray: VArray, mocker, others):
+        """The VArray is checked once more only on the way of the error, and found deleted."""
+        subset = inserted_varray[:]
+        arrays = len(subset._VSubset__arrays)
+        failures = [DekerInstanceNotExistsError("gone"), others] + [None] * (arrays - 2)
+        mocker.patch.object(VSubset, "_VSubset__update_array_data", side_effect=failures)
+        is_deleted = mocker.patch.object(VSubset, "_is_deleted", side_effect=[False, True])
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            subset.update(np.zeros(subset.shape))
+        assert str(error.value) == NOT_EXISTING_VSUBSET.format(subset=subset)
+        assert is_deleted.call_count == 2
+
+    def test_missing_array_of_a_living_varray_with_a_lock_error_is_a_partial_write(
+        self, inserted_varray: VArray, mocker
+    ):
+        subset = inserted_varray[:]
+        arrays = len(subset._VSubset__arrays)
+        failures = [DekerInstanceNotExistsError("gone"), DekerLockError("held by a writer")] + [None] * (arrays - 2)
+        mocker.patch.object(VSubset, "_VSubset__update_array_data", side_effect=failures)
+        is_deleted = mocker.patch.object(VSubset, "_is_deleted", return_value=False)
+        with pytest.raises(DekerVSubsetError) as error:
+            subset.update(np.zeros(subset.shape))
+        assert (
+            error.value.message == f"{subset!s} is written partly: 2 of {arrays} Arrays failed, the others are written"
+        )
+        assert sorted(text.split("(")[0] for text in error.value.exceptions) == [
+            "DekerInstanceNotExistsError",
+            "DekerLockError",
+        ]
+        assert is_deleted.call_count == 2
+
+    def test_cancellation_wins_over_a_missing_array(self, inserted_varray: VArray, mocker):
+        """A cancelled Array means nothing is started: the write is cancelled, the VArray is not checked again."""
+        subset = inserted_varray[:]
+        arrays = len(subset._VSubset__arrays)
+        failures = [
+            TokenCancelledError("cancelled", SimpleToken()),
+            DekerInstanceNotExistsError("gone"),
+        ] + [None] * (arrays - 2)
+        mocker.patch.object(VSubset, "_VSubset__update_array_data", side_effect=failures)
+        is_deleted = mocker.patch.object(VSubset, "_is_deleted", side_effect=[False, True])
+        with pytest.raises(DekerCancelledError) as error:
+            subset.update(np.zeros(subset.shape))
+        assert str(error.value) == "cancelled"
+        assert is_deleted.call_count == 1
+
+    @pytest.mark.parametrize(
+        ("failure", "expected"),
+        [
+            pytest.param(DekerLockError("held by a writer"), DekerLockError, id="locks-only"),
+            pytest.param(OSError("disk full"), DekerVSubsetError, id="other-failures-only"),
+        ],
+    )
+    def test_failures_without_a_missing_array_do_not_check_the_varray(
+        self, inserted_varray: VArray, mocker, failure, expected
+    ):
+        """Without a missing Array the errors stay as they were, and the VArray is not checked again (a guard)."""
+        subset = inserted_varray[:]
+        arrays = len(subset._VSubset__arrays)
+        mocker.patch.object(VSubset, "_VSubset__update_array_data", side_effect=failure)
+        is_deleted = mocker.patch.object(VSubset, "_is_deleted", side_effect=[False, True])
+        with pytest.raises(expected) as error:
+            subset.update(np.zeros(subset.shape))
+        assert type(error.value) is expected
+        if expected is DekerLockError:
+            assert str(error.value) == (
+                f"{subset!s} is written partly: {arrays} of {arrays} Arrays were not released in time, "
+                f"the others are written; repeat the write: {'; '.join(['held by a writer'] * arrays)}"
+            )
+        else:
+            assert error.value.message == (
+                f"{subset!s} is written partly: {arrays} of {arrays} Arrays failed, the others are written"
+            )
+        assert is_deleted.call_count == 1
+
+    def test_successful_write_checks_the_varray_once(self, inserted_varray: VArray, mocker):
+        """No extra look at the disk on the way of success: the VArray is checked by the entry check only."""
+        is_deleted = mocker.spy(inserted_varray._adapter, "is_deleted")
+        inserted_varray[:].update(7.0)
+        assert is_deleted.call_count == 1
+        np.testing.assert_array_equal(inserted_varray[:].read(), np.full(inserted_varray.shape, 7.0))
