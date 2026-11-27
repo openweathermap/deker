@@ -43,13 +43,13 @@ docs-lint:  ## Lint the RST documentation (doc8)
 
 check: lint typecheck docstrings docs-lint  ## Run every static check
 
-test:  ## Run the tests in random order
-	uv run pytest --random-order $(PYTEST_ARGS)
+test:  ## Run the tests on four workers in random order
+	uv run pytest -n 4 --random-order $(PYTEST_ARGS)
 
 test-matrix:  ## Run the tests on every Python of PYTHONS in a temporary environment each, like tox
 	@for py in $(PYTHONS); do \
 	  echo "=== Python $$py"; \
-	  uv run --isolated --python $$py pytest --random-order $(PYTEST_ARGS) || exit 1; \
+	  uv run --isolated --python $$py pytest -n 4 --random-order $(PYTEST_ARGS) || exit 1; \
 	done
 
 test-numpy-floor:  ## Run the tests on the lowest supported NumPy of every Python of NUMPY_FLOORS, in a temporary environment each, as CI does
@@ -60,7 +60,7 @@ test-numpy-floor:  ## Run the tests on the lowest supported NumPy of every Pytho
 	  uv venv --quiet --python $$py $$tmp/venv \
 	  && uv pip install --quiet --python $$tmp/venv/bin/python --editable . --group dev "numpy==$$np" \
 	  && $$tmp/venv/bin/python -c "import importlib.metadata as m; v = {d.metadata['Name'].lower(): d.version for d in m.distributions()}; print(*(f'{p} {v[p]}' for p in ('numpy', 'pandas', 'xarray', 'h5py') if p in v))" \
-	  && $$tmp/venv/bin/python -m pytest --random-order $(PYTEST_ARGS); \
+	  && $$tmp/venv/bin/python -m pytest -n 4 --random-order $(PYTEST_ARGS); \
 	  status=$$?; rm -rf $$tmp; [ $$status -eq 0 ] || exit $$status; \
 	done
 
@@ -82,7 +82,7 @@ install-matrix:  ## Check the package installs from wheels only, as a user witho
 	done; rm -rf $$tmp
 
 coverage:  ## Run the tests with coverage and enforce the threshold from pyproject.toml
-	uv run pytest --random-order --cov=. tests/ --cov-report=term-missing --cov-report html $(PYTEST_ARGS)
+	uv run pytest -n 4 --random-order --cov=. tests/ --cov-report=term-missing --cov-report html $(PYTEST_ARGS)
 
 ci: format check coverage  ## Run every check and the tests sequentially, as CI does
 

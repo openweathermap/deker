@@ -76,10 +76,10 @@ class TestAttributesSchemaNameValidation:
             "-0.1",
             str(set()),
             'set("abc")',
-            repr({"abc", "def"}),
+            pytest.param(repr({"abc", "def"}), id="repr-of-a-set"),  # a fixed id for pytest-xdist: the order varies
             str(tuple()),
             'tuple("abc")',
-            repr(tuple({"abc", "def"})),
+            pytest.param(repr(tuple({"abc", "def"})), id="repr-of-a-tuple-of-a-set"),  # a fixed id, as above
             "(1,)",
             str([]),
             '["abc"]',
