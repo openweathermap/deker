@@ -84,9 +84,16 @@ class DekerFilterError(DekerBaseApplicationError):
 
 
 class DekerValidationError(DekerBaseApplicationError):
-    """If something goes wrong during validation."""
+    """If something goes wrong during validation.
 
-    pass
+    :param args: the message, as of any exception
+    :param parameters: names of the dictionaries of the arguments the error is in - ``primary_attributes``, then
+      ``custom_attributes``; empty if the error is not in them
+    """
+
+    def __init__(self, *args: object, parameters: tuple[str, ...] = ()) -> None:
+        super().__init__(*args)
+        self.parameters = parameters
 
 
 class DekerIntegrityError(DekerBaseApplicationError):
@@ -119,7 +126,7 @@ class DekerSubsetError(DekerArrayError):
 
 
 class DekerExceptionGroup(DekerBaseApplicationError):
-    r"""If one or more threads finished with any exception.
+    """If one or more threads finished with any exception.
 
     Name, message and reasonable tracebacks of all
     of these exceptions shall be collected in a list

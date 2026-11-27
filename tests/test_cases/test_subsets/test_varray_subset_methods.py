@@ -1211,7 +1211,7 @@ class TestVSubsetForXArray:
         options = HDF5Options(compression_opts=HDF5CompressionOpts(**hdf5plugin.Zstd(2)))
         col = client.create_collection("described_coll", schema, options)
         try:
-            array = col.create({"pa": 1, "ca": 0})
+            array = col.create({"pa": 1}, {"ca": 0})
             yield array
         finally:
             col.delete()
@@ -1238,7 +1238,7 @@ class TestVSubsetForXArray:
         options = HDF5Options(compression_opts=HDF5CompressionOpts(**hdf5plugin.Zstd(2)))
         col = client.create_collection("not_described_coll", schema, options)
         try:
-            array = col.create({"pa": 1, "ca": 0})
+            array = col.create({"pa": 1}, {"ca": 0})
             yield array
         finally:
             col.delete()

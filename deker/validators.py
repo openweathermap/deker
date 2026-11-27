@@ -47,22 +47,33 @@ def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.d
     return time_attribute
 
 
-def __validate_attribute_type(attribute: object) -> None:
+def __dictionaries(primary: object, custom: object) -> tuple[str, ...]:
+    """Name the dictionaries of the attributes an error is in, the primary ones first.
+
+    :param primary: true if the error is in the primary attributes
+    :param custom: true if the error is in the custom attributes
+    :returns: the names, for ``DekerValidationError.parameters``
+    """
+    return tuple(name for name, guilty in (("primary_attributes", primary), ("custom_attributes", custom)) if guilty)
+
+
+def __validate_attribute_type(attribute: object, parameters: tuple[str, ...]) -> None:
     """Validate attribute type over allowed types; a tuple is validated element by element.
 
     :param attribute: attribute object
+    :param parameters: the dictionary of the attribute, for the error
     :raises DekerValidationError: if the type of the value is not an attribute dtype
     """
     if isinstance(attribute, tuple):
         for attr in attribute:
-            __validate_attribute_type(attr)
+            __validate_attribute_type(attr, parameters)
 
     dtype = type(attribute)
     if attribute is not None:
         try:
             DTypeEnum(dtype).value  # noqa: B018  # validation by side effect, same as in BaseArraysSchema
         except (ValueError, KeyError):
-            raise DekerValidationError(f"Invalid dtype value {dtype}")
+            raise DekerValidationError(f"Invalid dtype value {dtype}", parameters=parameters)
 
 
 def __process_attributes_types(
@@ -90,16 +101,17 @@ def __process_attributes_types(
         if attr.primary:
             # check if primary attribute is not missing and its type
             if attr.name not in attributes:
-                raise DekerValidationError(f"Key attribute missing: {attr.name}")
+                raise DekerValidationError(f"Key attribute missing: {attr.name}", parameters=("primary_attributes",))
             if not isinstance(primary_attributes[attr.name], attr.dtype):
                 raise DekerValidationError(
                     f'Key attribute "{attr.name}" invalid type: {type(primary_attributes[attr.name])}; '
-                    f"expected {attr.dtype}"
+                    f"expected {attr.dtype}",
+                    parameters=("primary_attributes",),
                 )
 
             # validate tuples contents type
             if isinstance(primary_attributes[attr.name], tuple):
-                __validate_attribute_type(primary_attributes[attr.name])
+                __validate_attribute_type(primary_attributes[attr.name], ("primary_attributes",))
 
         else:
             # check if custom attribute is not missing and its type
@@ -107,7 +119,8 @@ def __process_attributes_types(
             if custom_attribute is not None and not isinstance(custom_attribute, attr.dtype):
                 raise DekerValidationError(
                     f'Custom attribute "{attr.name}" invalid type {type(custom_attributes[attr.name])}; '
-                    f"expected {attr.dtype}"
+                    f"expected {attr.dtype}",
+                    parameters=("custom_attributes",),
                 )
 
             if custom_attribute is None:
@@ -118,12 +131,14 @@ def __process_attributes_types(
                             and isinstance(d.start_value, str)
                             and d.start_value.startswith("$" + attr.name)
                         ):
-                            raise DekerValidationError(f'Custom attribute "{attr.name}" cannot be None')
+                            raise DekerValidationError(
+                                f'Custom attribute "{attr.name}" cannot be None', parameters=("custom_attributes",)
+                            )
                 custom_attributes[attr.name] = None
 
             # validate tuples
             if isinstance(custom_attributes[attr.name], tuple):
-                __validate_attribute_type(custom_attributes[attr.name])
+                __validate_attribute_type(custom_attributes[attr.name], ("custom_attributes",))
 
         # convert datetime attribute with set datetime value to utc if needed
         if attr.dtype == datetime.datetime and attr.name in attributes and attributes[attr.name] is not None:
@@ -134,7 +149,7 @@ def __process_attributes_types(
                 else:
                     custom_attributes[attr.name] = utc
             except (ValueError, TypeError) as e:  # pragma: no cover  # guard: the value is a datetime, checked above
-                raise DekerValidationError(e)
+                raise DekerValidationError(e, parameters=__dictionaries(attr.primary, not attr.primary))
 
 
 def process_attributes(
@@ -150,7 +165,8 @@ def process_attributes(
     :returns: validated primary and custom attributes: the custom ones completed with ``None`` for the attributes
       left out, the datetimes in UTC
     :raises DekerValidationError: if attributes are given to a schema without them, the primary ones are missing,
-      a name is both primary and custom, a name is not in the schema, or a value has a wrong type
+      a name is both primary and custom, a name is not in the schema, an attribute is not in the dictionary of its
+      kind, or a value has a wrong type
     """
     from deker.schemas import VArraySchema
 
@@ -162,10 +178,13 @@ def process_attributes(
     custom_attributes = {} if is_sentinel(custom_attributes) else custom_attributes
 
     if any((primary_attributes, custom_attributes)) and not attrs_schema:
-        raise DekerValidationError(f"{array_type} attributes schema is missing".capitalize())
+        raise DekerValidationError(
+            f"{array_type} attributes schema is missing".capitalize(),
+            parameters=__dictionaries(primary_attributes, custom_attributes),
+        )
 
     if any(attr.primary for attr in attrs_schema) and not primary_attributes:
-        raise DekerValidationError("No primary attributes provided")
+        raise DekerValidationError("No primary attributes provided", parameters=__dictionaries(True, False))
 
     # check if attributes have unique names
     if any((primary_attributes, custom_attributes)):
@@ -174,7 +193,8 @@ def process_attributes(
         names_intersection = custom_names.intersection(key_names)
         if names_intersection:
             raise DekerValidationError(
-                f"Key and custom attributes shall not have same names; invalid names: {names_intersection}"
+                f"Key and custom attributes shall not have same names; invalid names: {names_intersection}",
+                parameters=__dictionaries(True, True),
             )
 
     attributes = {**primary_attributes, **custom_attributes}
@@ -185,8 +205,23 @@ def process_attributes(
     if extra_names:
         raise DekerValidationError(
             f"Setting additional attributes not listed in schema is not allowed. "
-            f"Invalid attributes: {sorted(extra_names)}"
+            f"Invalid attributes: {sorted(extra_names)}",
+            parameters=__dictionaries(primary_attributes.keys() & extra_names, custom_attributes.keys() & extra_names),
         )
+
+    # check every attribute is given in its own dictionary
+    primary_names = {attr.name for attr in attrs_schema if attr.primary}
+    misplaced = []
+    if custom_among_primary := sorted(primary_attributes.keys() - primary_names):
+        misplaced.append(f"{custom_among_primary} shall be in custom attributes")
+    if primary_among_custom := sorted(custom_attributes.keys() & primary_names):
+        misplaced.append(f"{primary_among_custom} shall be in primary attributes")
+    if misplaced:
+        raise DekerValidationError(
+            f"Attributes passed in the wrong dictionary: {'; '.join(misplaced)}",
+            parameters=__dictionaries(custom_among_primary, primary_among_custom),
+        )
+
     __process_attributes_types(
         attrs_schema,
         primary_attributes,
@@ -216,12 +251,16 @@ def validate_custom_attributes_update(
       a wrong type
     """
     if not attributes:
-        raise DekerValidationError("No attributes passed for update")
+        raise DekerValidationError("No attributes passed for update", parameters=__dictionaries(False, True))
     for attr in schema.attributes or ():
         if not attr.primary and attr.name not in attributes:
             attributes[attr.name] = custom_attributes[attr.name]
 
-    process_attributes(schema, primary_attributes, attributes)
+    try:
+        process_attributes(schema, primary_attributes, attributes)
+    except DekerValidationError as e:
+        e.parameters = __dictionaries(False, True)  # the update is given the custom attributes only
+        raise
     return attributes
 
 

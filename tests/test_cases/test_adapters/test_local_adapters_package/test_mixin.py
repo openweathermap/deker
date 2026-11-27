@@ -503,7 +503,12 @@ class TestGetIdByPrimaryAttributes:
         ("attributes", "message"),
         [
             pytest.param({}, "primary_attribute is missing", id="missing"),
-            pytest.param({"primary_attribute": 1, "extra": 2}, "don't exist in schema", id="extra"),
+            pytest.param({"primary_attribute": 1, "extra": 2}, "don't exist in schema: 'extra'$", id="extra"),
+            pytest.param(
+                {"primary_attribute": 1, "zeta": 2, "alpha": 3},
+                "^Some arguments don't exist in schema: 'alpha', 'zeta'$",
+                id="two_extra",
+            ),
         ],
     )
     def test_incomplete_or_extra_attributes_are_refused(
@@ -530,7 +535,12 @@ class TestGetByPrimaryAttributesChecksTheAttributes:
         ("attributes", "message"),
         [
             pytest.param({}, "primary_attribute is missing", id="missing"),
-            pytest.param({"primary_attribute": 1, "extra": 2}, "don't exist in schema", id="extra"),
+            pytest.param({"primary_attribute": 1, "extra": 2}, "don't exist in schema: 'extra'$", id="extra"),
+            pytest.param(
+                {"primary_attribute": 1, "zeta": 2, "alpha": 3},
+                "^Some arguments don't exist in schema: 'alpha', 'zeta'$",
+                id="two_extra",
+            ),
         ],
     )
     def test_incomplete_or_extra_attributes_are_refused(

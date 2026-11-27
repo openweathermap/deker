@@ -56,8 +56,9 @@ def test_dimensions_non_unique_names_error(dims: list[DimensionSchema | TimeDime
     ],
 )
 def test_attributes_non_unique_names_error(attrs: list[AttributeSchema], dimensions: list[DimensionSchema]):
-    with pytest.raises(DekerValidationError):
+    with pytest.raises(DekerValidationError) as error:
         assert ArraySchema(dtype=int, dimensions=dimensions, attributes=attrs)  # type: ignore[arg-type]
+    assert str(error.value) == "Attribute name shall be unique"
 
 
 def test_array_schema_repr(array_schema):

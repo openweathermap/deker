@@ -1,5 +1,8 @@
 """Tests of the errors module."""
 
+import copy
+import pickle
+
 import pytest
 
 from cantok import SimpleToken, TimeoutToken
@@ -10,6 +13,7 @@ from deker.errors import (
     DekerCancelledError,
     DekerLockError,
     DekerTimeoutError,
+    DekerValidationError,
     DekerVSubsetError,
     TokenErrorConverter,
 )
@@ -30,6 +34,35 @@ class TestDekerVSubsetError:
 
     def test_is_an_application_error(self):
         assert issubclass(DekerVSubsetError, DekerBaseApplicationError)
+
+
+class TestDekerValidationError:
+    """The validation error names the dictionaries of the arguments it is in; its text and its args are as before."""
+
+    @pytest.mark.parametrize(
+        ("keywords", "parameters"),
+        [
+            pytest.param({}, (), id="not-given"),
+            pytest.param({"parameters": ("custom_attributes",)}, ("custom_attributes",), id="one"),
+            pytest.param(
+                {"parameters": ("primary_attributes", "custom_attributes")},
+                ("primary_attributes", "custom_attributes"),
+                id="both",
+            ),
+        ],
+    )
+    def test_parameters_survive_pickle_and_copy(self, keywords: dict, parameters: tuple):
+        """The errors cross the processes pickled: the text and the parameters come back."""
+        error = DekerValidationError("bad", **keywords)
+        assert error.parameters == parameters
+        assert str(error) == "bad"
+        assert error.args == ("bad",)
+        assert repr(error) == "DekerValidationError('bad')"
+        for twin in (pickle.loads(pickle.dumps(error)), copy.copy(error), copy.deepcopy(error)):
+            assert type(twin) is DekerValidationError
+            assert str(twin) == "bad"
+            assert twin.args == ("bad",)
+            assert twin.parameters == parameters
 
 
 class TestCancellationErrors:

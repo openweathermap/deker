@@ -36,7 +36,7 @@ class TestDataManagerMethods:
     @pytest.mark.parametrize(
         "id_",
         [
-            (str(uuid.uuid4()))[:-10],
+            pytest.param(str(uuid.uuid4())[:-10], id="random-without-10-chars"),  # a fixed id for pytest-xdist
             "123",
             "{20f5484b-88ae-49b0-8af0-3a389b4917dd}",
             "20f5484b88ae49b08af03a389b4917dd",
@@ -260,13 +260,13 @@ class TestDataManagerMethods:
             collection_manager_with_attributes.filter(
                 {**inserted_array_with_attributes.primary_attributes, "extra": 12}
             ).first()
-        assert "Some arguments don't exist in schema" == str(error.value)
+        assert "Some arguments don't exist in schema: 'extra'" == str(error.value)
 
         with pytest.raises(DekerFilterError) as error:
             collection_manager_with_attributes.filter(
                 {**inserted_array_with_attributes.primary_attributes, "extra": 12}
             ).last()
-        assert "Some arguments don't exist in schema" == str(error.value)
+        assert "Some arguments don't exist in schema: 'extra'" == str(error.value)
 
     def test_get_array_by_primary_attribute_absence(
         self,
@@ -305,7 +305,7 @@ class TestDataManagerMethodsVArray:
     @pytest.mark.parametrize(
         "id_",
         [
-            str(uuid.uuid4())[:-1],
+            pytest.param(str(uuid.uuid4())[:-1], id="random-without-1-char"),  # a fixed id for pytest-xdist
             "123",
             "{20f5484b-88ae-49b0-8af0-3a389b4917dd}",
             "20f5484b88ae49b08af03a389b4917dd",
@@ -438,13 +438,13 @@ class TestDataManagerMethodsVArray:
             va_collection_manager_with_attributes.filter(
                 {**inserted_array_with_attributes.primary_attributes, "extra": 12}
             ).first()
-        assert "Some arguments don't exist in schema" == str(error.value)
+        assert "Some arguments don't exist in schema: 'extra'" == str(error.value)
 
         with pytest.raises(DekerFilterError) as error:
             va_collection_manager_with_attributes.filter(
                 {**inserted_array_with_attributes.primary_attributes, "extra": 12}
             ).last()
-        assert "Some arguments don't exist in schema" == str(error.value)
+        assert "Some arguments don't exist in schema: 'extra'" == str(error.value)
 
     def test_get_varray_by_primary_attribute_absence(
         self,

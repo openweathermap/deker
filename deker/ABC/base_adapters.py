@@ -589,7 +589,8 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
             ordered[primary_attr.name] = value
 
         if len(attributes) > len(ordered):
-            raise DekerFilterError("Some arguments don't exist in schema")
+            extra = ", ".join(f"'{name}'" for name in sorted(map(str, attributes.keys() - ordered.keys())))
+            raise DekerFilterError(f"Some arguments don't exist in schema: {extra}")
         return ordered
 
     def filter(

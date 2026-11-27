@@ -363,6 +363,56 @@ class TestArrayMethods:
             inserted_array_with_attributes.update_custom_attributes(new_custom_attributes)
 
     @pytest.mark.parametrize(
+        ("new_custom_attributes", "message"),
+        [
+            pytest.param(
+                {"zzz": 1},
+                "Setting additional attributes not listed in schema is not allowed. Invalid attributes: ['zzz']",
+                id="unknown",
+            ),
+            pytest.param(
+                {"zzz": 1, "custom_attribute": 0.7},
+                "Setting additional attributes not listed in schema is not allowed. Invalid attributes: ['zzz']",
+                id="unknown_and_custom",
+            ),
+            pytest.param(
+                {"primary_attribute": 5},
+                "Key and custom attributes shall not have same names; invalid names: {'primary_attribute'}",
+                id="primary",
+            ),
+            pytest.param(
+                {"primary_attribute": 5, "custom_attribute": 0.7},
+                "Key and custom attributes shall not have same names; invalid names: {'primary_attribute'}",
+                id="primary_and_custom",
+            ),
+        ],
+    )
+    def test_update_custom_attributes_with_a_name_out_of_the_custom_ones_fails(
+        self,
+        array_collection_with_attributes: Collection,
+        inserted_array_with_attributes: Array,
+        new_custom_attributes: dict,
+        message: str,
+    ):
+        """An update with a name that is not a custom attribute of the schema changes nothing.
+
+        A primary name fails as a name both primary and custom: the update checks the given attributes as the custom
+        ones against the primary attributes of the Array.
+        """
+        before = dict(inserted_array_with_attributes.custom_attributes)
+        with pytest.raises(DekerValidationError) as error:
+            # a copy: the parameters are shared by the runs
+            inserted_array_with_attributes.update_custom_attributes(dict(new_custom_attributes))
+        assert str(error.value) == message
+        assert inserted_array_with_attributes.custom_attributes == before
+        assert inserted_array_with_attributes.primary_attributes == {"primary_attribute": 3}
+        stored = array_collection_with_attributes.filter({"primary_attribute": 3}).last()
+        assert stored is not None
+        assert stored.id == inserted_array_with_attributes.id
+        assert stored.primary_attributes == {"primary_attribute": 3}
+        assert stored.custom_attributes == before
+
+    @pytest.mark.parametrize(
         ("new_custom_attributes", "skipped_attr"),
         [
             ({"custom_attribute": 0.7}, "time_attr_name"),
@@ -371,13 +421,22 @@ class TestArrayMethods:
         ],
     )
     def test_update_custom_attributes_update_just_passed_attrs(
-        self, inserted_array_with_attributes: Array, new_custom_attributes: dict, skipped_attr: str
+        self,
+        array_collection_with_attributes: Collection,
+        inserted_array_with_attributes: Array,
+        new_custom_attributes: dict,
+        skipped_attr: str,
     ):
         old_attrs = inserted_array_with_attributes.custom_attributes
+        expected = {**old_attrs, **new_custom_attributes}
         new_attr_name = list(new_custom_attributes.keys())[0]
         inserted_array_with_attributes.update_custom_attributes(new_custom_attributes)
         assert inserted_array_with_attributes.custom_attributes[new_attr_name] == new_custom_attributes[new_attr_name]
         assert old_attrs[skipped_attr] == inserted_array_with_attributes.custom_attributes[skipped_attr]
+        assert inserted_array_with_attributes.custom_attributes == expected
+        stored = array_collection_with_attributes.filter({"primary_attribute": 3}).last()
+        assert stored is not None
+        assert stored.custom_attributes == expected
 
     @pytest.mark.parametrize("index_exp", invalid_index_params)
     def test_array_getitem_raises(self, inserted_array: Array, index_exp: Slice):
