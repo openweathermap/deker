@@ -715,7 +715,7 @@ class TestFindArray:
         assert array._v_position == vpos
 
     def test_update_waits_for_the_writer_of_another_process_to_leave(self, inserted_varray: VArray, held_array):
-        """The write lock of the Array waits for the writer, and the data are written once it leaves."""
+        """The write lock of the Array waits for the writer, and the data is written once it leaves."""
         vpos, flock = held_array
         data = np.full(inserted_varray.shape, 7, dtype=inserted_varray.dtype)
         with ThreadPoolExecutor(1) as executor:

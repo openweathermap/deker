@@ -174,7 +174,7 @@ class DekerCancelledError(DekerBaseApplicationError):
 
 
 class DekerTimeoutError(DekerCancelledError):
-    """The read took longer than its timeout; no data are returned."""
+    """The read took longer than its timeout; no data is returned."""
 
 
 class TokenErrorConverter:

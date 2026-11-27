@@ -136,7 +136,7 @@ class Subset(BaseSubset["Array"]):
         :returns: the data of the subset shape; a number for a single cell; the fill value where nothing was written
         :raises DekerValidationError: if the timeout is not a positive integer
         :raises DekerLockError: if a writer holds the ``Array``
-        :raises DekerTimeoutError: if the read takes longer than its timeout; no data are returned then
+        :raises DekerTimeoutError: if the read takes longer than its timeout; no data is returned then
         :raises DekerCancelledError: if the read is cancelled from outside
         :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
         """
@@ -378,7 +378,7 @@ class VSubset(BaseSubset["VArray"]):
 
         The ``VArray`` knows everything about its ``Arrays`` but their ids: the schema, the primary attributes (its
         own id and the position) and the time attributes computed from the position, as on creation. So only the
-        id is asked from the adapter, and the file of the ``Array`` is not opened until its data are read.
+        id is asked from the adapter, and the file of the ``Array`` is not opened until its data is read.
 
         :param vpos: ``v_position`` of the Array in the ``vgrid``
         :returns: the Array, ``None`` if there is no Array at the position yet
@@ -488,7 +488,7 @@ class VSubset(BaseSubset["VArray"]):
         :returns: the data of the subset shape; a number for a single cell; the fill value where nothing was written
         :raises DekerValidationError: if the timeout is not a positive integer
         :raises DekerLockError: if a writer holds one of the ``Arrays``
-        :raises DekerTimeoutError: if the read takes longer than its timeout; no data are returned then
+        :raises DekerTimeoutError: if the read takes longer than its timeout; no data is returned then
         :raises DekerCancelledError: if the read is cancelled from outside
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
         """
