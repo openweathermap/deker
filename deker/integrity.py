@@ -22,6 +22,7 @@ findings it marks as repairable. The checks are registered by their names in ``I
 
 import json
 import os
+import shutil
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -63,6 +64,7 @@ class StorageFiles:
     :param lock_names: names of the collections that have a lock file
     :param collections: the collections that initialised
     :param unreadable: the collections that did not, with the reason
+    :param without_file: the names of the unreadable collections whose directory has no collection file
     :param outdated: the collections whose file is of an older metadata version, with that version and the
         file as it lies on the disk
     """
@@ -72,6 +74,7 @@ class StorageFiles:
     lock_names: list[str] = field(default_factory=list)
     collections: list[Collection] = field(default_factory=list)
     unreadable: dict[str, str] = field(default_factory=dict)
+    without_file: list[str] = field(default_factory=list)
     outdated: dict[str, tuple[str, dict]] = field(default_factory=dict)
 
 
@@ -318,6 +321,7 @@ class CollectionsCheck(StorageCheck):
                     f"Collection {name} cannot be initialised: {error}",
                     collection=name,
                     path=target.root / name / (name + file_ext),
+                    repairable=name in target.without_file,
                 )
             )
         # the file is the json of as_dict: the same round trip makes the two comparable field by field
@@ -359,9 +363,13 @@ class CollectionsCheck(StorageCheck):
         return findings
 
     def repair(self, finding: IntegrityFinding) -> None:
-        """Create the missing lock file or remove the orphaned one.
+        """Create the missing lock file or remove the orphaned one; remove a collection directory without its file.
+
+        The directory is removed with everything in it, under the lock of the collection taken without waiting:
+        its creator holds the lock until the collection file is written.
 
         :param finding: the finding
+        :raises DekerLockError: if the lock of the collection is held: its creator is at work, nothing is removed
         """
         if finding.path is None:  # pragma: no cover  # guard: run() sets the path of every finding
             raise DekerIntegrityError(f"Finding {finding.kind.value} names no file")
@@ -369,6 +377,13 @@ class CollectionsCheck(StorageCheck):
             finding.path.touch()
         elif finding.kind == IntegrityFindingKind.lock_orphaned:
             finding.path.unlink()
+        elif finding.kind == IntegrityFindingKind.collection_unreadable:
+            directory = finding.path.parent
+            with Flock(directory.with_name(directory.name + LocksExtensions.collection_lock.value)) as lock:
+                if finding.path.exists():  # a broken file, or the creator has written it since the finding
+                    self.refuse(finding)
+                shutil.rmtree(directory)
+                lock.file.unlink(missing_ok=True)  # as LocalCollectionAdapter.delete does
         else:
             self.refuse(finding)
 
@@ -848,6 +863,7 @@ class IntegrityChecker(SelfLoggerMixin):
             if named:
                 raise DekerCollectionNotExistsError(f"Collection {name} does not exist at this storage") from None
             storage.unreadable[name] = "the directory has no collection file"
+            storage.without_file.append(name)
             return
         except (DekerBaseApplicationError, ValueError) as e:
             storage.unreadable[name] = str(e)

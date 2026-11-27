@@ -2,6 +2,7 @@
 
 import json
 import os
+import shutil
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -17,7 +18,8 @@ from deker_tools.typings import Sentinel
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerCollectionNotExistsError, DekerIntegrityError
+from deker.errors import DekerCollectionNotExistsError, DekerIntegrityError, DekerLockError
+from deker.flock import Flock
 from deker.integrity import (
     INTEGRITY_CHECKS,
     ArraysCheck,
@@ -334,11 +336,87 @@ class TestCollectionsCheck:
             finding = report.findings[0]
             assert finding.collection == "half-made"
             assert "no collection file" in finding.message
-            assert not finding.repairable
+            assert finding.repairable
             with pytest.raises(DekerCollectionNotExistsError):
                 checker(client, IntegrityCheck.collections).check("half-made")
         finally:
             stray.rmdir()
+
+    @pytest.mark.parametrize("with_arrays", [False, True], ids=["empty-directory", "directory-with-arrays"])
+    def test_directory_without_a_collection_file_is_removed_by_the_repair(
+        self, client: Client, array_schema, with_arrays: bool
+    ):
+        """The directory is removed with everything in it, the files of the arrays too, and its lock file."""
+        name = "half_made"
+        directory = client.root_path / name
+        lock_file = client.root_path / (name + LocksExtensions.collection_lock.value)
+        if with_arrays:
+            collection = client.create_collection(name, array_schema)
+            array_file = main_file(collection.create())
+            (directory / (name + client._adapter.file_ext)).unlink()
+            assert array_file.is_file() and lock_file.is_file()
+        else:
+            directory.mkdir()
+        try:
+            report = checker(client, IntegrityCheck.collections, repair=True).check()
+            assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.collection_unreadable)]
+            assert report.findings[0].repaired
+            assert report.findings[0].repair_error == ""
+            assert not directory.exists()
+            assert not lock_file.exists()
+            assert checker(client, IntegrityCheck.collections).check().ok
+        finally:
+            shutil.rmtree(directory, ignore_errors=True)
+            lock_file.unlink(missing_ok=True)
+
+    def test_broken_collection_file_is_not_removed(self, client: Client, array_collection: Collection):
+        """A broken collection file is not repairable; given to the repair anyway, it is refused (a guard)."""
+        meta_file = array_collection.path / (array_collection.name + ".json")
+        meta_file.write_text("{not json")
+        try:
+            report = checker(client, IntegrityCheck.collections, repair=True).check()
+            assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.collection_unreadable)]
+            assert not report.findings[0].repaired
+            with pytest.raises(DekerIntegrityError, match="cannot be repaired"):
+                CollectionsCheck(client).repair(report.findings[0])
+            assert meta_file.read_text() == "{not json"
+        finally:
+            meta_file.write_text(json.dumps(array_collection.as_dict))
+
+    def test_collection_file_written_meanwhile_is_not_removed(self, client: Client, array_collection: Collection):
+        """The creator wrote the collection file between the finding and the repair: the repair is refused (a guard)."""
+        directory = client.root_path / "half-made"
+        directory.mkdir()
+        lock_file = client.root_path / ("half-made" + LocksExtensions.collection_lock.value)
+        try:
+            finding = checker(client, IntegrityCheck.collections).check().findings[0]
+            (directory / ("half-made" + client._adapter.file_ext)).write_text("{}")
+            with pytest.raises(DekerIntegrityError, match="cannot be repaired"):
+                CollectionsCheck(client).repair(finding)
+            assert directory.is_dir()
+        finally:
+            shutil.rmtree(directory)
+            lock_file.unlink(missing_ok=True)  # the repair creates it when it takes the lock
+
+    def test_directory_held_by_its_creator_is_not_removed(self, client: Client, array_collection: Collection):
+        """The creator holds the lock of the collection until it writes the file: the repair does not wait for it."""
+        directory = client.root_path / "half-made"
+        directory.mkdir()
+        lock_file = client.root_path / ("half-made" + LocksExtensions.collection_lock.value)
+        try:
+            with Flock(lock_file):
+                finding = checker(client, IntegrityCheck.collections).check().findings[0]
+                with pytest.raises(DekerLockError, match=f"{lock_file} is locked"):
+                    CollectionsCheck(client).repair(finding)
+                report = checker(client, IntegrityCheck.collections, repair=True).check()
+            assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.collection_unreadable)]
+            assert not report.findings[0].repaired
+            assert report.findings[0].repair_error == f"{lock_file} is locked"
+            assert directory.is_dir()
+            assert lock_file.is_file()
+        finally:
+            shutil.rmtree(directory)
+            lock_file.unlink(missing_ok=True)
 
     def test_stray_file_in_the_storage_root_is_ignored(self, client: Client, array_collection: Collection):
         stray = client.root_path / "notes.txt"
