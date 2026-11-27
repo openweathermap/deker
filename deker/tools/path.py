@@ -14,12 +14,15 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
+import logging
 import os
 
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
 
+from deker.errors import DekerCriticalError
+from deker.log import _ROOT_DEKER_LOGGER_NAME
 from deker.types import Paths
 
 if TYPE_CHECKING:
@@ -54,6 +57,21 @@ def get_symlink_path(
                 value = attribute.isoformat() if isinstance(attribute, datetime) else str(attribute)
             symlink_path = symlink_path / value
     return symlink_path
+
+
+def check_storage_directory(path: Path) -> None:
+    """Check a directory of the storage the client creates when it opens: ``collections`` or ``trash``.
+
+    Nobody removes these directories, so Deker cannot work on without one: a missing one is logged as critical and
+    raised. The check is made on the path of an error only, so the usual path makes no extra system call.
+
+    :param path: the directory
+    :raises DekerCriticalError: if the directory does not exist
+    """
+    if not path.is_dir():
+        message = f"Storage directory {path} doesn't exist"
+        logging.getLogger(_ROOT_DEKER_LOGGER_NAME).critical(message)
+        raise DekerCriticalError(message)
 
 
 def get_main_path(array_id: str, data_directory: Path) -> Path:

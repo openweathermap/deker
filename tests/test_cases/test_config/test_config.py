@@ -88,6 +88,7 @@ def test_config_as_dict_lists_every_field():
         assert as_dict[key] == value
     assert set(as_dict) == {field.name for field in fields(DekerConfig)}
     assert as_dict["collections_directory"] == "collections"
+    assert as_dict["trash_directory"] == "trash"
     assert as_dict["loglevel"] == "DEBUG"
 
 

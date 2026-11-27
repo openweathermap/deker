@@ -1,4 +1,7 @@
+import logging
+
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -9,10 +12,11 @@ from deker_local_adapters import LocalCollectionAdapter
 from tests.parameters.collection_params import CollectionParams
 
 from deker.collection import Collection
-from deker.errors import DekerInstanceNotExistsError, DekerMemoryError, DekerValidationError
+from deker.errors import DekerCriticalError, DekerInstanceNotExistsError, DekerMemoryError, DekerValidationError
 from deker.tools import array as array_tools
 from deker.tools import check_memory, convert_human_memory_to_bytes, get_default_fill_value, get_paths
 from deker.tools.array import UNCHECKED_SHARE_OF_LIMIT
+from deker.tools.path import check_storage_directory
 from deker.tools.time import convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime
 
 if TYPE_CHECKING:
@@ -325,3 +329,20 @@ def test_convert_human_to_bytes(params, result, error):
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestCheckStorageDirectory:
+    """A directory of the storage that is missing is critical: logged as such and raised; one in place passes."""
+
+    def test_directory_in_place_passes_quietly(self, tmp_path: Path, deker_log: pytest.LogCaptureFixture):
+        assert check_storage_directory(tmp_path) is None
+        assert deker_log.records == []
+
+    def test_missing_directory_is_logged_and_raised(self, tmp_path: Path, deker_log: pytest.LogCaptureFixture):
+        missing = tmp_path / "trash"
+        message = f"Storage directory {missing} doesn't exist"
+        with pytest.raises(DekerCriticalError) as error:
+            check_storage_directory(missing)
+        assert str(error.value) == message
+        assert [(record.levelno, record.getMessage()) for record in deker_log.records] == [(logging.CRITICAL, message)]
+        assert not missing.exists()

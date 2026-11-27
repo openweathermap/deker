@@ -23,7 +23,7 @@ from tests.parameters.uri import embedded_uri
 
 from deker.arrays import Array, VArray
 from deker.client import Client
-from deker.errors import DekerInstanceNotExistsError, DekerLockError, DekerMemoryError
+from deker.errors import DekerCriticalError, DekerInstanceNotExistsError, DekerLockError, DekerMemoryError
 from deker.locks import (
     ArrayCreationLock,
     CollectionLock,
@@ -605,6 +605,16 @@ class TestCollectionLock:
         finally:
             collection.delete()
 
+    def test_missing_lock_file_in_a_collections_directory_in_place_is_raised_as_it_is(
+        self, client: Client, collection_adapter, mocker: MockerFixture
+    ):
+        """The lock file is not opened, though the collections directory is there: the error is not critical."""
+        schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=2)], dtype=float)
+        mocker.patch("deker.flock.Flock.acquire", side_effect=FileNotFoundError(2, "No such file or directory"))
+        with pytest.raises(FileNotFoundError):
+            client.create_collection("lock_file_not_opened", schema)
+        assert not (collection_adapter.collections_resource / "lock_file_not_opened").exists()
+
     def test_release_without_a_lock_does_nothing(self):
         """A lock that was never taken (acquire refused) has nothing to release."""
         lock = CollectionLock()
@@ -912,3 +922,109 @@ class TestWaitingLocksTakeTheTimeoutAndTheTokenOfTheCall:
             assert time.monotonic() - start < 2.5
         finally:
             holder.release()
+
+
+MISSING = "Storage directory {} doesn't exist"
+
+
+class TestLocksTellAMissingStorageFromAMissingFile:
+    """A lock that does not find its file tells a missing collections directory of the storage (critical) from a
+    missing file (``DekerInstanceNotExistsError`` with the text as before). Every test works on a storage of its own.
+    """
+
+    @pytest.fixture
+    def own_client(self, tmp_path: Path):
+        """Client of a storage of the test's own.
+
+        :param tmp_path: directory of the test
+        """
+        with Client(embedded_uri(tmp_path / "storage")) as client:
+            yield client
+
+    @staticmethod
+    def check(call, collections: Path, storage_gone: bool, message: str, log: pytest.LogCaptureFixture) -> None:
+        """Call the lock and check what it tells.
+
+        :param call: the call of the lock
+        :param collections: the collections directory of the storage
+        :param storage_gone: the directory is taken away
+        :param message: the text of ``DekerInstanceNotExistsError`` for a missing file
+        :param log: capture of the Deker loggers
+        """
+        if storage_gone:
+            with pytest.raises(DekerCriticalError) as error:
+                call()
+            assert str(error.value) == MISSING.format(collections)
+            critical = [record.getMessage() for record in log.records if record.levelname == "CRITICAL"]
+            assert critical == [MISSING.format(collections)]
+            assert not collections.exists()
+        else:
+            with pytest.raises(DekerInstanceNotExistsError) as not_existing:
+                call()
+            assert str(not_existing.value) == message
+            assert [record for record in log.records if record.levelname == "CRITICAL"] == []
+
+    @pytest.mark.parametrize(
+        "storage_gone", [pytest.param(True, id="collections gone"), pytest.param(False, id="file gone")]
+    )
+    def test_main_file_not_found_by_the_flock(
+        self, own_client: Client, array_schema: ArraySchema, deker_log: pytest.LogCaptureFixture, storage_gone: bool
+    ):
+        array = own_client.create_collection("own", array_schema).create()
+        adapter = array._adapter
+        collections = adapter.collection_path.parent
+        path = adapter._get_main_path_to_file(array)
+        os.remove(path)
+        if storage_gone:
+            collections.rename(collections.with_name("collections-away"))
+        self.check(lambda: adapter.read_meta(array), collections, storage_gone, f"{path} doesn't exist", deker_log)
+
+    @pytest.mark.parametrize(
+        "storage_gone", [pytest.param(True, id="collections gone"), pytest.param(False, id="file gone")]
+    )
+    def test_main_file_gone_once_the_flock_is_taken(
+        self,
+        own_client: Client,
+        array_schema: ArraySchema,
+        deker_log: pytest.LogCaptureFixture,
+        mocker: MockerFixture,
+        storage_gone: bool,
+    ):
+        array = own_client.create_collection("own", array_schema).create()
+        adapter = array._adapter
+        collections = adapter.collection_path.parent
+        path = adapter._get_main_path_to_file(array)
+        stat = os.stat
+
+        def gone_at_the_path(target, *args, **kwargs):
+            if str(target) == str(path):
+                if storage_gone:
+                    collections.rename(collections.with_name("collections-away"))
+                raise FileNotFoundError(2, "No such file or directory")
+            return stat(target, *args, **kwargs)
+
+        mocker.patch.object(os, "stat", side_effect=gone_at_the_path)
+        self.check(lambda: adapter.read_meta(array), collections, storage_gone, f"{path} doesn't exist", deker_log)
+
+    @pytest.mark.parametrize(
+        "storage_gone", [pytest.param(True, id="collections gone"), pytest.param(False, id="file gone")]
+    )
+    def test_directory_of_the_varray_not_found_by_the_creation_lock(
+        self, own_client: Client, varray_schema, deker_log: pytest.LogCaptureFixture, storage_gone: bool
+    ):
+        collection = own_client.create_collection("own", varray_schema)
+        varray = collection.create()
+        adapter = varray._adapter
+        collections = adapter.collection_path.parent
+        directory = get_main_path(varray.id, adapter.collection_path / adapter.data_dir)
+        os.remove(directory / (varray.id + adapter.file_ext))
+        directory.rmdir()
+        if storage_gone:
+            collections.rename(collections.with_name("collections-away"))
+        lock = ArrayCreationLock(adapter, varray, collection, timeout=Sentinel, token=DefaultToken())
+
+        def enter() -> None:
+            with lock:
+                pass
+
+        self.check(enter, collections, storage_gone, f"{directory} doesn't exist", deker_log)

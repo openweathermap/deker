@@ -33,6 +33,7 @@ class DekerConfig:
     :param memory_limit: RAM size in bytes available for Deker
     :param loglevel: Deker logging level
     :param collections_directory: directory of the collections in the storage
+    :param trash_directory: directory of the storage where the deleted files wait for their removal
     :param array_data_directory: directory of the files of the ``Arrays`` in a collection
     :param varray_data_directory: directory of the files of the ``VArrays`` in a collection
     :param array_symlinks_directory: directory of the symlinks of the ``Arrays`` in a collection
@@ -52,6 +53,7 @@ class DekerConfig:
 
     # non configurable default attributes
     collections_directory: str = "collections"
+    trash_directory: str = "trash"
     array_data_directory: str = "array_data"
     varray_data_directory: str = "varray_data"
     array_symlinks_directory: str = "array_symlinks"

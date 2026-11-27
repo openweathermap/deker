@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from deker.errors import DekerInstanceNotExistsError
+from deker.errors import DekerCriticalError, DekerInstanceNotExistsError
 from deker.types.private.classes import Paths
 
 
@@ -48,6 +48,19 @@ class TestPathsCreate:
             paths.create(collection)
         assert str(error.value) == f"{collection} doesn't exist"
         assert not collection.exists()
+
+    def test_missing_collections_directory_is_critical_and_not_made(
+        self, tmp_path: Path, deker_log: pytest.LogCaptureFixture
+    ):
+        collections = tmp_path / "collections"
+        collection = collections / "C"
+        paths = Paths(main=collection / "data" / "a", symlink=collection / "symlinks")
+        message = f"Storage directory {collections} doesn't exist"
+        with pytest.raises(DekerCriticalError) as error:
+            paths.create(collection)
+        assert str(error.value) == message
+        assert [record.getMessage() for record in deker_log.records if record.levelname == "CRITICAL"] == [message]
+        assert os.listdir(tmp_path) == []
 
     def test_level_gone_meanwhile_is_not_made_again(self, tmp_path: Path, mocker):
         collection = tmp_path / "C"

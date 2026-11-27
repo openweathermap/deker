@@ -46,13 +46,12 @@ class Flock(SelfLoggerMixin):
 
         :raises DekerLockError: if the file is already locked by another holder: exclusively, or at all when
           an exclusive lock is asked
-        :raises FileNotFoundError: if the file does not exist; only a collection lock file is created on the way
+        :raises FileNotFoundError: if the file does not exist; only a collection lock file is created on the way, its
+          directory never
         """
         # a collection lock file is created on the way; any other path (a data file, a directory) is locked as it is
         self.logger.debug("Trying to acquire lock for %s", self.file)
         if str(self.file).endswith(LocksExtensions.collection_lock.value):
-            if not self.file.exists():
-                self.file.parent.mkdir(parents=True, exist_ok=True)
             flags = os.O_WRONLY | os.O_CREAT
         else:
             flags = os.O_RDONLY

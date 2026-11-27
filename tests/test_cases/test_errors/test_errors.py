@@ -11,8 +11,10 @@ from deker_tools.cancel import TokenCancelledError, TokenTimeoutError
 from deker.errors import (
     DekerBaseApplicationError,
     DekerCancelledError,
+    DekerCriticalError,
     DekerLockError,
     DekerTimeoutError,
+    DekerTrashError,
     DekerValidationError,
     DekerVSubsetError,
     TokenErrorConverter,
@@ -109,3 +111,16 @@ class TestTokenErrorConverter:
         with TokenErrorConverter():
             result = 1
         assert result == 1
+
+
+class TestCriticalAndTrashErrors:
+    """The critical error stands apart from the errors of Deker, so nobody catches it with them; the error of the
+    trash is one of them.
+    """
+
+    def test_critical_error_is_not_an_error_of_deker(self):
+        assert issubclass(DekerCriticalError, Exception)
+        assert not issubclass(DekerCriticalError, DekerBaseApplicationError)
+
+    def test_trash_error_is_an_error_of_deker(self):
+        assert issubclass(DekerTrashError, DekerBaseApplicationError)

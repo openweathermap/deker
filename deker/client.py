@@ -52,6 +52,7 @@ from deker.integrity import IntegrityChecker
 from deker.log import _ROOT_DEKER_LOGGER_NAME, SelfLoggerMixin, format_string, set_logging_level
 from deker.schemas import ArraySchema, VArraySchema
 from deker.tools import convert_human_memory_to_bytes
+from deker.tools.path import check_storage_directory
 from deker.types import (
     DEFAULT_INTEGRITY_CHECKS,
     ArrayLockMeta,
@@ -161,6 +162,7 @@ class Client(SelfLoggerMixin):
 
     - ``calculate_storage_size``: calculates size of the whole storage or of a defined ``Collection``;
     - ``close``: closes ``Client`` and its context
+    - ``empty_trash``: removes everything from the trash of the storage, where the deleted files wait for their removal
     - ``clear_locks``: removes the lock files left by Deker < 2 (deprecated, removed in 3.0.0)
     - ``__enter__``: opens ``Client`` context manager
     - ``__exit__``: automatically closes ``Client`` context manager on its exit
@@ -619,6 +621,20 @@ class Client(SelfLoggerMixin):
         self.logger.debug("Collection %s created from dict", collection.name)
         return collection
 
+    @_open_client_only
+    def empty_trash(self, background: bool = False) -> None:
+        """Remove everything from the trash of the storage, where the deleted files wait for their removal.
+
+        The data in the trash is no longer available; the removal frees its disk space. A cancelled operation does not
+        stop it.
+
+        :param background: return at once and remove in a daemon thread, which nobody waits for; its error goes to the
+          log of Deker
+        :raises DekerTrashError: if something in the trash is not removed; not with ``background``
+        :raises DekerCriticalError: if the storage has no trash; with ``background`` it is logged only
+        """
+        self._adapter.empty_trash(background=background)
+
     # TODO: remove in 3.0.0 with clear_locks: the markers are not made since 2.0.0
     @staticmethod
     def _iter_collection_locks(
@@ -668,6 +684,7 @@ class Client(SelfLoggerMixin):
         :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
         :returns: lock files of collections and arrays
         :raises DekerCollectionNotExistsError: if the collection does not exist
+        :raises DekerCriticalError: if the collections directory of the storage does not exist
         """
         locks: list[CollectionLockMeta | ArrayLockMeta] = []
         if not is_sentinel(collection_name):
@@ -676,7 +693,12 @@ class Client(SelfLoggerMixin):
                 raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
             locks.extend(self._iter_collection_locks(self.root_path / collection_name, collection_name, lock_type))
         else:
-            for entry in Path(self.root_path).iterdir():
+            try:
+                entries = list(Path(self.root_path).iterdir())
+            except FileNotFoundError:
+                check_storage_directory(self.root_path)
+                raise
+            for entry in entries:
                 if entry.is_file():
                     if (is_sentinel(lock_type) or lock_type == LocksTypes.collection_lock) and entry.name.endswith(
                         LocksExtensions.collection_lock.value

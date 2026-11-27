@@ -35,7 +35,7 @@ from deker_tools.typings import SentinelType
 from deker.ABC.base_locks import BaseLock, wait_for_unlock
 from deker.errors import DekerInstanceNotExistsError, DekerLockError
 from deker.flock import Flock
-from deker.tools.path import get_main_path
+from deker.tools.path import check_storage_directory, get_main_path
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseVArrayAdapter
@@ -79,8 +79,7 @@ class LockWithArrayMixin(Generic[T]):
         """Get the directory of the main file of the array."""
         return get_main_path(self.array_id, self.instance.collection_path / self.instance.data_dir)
 
-    @staticmethod
-    def _flock(path: Path, shared: bool = False) -> Flock:
+    def _flock(self, path: Path, shared: bool = False) -> Flock:
         """Take the flock on the main file and make sure the file held is the one at the path.
 
         A file replaced between its opening and the flock is locked again at the path.
@@ -96,11 +95,13 @@ class LockWithArrayMixin(Generic[T]):
             try:
                 lock.acquire()
             except FileNotFoundError:
+                check_storage_directory(self.instance.collection_path.parent)
                 raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
             try:
                 at_path = os.path.samestat(os.fstat(cast("int", lock.fd)), os.stat(path))
             except FileNotFoundError:
                 lock.release()
+                check_storage_directory(self.instance.collection_path.parent)
                 raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
             if at_path:
                 return lock
@@ -241,8 +242,10 @@ class ArrayCreationLock:
         from deker_local_adapters.varray_adapter import LocalVArrayAdapter
 
         self.path: Path | None = None
+        self.collections = Path()  # the collections directory of the storage, for a missing directory of the VArray
         if isinstance(adapter, LocalVArrayAdapter):
             self.path = get_main_path(varray.id, adapter.collection_path / adapter.data_dir)
+            self.collections = adapter.collection_path.parent
         self.timeout = resolve_timeout(timeout, adapter.ctx.config.write_lock_timeout)
         self.token = token
         self.flock: Flock | None = None
@@ -261,6 +264,7 @@ class ArrayCreationLock:
         except DekerLockError:
             return False
         except FileNotFoundError:
+            check_storage_directory(self.collections)
             raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
         self.flock = flock
         return True
@@ -332,8 +336,15 @@ class CollectionLock(BaseLock):
         :param func_args: arguments of method call
         :param func_kwargs: keyword arguments of method call: ``timeout`` and ``token`` of the operation
         :raises DekerLockError: if the collection is not released within the timeout of the operation
+        :raises DekerCriticalError: if the collections directory of the storage does not exist
         """
-        self._wait_and_acquire(func_kwargs, f"Collection {self.args[1].name} is locked by another creation or clearing")
+        try:
+            self._wait_and_acquire(
+                func_kwargs, f"Collection {self.args[1].name} is locked by another creation or clearing"
+            )
+        except FileNotFoundError:
+            check_storage_directory(self.instance.collections_resource)
+            raise
 
     def get_path(self) -> Path:  # noqa: ARG002
         """Get path to the ``<collection>.lock`` file next to the directory of the collection."""

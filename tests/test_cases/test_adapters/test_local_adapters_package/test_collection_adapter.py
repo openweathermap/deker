@@ -371,7 +371,7 @@ class TestCollectionAdapterCancellation:
     @pytest.mark.parametrize(
         ("operation", "failure", "collection_left"),
         [
-            pytest.param("create", "makedirs", False, id="create-fails-before-the-directory"),
+            pytest.param("create", "mkdir", False, id="create-fails-before-the-directory"),
             pytest.param("create", "metadata", True, id="create-fails-after-the-directory"),
             pytest.param("create", "exists", True, id="create-of-an-existing-collection"),
             pytest.param("clear", "walk", True, id="clear-fails"),
@@ -399,8 +399,8 @@ class TestCollectionAdapterCancellation:
         if failure in ("exists", "walk"):
             collection_adapter.create(collection, timeout=Sentinel, token=DefaultToken())
         error = OSError(errno.ENOSPC, "No space left on device")
-        if failure == "makedirs":
-            mocker.patch("deker_local_adapters.collection_adapter.os.makedirs", side_effect=error)
+        if failure == "mkdir":
+            mocker.patch("deker_local_adapters.collection_adapter.os.mkdir", side_effect=error)
         elif failure == "metadata":
             mocker.patch.object(LocalCollectionAdapter, "_LocalCollectionAdapter__create", side_effect=error)
         elif failure == "walk":

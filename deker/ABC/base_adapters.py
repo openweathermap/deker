@@ -270,6 +270,16 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
         """
         pass
 
+    @abstractmethod
+    def empty_trash(self, *, background: bool) -> None:
+        """Remove everything from the trash of the storage.
+
+        :param background: return at once and remove in a daemon thread, which nobody waits for; its error goes to the
+          log
+        :raises DekerTrashError: if something in the trash is not removed; not with ``background``
+        """
+        pass
+
     @check_ctx_state
     def create_collection_from_meta(self, collection_data: dict, factory: "BaseAdaptersFactory") -> "Collection":
         """Create a Collection instance from meta information.

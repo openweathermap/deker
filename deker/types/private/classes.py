@@ -89,6 +89,9 @@ class Paths(NamedTuple):
                 except FileExistsError:
                     pass
                 except FileNotFoundError:
+                    from deker.tools.path import check_storage_directory  # circular import otherwise
+
+                    check_storage_directory(collection_path.parent)
                     raise DekerInstanceNotExistsError(f"{os.path.dirname(current)} doesn't exist") from None
 
 

@@ -38,6 +38,7 @@ from deker.errors import (
     DekerClientError,
     DekerCollectionAlreadyExistsError,
     DekerCollectionNotExistsError,
+    DekerCriticalError,
     DekerIntegrityError,
     DekerInvalidSchemaError,
     DekerMemoryError,
@@ -104,6 +105,7 @@ class TestClientMethods:
             lambda client: client.calculate_storage_size(),
             lambda client: client.clear_locks(),
             lambda client: client.check_integrity(),
+            lambda client: client.empty_trash(),
             lambda client: list(client),
         ],
     )
@@ -450,36 +452,25 @@ class TestClientMethods:
             assert client.create_collection(**{**params, "schema": schema})
 
     @pytest.mark.parametrize("params", ClientParams.ArraySchema.OK.multi_array_schemas())
-    def test_client_iterator(self, client: Client, params: dict, root_path):
-        """Tests client iterator.
+    def test_client_iterator(self, params: dict, tmp_path: Path):
+        """Tests client iterator on a storage of its own.
 
-        :param client: Client object
         :param params: array_collection params
+        :param tmp_path: directory of the storage
         """
-        shutil.rmtree(root_path)
-        inserted_collection = client.create_collection(**params)
-        collections = [*client]
-        try:
-            assert len(collections) == 1
-            assert collections[0].name == inserted_collection.name
-        finally:
-            for col in collections:
-                col.delete()
+        with Client(embedded_uri(tmp_path)) as client:
+            inserted_collection = client.create_collection(**params)
+            collections = [*client]
+        assert len(collections) == 1
+        assert collections[0].name == inserted_collection.name
 
-    def test_client_iterator_empty(self, client: Client, root_path, ctx):
-        """Test iterator if there is no array_collection.
+    def test_client_iterator_empty(self, tmp_path: Path):
+        """Test iterator over a storage of its own without collections.
 
-        :param client: Client object
-        :param root_path: Path to collections
+        :param tmp_path: directory of the storage
         """
-        shutil.rmtree(root_path)
-        path = root_path / ctx.config.collections_directory
-        if not path.resolve().exists():
-            path.mkdir(parents=True, exist_ok=True)
-        collections = []
-        for collection in client:
-            collections.append(collection)
-        assert len(collections) == 0
+        with Client(embedded_uri(tmp_path)) as client:
+            assert list(client) == []
 
     @pytest.mark.parametrize("params", [ClientParams.ArraySchema.OK.no_vgrid_no_attrs()])
     def test_client_unexpectedly_closed(self, root_path: Path, params: dict) -> None:
@@ -1592,3 +1583,175 @@ class TestCollectionNameNotGiven:
 
     def test_check_integrity_of_one_collection(self, client: Client, inserted_array: Array):
         assert client.check_integrity(inserted_array.collection).ok
+
+
+MISSING = "Storage directory {} doesn't exist"
+
+
+def critical_records(log: pytest.LogCaptureFixture) -> list[str]:
+    """Messages of the critical records of the Deker loggers.
+
+    :param log: capture of the Deker loggers
+    :returns: the messages
+    """
+    return [record.getMessage() for record in log.records if record.levelno == logging.CRITICAL]
+
+
+class TestStorageDirectories:
+    """The client creates the collections and the trash of the storage when it opens; nobody else creates them.
+
+    A directory missing when it is needed is a critical error: logged as critical and raised. Every test works on
+    a storage of its own.
+    """
+
+    def test_client_creates_the_collections_and_the_trash(self, tmp_path: Path):
+        storage = tmp_path / "storage"
+        with Client(embedded_uri(storage)):
+            assert sorted(path.name for path in storage.iterdir()) == ["collections", "trash"]
+            assert all(path.is_dir() and not path.is_symlink() for path in storage.iterdir())
+
+    def test_storage_without_a_trash_gets_one_and_keeps_its_collections(self, tmp_path: Path, array_schema):
+        storage = tmp_path / "storage"
+        with Client(embedded_uri(storage)) as client:
+            client.create_collection("old", array_schema)
+        (storage / "trash").rmdir()
+        with Client(embedded_uri(storage)) as client:
+            assert (storage / "trash").is_dir()
+            assert [collection.name for collection in client] == ["old"]
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            pytest.param(lambda client, schema: client.get_collection("absent"), id="get_collection"),
+            pytest.param(lambda client, schema: client.create_collection("new", schema), id="create_collection"),
+            pytest.param(lambda client, schema: list(client), id="iteration"),
+            pytest.param(lambda client, schema: client.calculate_storage_size(), id="calculate_storage_size"),
+            pytest.param(lambda client, schema: client._get_locks(), id="locks"),
+            pytest.param(lambda client, schema: client.check_integrity(), id="check_integrity"),
+        ],
+    )
+    def test_missing_collections_directory_is_critical_and_not_created(
+        self, tmp_path: Path, array_schema, deker_log: pytest.LogCaptureFixture, call
+    ):
+        storage = tmp_path / "storage"
+        collections = storage / "collections"
+        with Client(embedded_uri(storage)) as client:
+            collections.rmdir()
+            with pytest.raises(DekerCriticalError) as error:
+                call(client, array_schema)
+        assert str(error.value) == MISSING.format(collections)
+        assert critical_records(deker_log) == [MISSING.format(collections)]
+        assert not collections.exists()
+
+    @pytest.mark.parametrize(
+        ("module", "call"),
+        [
+            pytest.param("deker.client", lambda client: client._get_locks(), id="locks"),
+            pytest.param("deker.integrity", lambda client: client.check_integrity(), id="check_integrity"),
+        ],
+    )
+    def test_listing_error_with_the_collections_directory_in_place_is_raised_as_it_is(
+        self, tmp_path: Path, mocker, module: str, call
+    ):
+        """Only a missing directory is critical: the error of the listing is not hidden otherwise."""
+        storage = tmp_path / "storage"
+        with Client(embedded_uri(storage)) as client:
+            (storage / "collections").rmdir()
+            mocker.patch(f"{module}.check_storage_directory")  # as if the directory were there
+            with pytest.raises(FileNotFoundError):
+                call(client)
+
+    @pytest.mark.parametrize(
+        "call",
+        [
+            pytest.param(lambda collection: collection.delete(), id="delete"),
+            pytest.param(lambda collection: collection.clear(), id="clear"),
+            pytest.param(lambda collection: list(collection), id="iteration"),
+            pytest.param(lambda collection: collection.create(), id="create_array"),
+        ],
+    )
+    def test_collection_in_a_storage_without_collections_directory_is_critical(
+        self, tmp_path: Path, array_schema, deker_log: pytest.LogCaptureFixture, call
+    ):
+        storage = tmp_path / "storage"
+        collections = storage / "collections"
+        with Client(embedded_uri(storage)) as client:
+            collection = client.create_collection("gone", array_schema)
+            shutil.rmtree(collections)
+            with pytest.raises(DekerCriticalError) as error:
+                call(collection)
+        assert str(error.value) == MISSING.format(collections)
+        assert critical_records(deker_log) == [MISSING.format(collections)]
+        assert not collections.exists()
+
+
+class TestEmptyTrash:
+    """``Client.empty_trash`` removes everything that lies in the trash of the storage; the trash itself stays."""
+
+    @staticmethod
+    def fill(trash: Path, outside: Path) -> None:
+        """Put into the trash what operations leave there: files, directories, symlinks to files and directories.
+
+        :param trash: the trash
+        :param outside: a directory out of the trash, with the targets of the symlinks
+        """
+        (outside / "target-dir").mkdir()
+        (outside / "target-dir" / "kept.txt").write_text("kept")
+        (outside / "target.txt").write_text("kept")
+        (trash / uuid4().hex).write_text("file")
+        nested = trash / uuid4().hex / "array_data" / "a" / "b"
+        nested.mkdir(parents=True)
+        (nested / "array.hdf5").write_text("file")
+        (nested.parent / "other.hdf5").write_text("file")
+        (trash / uuid4().hex).mkdir()
+        (trash / uuid4().hex).symlink_to(outside / "target.txt")
+        (trash / uuid4().hex).symlink_to(outside / "target-dir")
+        (nested.parent / "link").symlink_to(outside / "target-dir")
+
+    def test_everything_is_removed_the_trash_and_the_targets_of_symlinks_stay(self, tmp_path: Path):
+        storage = tmp_path / "storage"
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        with Client(embedded_uri(storage)) as client:
+            self.fill(storage / "trash", outside)
+            assert client.empty_trash() is None
+            assert list((storage / "trash").iterdir()) == []
+        assert (outside / "target.txt").read_text() == "kept"
+        assert (outside / "target-dir" / "kept.txt").read_text() == "kept"
+
+    def test_trash_is_emptied_before_the_call_returns_by_default(self, tmp_path: Path, mocker):
+        storage = tmp_path / "storage"
+        with Client(embedded_uri(storage)) as client:
+            spy = mocker.spy(client._adapter, "empty_trash")
+            (storage / "trash" / "left-by-an-operation").write_text("file")
+            client.empty_trash()
+            assert list((storage / "trash").iterdir()) == []
+        spy.assert_called_once_with(background=False)
+
+    def test_background_is_passed_to_the_adapter(self, tmp_path: Path, mocker):
+        storage = tmp_path / "storage"
+        with Client(embedded_uri(storage)) as client:
+            emptying = mocker.patch.object(client._adapter, "empty_trash")
+            client.empty_trash(background=True)
+        emptying.assert_called_once_with(background=True)
+
+    def test_emptying_does_not_obey_a_cancelled_scope(self, tmp_path: Path):
+        storage = tmp_path / "storage"
+        token = SimpleToken()
+        token.cancel()
+        with Client(embedded_uri(storage)) as client:
+            (storage / "trash" / "left-by-an-operation").write_text("file")
+            with cancellation_scope(token):
+                client.empty_trash()
+            assert list((storage / "trash").iterdir()) == []
+
+    def test_missing_trash_is_critical_and_not_created(self, tmp_path: Path, deker_log: pytest.LogCaptureFixture):
+        storage = tmp_path / "storage"
+        trash = storage / "trash"
+        with Client(embedded_uri(storage)) as client:
+            trash.rmdir()
+            with pytest.raises(DekerCriticalError) as error:
+                client.empty_trash()
+        assert str(error.value) == MISSING.format(trash)
+        assert critical_records(deker_log) == [MISSING.format(trash)]
+        assert not trash.exists()

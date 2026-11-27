@@ -42,6 +42,7 @@ from deker.errors import DekerBaseApplicationError, DekerCollectionNotExistsErro
 from deker.flock import Flock
 from deker.log import SelfLoggerMixin
 from deker.tools import array_time_attributes, get_main_path, get_symlink_path
+from deker.tools.path import check_storage_directory
 from deker.types import (
     DEFAULT_INTEGRITY_CHECKS,
     IntegrityCheck,
@@ -881,6 +882,7 @@ class IntegrityChecker(SelfLoggerMixin):
 
         :param collection_name: the only collection to look at; ``Sentinel`` - every collection
         :returns: the storage files
+        :raises DekerCriticalError: if the collections directory of the storage does not exist
         """
         storage = StorageFiles(root=self.root_path)
         lock_ext = LocksExtensions.collection_lock.value
@@ -889,7 +891,12 @@ class IntegrityChecker(SelfLoggerMixin):
             if (self.root_path / (collection_name + lock_ext)).is_file():
                 storage.lock_names.append(collection_name)
         else:
-            for entry in sorted(self.root_path.iterdir()):
+            try:
+                entries = sorted(self.root_path.iterdir())
+            except FileNotFoundError:
+                check_storage_directory(self.root_path)
+                raise
+            for entry in entries:
                 if entry.is_dir():
                     storage.names.append(entry.name)
                 elif entry.name.endswith(lock_ext):

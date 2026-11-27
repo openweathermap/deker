@@ -114,6 +114,18 @@ class DekerInstanceNotExistsError(DekerBaseApplicationError):
     pass
 
 
+class DekerTrashError(DekerBaseApplicationError):
+    """If the trash of the storage is not emptied: the data is no longer available, but its disk space is not freed."""
+
+
+class DekerCriticalError(Exception):
+    """If Deker cannot work on: a directory of the storage the client creates when it opens is missing.
+
+    It is not a ``DekerBaseApplicationError``, so the handlers of the errors of Deker do not catch it: the service
+    stops, and the client creates the directories again when it opens next time.
+    """
+
+
 class DekerInvalidManagerCallError(DekerBaseApplicationError):
     """If we try to call method that shouldn't be called.
 

@@ -112,7 +112,7 @@ class TestFlock:
 
         :param tmp_path: temporary directory
         """
-        path = tmp_path / "new" / f"collection{LocksExtensions.collection_lock.value}"
+        path = tmp_path / f"collection{LocksExtensions.collection_lock.value}"
         flock = Flock(path)
         try:
             flock.acquire()
@@ -120,6 +120,18 @@ class TestFlock:
             assert flock.fd is not None
         finally:
             flock.release()
+
+    def test_flock_never_creates_the_directory_of_a_lock_file(self, tmp_path: Path):
+        """The directory of the collections is created by the client only: a lock file in a missing one is not made.
+
+        :param tmp_path: temporary directory
+        """
+        path = tmp_path / "collections" / f"collection{LocksExtensions.collection_lock.value}"
+        flock = Flock(path)
+        with pytest.raises(FileNotFoundError):
+            flock.acquire()
+        assert flock.fd is None
+        assert not path.parent.exists()
 
     def test_flock_locks_a_directory(self, tmp_path: Path):
         """Tests a directory is locked like a file: the second holder is refused while the first one holds it.
