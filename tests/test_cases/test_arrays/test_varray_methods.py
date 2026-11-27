@@ -254,49 +254,49 @@ class TestVArrayMethods:
         data = inserted_varray[index_exp].read()
         assert (data == update).all()
 
-    def test_dimensions_are_built_once(self, inserted_array_with_attributes: VArray):
+    def test_dimensions_are_built_once(self, inserted_varray_with_attributes: VArray):
         """The dimensions of an array are built on the first access and then reused."""
-        first = inserted_array_with_attributes.dimensions
-        assert inserted_array_with_attributes.dimensions is first
+        first = inserted_varray_with_attributes.dimensions
+        assert inserted_varray_with_attributes.dimensions is first
         fresh = create_dimensions(
-            inserted_array_with_attributes.schema.dimensions,
-            {**inserted_array_with_attributes.primary_attributes, **inserted_array_with_attributes.custom_attributes},
+            inserted_varray_with_attributes.schema.dimensions,
+            {**inserted_varray_with_attributes.primary_attributes, **inserted_varray_with_attributes.custom_attributes},
         )
         assert [d.as_dict for d in first] == [d.as_dict for d in fresh]
 
     def test_dimensions_are_rebuilt_after_an_update_of_the_custom_attributes(
-        self, inserted_array_with_attributes: VArray
+        self, inserted_varray_with_attributes: VArray
     ):
         """A time dimension starting at a custom attribute follows the attribute after an update."""
-        before = inserted_array_with_attributes.dimensions
+        before = inserted_varray_with_attributes.dimensions
         new_start = datetime(2030, 1, 1, tzinfo=timezone.utc)
-        inserted_array_with_attributes.update_custom_attributes({"time_attr_name": new_start})
-        after = inserted_array_with_attributes.dimensions
+        inserted_varray_with_attributes.update_custom_attributes({"time_attr_name": new_start})
+        after = inserted_varray_with_attributes.dimensions
         assert after is not before
         assert [d.start_value for d in after if isinstance(d, TimeDimension)] == [new_start]
         assert [d.start_value for d in before if isinstance(d, TimeDimension)] != [new_start]
 
-    def test_update_custom_attributes(self, inserted_array_with_attributes: VArray):
+    def test_update_custom_attributes(self, inserted_varray_with_attributes: VArray):
         """Tests array update method.
 
-        :param inserted_array_with_attributes: Array object
+        :param inserted_varray_with_attributes: VArray object
         """
         new_custom_attributes = {
             "custom_attribute": 0.6,
             "time_attr_name": datetime.now(timezone.utc),
         }
 
-        assert inserted_array_with_attributes.custom_attributes != new_custom_attributes
-        inserted_array_with_attributes.update_custom_attributes(new_custom_attributes)
-        assert inserted_array_with_attributes.custom_attributes == new_custom_attributes
-        meta = inserted_array_with_attributes.read_meta()
+        assert inserted_varray_with_attributes.custom_attributes != new_custom_attributes
+        inserted_varray_with_attributes.update_custom_attributes(new_custom_attributes)
+        assert inserted_varray_with_attributes.custom_attributes == new_custom_attributes
+        meta = inserted_varray_with_attributes.read_meta()
         meta_time = datetime.fromisoformat(meta["custom_attributes"]["time_attr_name"])
         assert (
             meta_time
-            == inserted_array_with_attributes.custom_attributes["time_attr_name"]
+            == inserted_varray_with_attributes.custom_attributes["time_attr_name"]
             == new_custom_attributes["time_attr_name"]
         )
-        for d in inserted_array_with_attributes.dimensions:
+        for d in inserted_varray_with_attributes.dimensions:
             if isinstance(d, TimeDimension):
                 assert d.start_value == new_custom_attributes["time_attr_name"]
 
