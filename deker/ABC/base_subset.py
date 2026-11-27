@@ -23,6 +23,7 @@ from typing import TYPE_CHECKING, Any, Generic
 import numpy as np
 
 from deker_tools.slices import slice_converter
+from deker_tools.typings import Sentinel, SentinelType
 
 from deker.dimensions import Dimension, TimeDimension
 from deker.errors import DekerSubsetError
@@ -157,16 +158,22 @@ class BaseSubset(SelfLoggerMixin, ABC, Generic[ArrayT]):
         return data_array
 
     @abstractmethod
-    def update(self, data: Data) -> None:
+    def update(self, data: Data, *, timeout: int | SentinelType = Sentinel) -> None:
         """Update data in array by slice.
 
         :param data: new data of the subset shape, or a number that fills the whole subset
+        :param timeout: seconds to wait for the write lock of each ``Array``; not given - ``write_lock_timeout``
+          of the client
         """
         pass
 
     @abstractmethod
-    def clear(self) -> None:
-        """Set the cells of the subset to the fill value."""
+    def clear(self, *, timeout: int | SentinelType = Sentinel) -> None:
+        """Set the cells of the subset to the fill value.
+
+        :param timeout: seconds to wait for the write lock of each ``Array``; not given - ``write_lock_timeout``
+          of the client
+        """
         pass
 
     def _is_deleted(self) -> bool:

@@ -1,12 +1,16 @@
 """Tests of the subset interface shared by Subset and VSubset."""
 
+import inspect
+
 from unittest.mock import patch
 
 import numpy as np
 import pytest
 
 from deker.ABC import base_subset
+from deker.ABC.base_subset import BaseSubset
 from deker.arrays import Array, VArray
+from deker.subset import Subset, VSubset
 
 
 class TestBaseSubsetProperties:
@@ -19,6 +23,23 @@ class TestBaseSubsetProperties:
         subset = varray[:]
         assert subset.fill_value is varray.fill_value
         assert np.isnan(subset.fill_value)
+
+
+class TestAbstractSignatures:
+    """The abstract methods of BaseSubset declare the parameters their implementations take."""
+
+    @pytest.mark.parametrize("implementation", [Subset, VSubset], ids=["Subset", "VSubset"])
+    @pytest.mark.parametrize("method", ["update", "clear"])
+    def test_abstract_method_has_the_signature_of_the_implementation(
+        self, implementation: type[BaseSubset], method: str
+    ):
+        abstract = inspect.signature(getattr(BaseSubset, method))
+        implemented = inspect.signature(getattr(implementation, method))
+        assert [(param.name, param.kind, param.default) for param in abstract.parameters.values()] == [
+            (param.name, param.kind, param.default) for param in implemented.parameters.values()
+        ]
+        assert abstract.parameters["timeout"].kind is inspect.Parameter.KEYWORD_ONLY
+        assert abstract == implemented
 
 
 class TestReadXArrayWithoutXArray:
