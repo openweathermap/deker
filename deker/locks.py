@@ -322,47 +322,48 @@ class UpdateMetaAttributeLock(WriteArrayLock):
 
 
 class CollectionLock(BaseLock):
-    """Lock for collection creation and clearing: an flock on the ``<collection>.lock`` file next to the collection.
+    """Lock for the creation of a collection: an exclusive flock on the json file of the collection.
 
-    The file stays after the creation as the marker of the collection, which ``check_integrity`` relies on;
-    it is removed only when an operation fails and leaves no collection directory behind.
+    The lock makes the directory of the collection and its json file, empty, when they are not there. Under the lock
+    the creation writes the file, unless it is written already: a written file is a collection that exists, an empty
+    one is a collection not created yet. No other file is made; the deletion and the clearing take no lock.
     """
 
     ALLOWED_TYPES = ["LocalCollectionAdapter"]
+    create_file = True
 
     def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
-        """Take the flock of the collection, waiting for its holder to leave.
+        """Make the directory of the collection and take the flock of its json file, waiting for its holder to leave.
+
+        A directory taken away before its file is opened, by the deletion of the collection meanwhile, is made again.
+        The retries end: the name is one directory under the collections directory (the constructor of ``Collection``
+        checks it), so its file is not found only while the directory is taken away.
 
         :param func_args: arguments of method call
         :param func_kwargs: keyword arguments of method call: ``timeout`` and ``token`` of the operation
         :raises DekerLockError: if the collection is not released within the timeout of the operation
         :raises DekerCriticalError: if the collections directory of the storage does not exist
+        :raises FileNotFoundError: if the directory of the collection cannot be made
         """
-        try:
-            self._wait_and_acquire(
-                func_kwargs, f"Collection {self.args[1].name} is locked by another creation or clearing"
-            )
-        except FileNotFoundError:
-            check_storage_directory(self.instance.collections_resource)
-            raise
+        collections = self.instance.collections_resource
+        directory = collections / self.args[1].name
+        while True:
+            try:
+                os.mkdir(directory)  # never the collections directory: the client creates it
+            except FileExistsError:
+                pass
+            except FileNotFoundError:
+                check_storage_directory(collections)
+                raise
+            try:
+                self._wait_and_acquire(func_kwargs, f"Collection {self.args[1].name} is locked by another creation")
+                return
+            except FileNotFoundError:
+                check_storage_directory(collections)  # the directory is gone: made again, unless the storage is gone
 
     def get_path(self) -> Path:  # noqa: ARG002
-        """Get path to the ``<collection>.lock`` file next to the directory of the collection."""
+        """Get path to the json file of the collection, in its directory."""
         collection = self.args[1]
-        path = self.instance.collections_resource / (collection.name + ".lock")
+        path = self.instance.collections_resource / collection.name / (collection.name + self.instance.file_ext)
         self.logger.debug("Got path for collection %s lock file: %s", collection.name, path)
         return path
-
-    def release(self, e: Exception | None = None) -> None:
-        """Release the lock; after a failure the lock file is removed when no collection directory is left.
-
-        A creation may fail between the lock and the directory of the collection (cancelled, over the memory
-        limit, an error of the file system): its lock file would mark a collection that does not exist.
-
-        :param e: Exception that might have been raised
-        """
-        if self.lock:
-            self.lock.release()
-            if e is not None and not (self.instance.collections_resource / self.args[1].name).is_dir():
-                self.lock.file.unlink(missing_ok=True)
-            self.lock = None

@@ -47,7 +47,6 @@ from deker.schemas import (
 from deker.tools import not_deleted
 from deker.types import Serializer
 from deker.types.private.typings import ArrayT
-from deker.validators import validate_timeout
 
 if TYPE_CHECKING:
     from deker.ABC.base_factory import BaseAdaptersFactory
@@ -150,11 +149,16 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
 
         :param name: Collection name
         :param schema: Collection main schema
-        :raises DekerValidationError: if the name is not a non-empty string or the schema is neither
+        :raises DekerValidationError: if the name is not a non-empty string, is ``.`` or ``..`` or contains ``/``
+          (it would not be one directory under the collections directory), or the schema is neither
           ``ArraySchema`` nor ``VArraySchema``
         """
         if not name or not isinstance(name, str) or name.isspace():
             raise DekerValidationError("Collection name shall be a non-empty string")
+        if name in (".", "..") or "/" in name:
+            raise DekerValidationError(
+                f"Collection name shall be neither '.' nor '..' and shall contain no '/', got {name!r}"
+            )
 
         if schema is None or not isinstance(schema, (ArraySchema, VArraySchema)):
             raise DekerValidationError(f"Invalid schema type {type(schema)}; ArraySchema or VArraySchema expected")
@@ -316,41 +320,49 @@ class Collection(SelfLoggerMixin, Serializer, Generic[ArrayT]):
         )
         return array
 
-    def delete(self, *, timeout: int | SentinelType = Sentinel) -> None:
+    def delete(self, *, background: bool = False, _empty_trash: bool = True) -> None:
         """Remove ``Collection`` and all its contents from the database.
 
-        The deletion takes no lock, so there is nothing to wait for: the timeout is accepted for the uniformity of
-        the operations. Once started, the deletion goes to its end.
+        The deletion takes no lock and waits for nobody: the collection with everything in it is moved to the trash
+        of the storage at once, and the readers and the writers of its arrays go on with their files. Then the trash
+        is emptied. A collection deleted already is not an error.
 
-        :param timeout: seconds to wait for the locks; not used
-        :raises DekerValidationError: if the timeout is not a positive integer
-        :raises DekerCancelledError: if the deletion is cancelled before it started
+        :param background: return right after the move and empty the trash in a daemon thread, which nobody waits for
+        :param _empty_trash: service flag: ``False`` - only move, the trash is not emptied and ``background`` does
+          nothing
+        :raises DekerCancelledError: if the deletion is cancelled before the collection is moved
+        :raises DekerTrashError: if something in the trash is not removed; not with ``background``. The collection is
+          deleted all the same
         """
-        validate_timeout(timeout=timeout)
         self.logger.debug("Removing collection %s from database", self.__name)
         with TokenErrorConverter():
             token = write_token()
             check(token)
-            self.__adapter.delete(self, timeout=timeout, token=token)
+            self.__adapter.delete(self, background=background, _empty_trash=_empty_trash, token=token)
         self.logger.debug("Collection %s deleted OK", self.__name)
 
     @not_deleted
-    def clear(self, *, timeout: int | SentinelType = Sentinel) -> None:
+    def clear(self, *, background: bool = False, _empty_trash: bool = True) -> None:
         """Remove all ``Arrays`` and/or ``VArrays`` from the ``Collection``; the collection itself stays.
 
-        :param timeout: seconds to wait for the lock of the collection; not given - ``write_lock_timeout`` of the
-          client
-        :raises DekerValidationError: if the timeout is not a positive integer
-        :raises DekerLockError: if the lock of the collection is not released within the timeout
-        :raises DekerCancelledError: if the clearing is cancelled before it started
+        The clearing takes no lock and waits for nobody: everything of the collection but its metadata is moved to
+        the trash of the storage at once, and the readers and the writers of its arrays go on with their files. Then
+        the trash is emptied.
+
+        :param background: return right after the moves and empty the trash in a daemon thread, which nobody waits
+          for
+        :param _empty_trash: service flag: ``False`` - only move, the trash is not emptied and ``background`` does
+          nothing
+        :raises DekerCancelledError: if the clearing is cancelled before anything is moved
+        :raises DekerTrashError: if something in the trash is not removed; not with ``background``. The collection is
+          cleared all the same
         :raises DekerInstanceNotExistsError: if the collection was deleted
         """
-        validate_timeout(timeout=timeout)
         self.logger.debug("Clearing data from collection %s", self.__name)
         with TokenErrorConverter():
             token = write_token()
             check(token)
-            self.__adapter.clear(self, timeout=timeout, token=token)
+            self.__adapter.clear(self, background=background, _empty_trash=_empty_trash, token=token)
         self.logger.debug("Collection %s cleared OK", self.__name)
 
     def filter(self, filters: dict) -> FilteredManager[ArrayT]:

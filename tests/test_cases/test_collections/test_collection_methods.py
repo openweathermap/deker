@@ -1,4 +1,6 @@
 import gc
+import logging
+import os
 import sys
 import threading
 import time
@@ -8,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 
+import deker_local_adapters.collection_adapter
 import hdf5plugin
 import pytest
 
@@ -19,6 +22,8 @@ from deker_tools.typings import Sentinel
 from pytest_mock import MockerFixture
 
 from tests.parameters.collection_params import ClientParams
+from tests.parameters.uri import embedded_uri
+from tests.test_cases.test_arrays.test_array_methods import CancelScopeAndMove, HeldEmptying
 
 from deker import Scale
 from deker.arrays import Array, VArray
@@ -26,9 +31,10 @@ from deker.client import Client
 from deker.collection import Collection
 from deker.errors import (
     DekerCancelledError,
+    DekerCriticalError,
     DekerInvalidManagerCallError,
     DekerInvalidSchemaError,
-    DekerLockError,
+    DekerTrashError,
     DekerValidationError,
 )
 from deker.flock import Flock
@@ -620,39 +626,33 @@ class TestCollectionRepr:
         )
 
 
-class TestCollectionTimeoutAndCancellation:
-    """The timeout of a creation, a clearing or a deletion is the limit of the wait for the locks it needs."""
+def trash_of_collection(collection: Collection) -> Path:
+    """Find the trash of the storage of a collection.
 
-    @pytest.mark.parametrize(
-        ("operation", "adapter_of", "method"),
-        [
-            pytest.param("create", "arrays", "create", id="create"),
-            pytest.param("clear", "collection", "clear", id="clear"),
-            pytest.param("delete", "collection", "delete", id="delete"),
-        ],
-    )
+    :param collection: the collection
+    :returns: the trash
+    """
+    return collection._Collection__adapter.trash_resource
+
+
+class TestCollectionTimeoutAndCancellation:
+    """The timeout of a creation is the limit of the wait for the locks it needs; the clearing and the deletion of a
+    collection take no lock and have no timeout. A cancelled operation changes nothing."""
+
     @pytest.mark.parametrize(
         ("kwargs", "expected"),
         [pytest.param({"timeout": 5}, 5, id="given"), pytest.param({}, Sentinel, id="not-given")],
     )
-    def test_timeout_reaches_the_adapter(
-        self, array_collection: Collection, mocker, operation, adapter_of, method, kwargs, expected
-    ):
-        adapter = (
-            array_collection._Collection__adapter
-            if adapter_of == "collection"
-            else array_collection.arrays._DataManager__array_adapter
-        )
-        adapter_call = mocker.patch.object(adapter, method)
-        getattr(array_collection, operation)(**kwargs)
+    def test_timeout_reaches_the_adapter(self, array_collection: Collection, mocker, kwargs, expected):
+        adapter_call = mocker.patch.object(array_collection.arrays._DataManager__array_adapter, "create")
+        array_collection.create(**kwargs)
         assert adapter_call.call_args.kwargs["timeout"] == expected
         assert isinstance(adapter_call.call_args.kwargs["token"], AbstractToken)
 
-    @pytest.mark.parametrize("operation", ["create", "clear", "delete"])
     @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
-    def test_invalid_timeout_is_rejected(self, array_collection: Collection, operation, timeout):
+    def test_invalid_timeout_is_rejected(self, array_collection: Collection, timeout):
         with pytest.raises(DekerValidationError):
-            getattr(array_collection, operation)(timeout=timeout)
+            array_collection.create(timeout=timeout)
         assert array_collection.path.exists()
 
     @pytest.mark.parametrize("operation", ["create", "clear", "delete"])
@@ -664,53 +664,241 @@ class TestCollectionTimeoutAndCancellation:
             getattr(array_collection, operation)()
         assert array_collection.path.exists()
         assert [a.id for a in array_collection] == [array.id]
+        assert list(trash_of_collection(array_collection).iterdir()) == []
+
+
+def files_under(root: Path) -> list[str]:
+    """List the files and the symlinks under a directory, relative to it; the directories are not listed.
+
+    :param root: directory to walk
+    :returns: sorted relative paths
+    """
+    return sorted(
+        os.path.relpath(os.path.join(directory, name), root) for directory, _, names in os.walk(root) for name in names
+    )
+
+
+def moved_files(trash: Path) -> list[str]:
+    """List the files and the symlinks in the trash relative to what was moved: without the random name of the move.
+
+    :param trash: the trash
+    :returns: sorted relative paths
+    """
+    return sorted(path.partition(os.sep)[2] for path in files_under(trash))
+
+
+class TestCollectionDeleteAndClear:
+    """The deletion and the clearing of a collection: no lock, a move to the trash, one emptying of the trash."""
+
+    @pytest.fixture(params=["array_collection", "varray_collection"], ids=["arrays", "varrays"])
+    def target(self, request) -> Collection:
+        """A collection with three arrays, one of them written, and the trash of its storage empty.
+
+        :param request: request of the fixture
+        """
+        collection: Collection = request.getfixturevalue(request.param)
+        for _ in range(3):
+            collection.create()
+        next(iter(collection))[:].update(1.0)
+        assert list(trash_of_collection(collection).iterdir()) == []
+        return collection
+
+    @staticmethod
+    def kept(collection: Collection, operation: str) -> list[str]:
+        """List the files the operation keeps in the collection: its metadata file after the clearing, none after the
+        deletion.
+
+        :param collection: the collection
+        :param operation: ``delete`` or ``clear``
+        :returns: sorted relative paths
+        """
+        return [] if operation == "delete" else [collection.name + ".json"]
+
+    @staticmethod
+    def moved(before: list[str], collection: Collection, operation: str) -> list[str]:
+        """List the files the operation moves to the trash, relative to what is moved: the directory of the
+        collection for the deletion, the directories inside it for the clearing.
+
+        :param before: the files of the collection before the operation, relative to it
+        :param collection: the collection
+        :param operation: ``delete`` or ``clear``
+        :returns: sorted relative paths
+        """
+        if operation == "delete":
+            return before
+        return sorted(path.partition(os.sep)[2] for path in before if path != collection.name + ".json")
+
+    def assert_done(self, collection: Collection, operation: str, ids: list[str]) -> None:
+        """The collection is deleted or cleared: its arrays are found neither by the walk nor by their ids.
+
+        :param collection: the collection
+        :param operation: ``delete`` or ``clear``
+        :param ids: ids of its arrays before the operation
+        """
+        assert files_under(collection.path) == self.kept(collection, operation)
+        assert collection.path.exists() is (operation == "clear")
+        if operation == "clear":
+            assert list(collection) == []
+            assert [array_id for array_id in ids if collection.filter({"id": array_id}).last()] == []
+
+    @staticmethod
+    def held_file_of(collection: Collection) -> Path:
+        """Find the main file of an Array of the collection: the file a reader or a writer holds.
+
+        :param collection: the collection
+        :returns: the file
+        """
+        array = next(iter(collection.arrays))
+        return array._adapter._get_main_path_to_file(array)
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.parametrize("operation", ["delete", "clear"])
+    @pytest.mark.parametrize("shared", [True, False], ids=["reader", "writer"])
+    def test_held_file_does_not_stop_it(self, target: Collection, operation: str, shared: bool):
+        ids = [array.id for array in target]
+        with Flock(self.held_file_of(target), shared=shared):
+            start = time.monotonic()
+            assert getattr(target, operation)() is None
+            assert time.monotonic() - start < 0.5  # nobody is waited for
+        self.assert_done(target, operation, ids)
+        assert list(trash_of_collection(target).iterdir()) == []
+
+    @pytest.mark.parametrize("operation", ["delete", "clear"])
+    def test_trash_is_emptied_once_before_the_return_by_default(
+        self, target: Collection, operation: str, mocker: MockerFixture
+    ):
+        ids = [array.id for array in target]
+        adapter = target._Collection__adapter
+        empty = mocker.spy(deker_local_adapters.collection_adapter, "empty_trash_directory")
+        getattr(target, operation)()
+        empty.assert_called_once_with(adapter.trash_resource, background=False, logger=adapter.logger)
+        self.assert_done(target, operation, ids)
+        assert list(trash_of_collection(target).iterdir()) == []
+
+    @pytest.mark.parametrize("operation", ["delete", "clear"])
+    def test_repeated_is_not_an_error(self, target: Collection, operation: str):
+        ids = [array.id for array in target]
+        getattr(target, operation)()
+        assert getattr(target, operation)() is None
+        self.assert_done(target, operation, ids)
+        assert list(trash_of_collection(target).iterdir()) == []
+
+    @pytest.mark.parametrize("operation", ["delete", "clear"])
+    @pytest.mark.parametrize("background", [False, True])
+    def test_without_emptying_the_trash_keeps_exactly_what_is_moved(
+        self, target: Collection, operation: str, background: bool, mocker: MockerFixture, client: Client
+    ):
+        ids = [array.id for array in target]
+        before = files_under(target.path)
+        empty = mocker.spy(deker_local_adapters.collection_adapter, "empty_trash_directory")
+        thread = mocker.spy(threading.Thread, "start")
+        assert getattr(target, operation)(background=background, _empty_trash=False) is None
+        empty.assert_not_called()
+        thread.assert_not_called()
+        self.assert_done(target, operation, ids)
+        trash = trash_of_collection(target)
+        assert moved_files(trash) == self.moved(before, target, operation)
+        client.empty_trash()
+        assert list(trash.iterdir()) == []
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.parametrize("operation", ["delete", "clear"])
+    def test_background_returns_while_the_trash_is_emptied(
+        self, target: Collection, operation: str, mocker: MockerFixture
+    ):
+        ids = [array.id for array in target]
+        before = files_under(target.path)
+        held = HeldEmptying(deker_local_adapters.collection_adapter._empty_trash_in_background)
+        mocker.patch.object(deker_local_adapters.collection_adapter, "_empty_trash_in_background", side_effect=held)
+        assert getattr(target, operation)(background=True) is None
+        assert held.started.wait(30)
+        self.assert_done(target, operation, ids)
+        trash = trash_of_collection(target)
+        assert moved_files(trash) == self.moved(before, target, operation)  # returned while the emptying waits
+        (thread,) = held.threads
+        assert thread is not threading.current_thread()
+        assert thread.daemon
+        held.go.set()
+        thread.join(30)
+        assert list(trash.iterdir()) == []
+
+    @pytest.mark.parametrize("operation", ["delete", "clear"])
+    def test_failed_emptying_is_raised_after_the_operation(self, target: Collection, operation: str, client: Client):
+        ids = [array.id for array in target]
+        trash = trash_of_collection(target)
+        locked = trash / "locked"
+        locked.mkdir()
+        (locked / "kept").write_text("file")
+        locked.chmod(0o500)
+        try:
+            with pytest.raises(DekerTrashError) as error:
+                getattr(target, operation)()
+            assert str(error.value) == (
+                f"The trash of the storage is not emptied: 1 files are not removed from {trash}. "
+                "Reasons: Permission denied"
+            )
+            self.assert_done(target, operation, ids)
+            assert [path.name for path in trash.iterdir()] == ["locked"]
+        finally:
+            locked.chmod(0o700)
+            client.empty_trash()
+        assert list(trash.iterdir()) == []
+
+    @pytest.mark.parametrize("operation", ["delete", "clear"])
+    def test_cancelled_after_the_first_move_moves_everything(
+        self, target: Collection, operation: str, mocker: MockerFixture
+    ):
+        ids = [array.id for array in target]
+        scope = SimpleToken()
+        real = deker_local_adapters.collection_adapter.move_to_trash
+        move = mocker.patch.object(
+            deker_local_adapters.collection_adapter, "move_to_trash", side_effect=CancelScopeAndMove(scope, real)
+        )
+        with cancellation_scope(scope):
+            assert getattr(target, operation)() is None
+        assert scope.cancelled
+        assert move.call_count == (1 if operation == "delete" else 4)
+        self.assert_done(target, operation, ids)
+        assert list(trash_of_collection(target).iterdir()) == []
+
+    @pytest.mark.parametrize("operation", ["delete", "clear"])
+    def test_timeout_is_not_an_argument(self, target: Collection, operation: str):
+        before = files_under(target.path)
+        with pytest.raises(TypeError) as error:
+            getattr(target, operation)(timeout=5)
+        assert str(error.value) == f"Collection.{operation}() got an unexpected keyword argument 'timeout'"
+        assert files_under(target.path) == before
+
+
+class TestCollectionInAStorageWithoutItsDirectories:
+    """The deletion or the clearing that does not find the trash or the collections directory of the storage is
+    critical."""
 
     @pytest.fixture
-    def held_collection(self, array_collection: Collection):
-        """Hold the lock file of the collection, as another creation or clearing does."""
-        adapter = array_collection._Collection__adapter
-        holder = Flock(adapter.collections_resource / (array_collection.name + ".lock"))
-        holder.acquire()
-        yield holder
-        holder.release()
+    def own(self, tmp_path: Path) -> Collection:
+        """A collection with an Array, in a storage of the test's own.
 
-    @pytest.mark.timeout(10)
-    @pytest.mark.parametrize("setting", [False, True], ids=["argument", "client-setting"])
-    def test_clear_waits_for_the_lock_up_to_its_timeout(
-        self, array_collection: Collection, held_collection: Flock, mocker, setting
+        :param tmp_path: directory of the test
+        """
+        client = Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR")
+        collection = client.create_collection("own", ArraySchema(dimensions=[DimensionSchema("x", 4)], dtype=float))
+        collection.create()
+        yield collection
+        client.close()
+
+    @pytest.mark.parametrize("operation", ["delete", "clear"])
+    @pytest.mark.parametrize("directory", ["trash", "collections"])
+    def test_missing_storage_directory_is_critical(
+        self, own: Collection, tmp_path: Path, mocker: MockerFixture, operation: str, directory: str
     ):
-        array = array_collection.create()
-        kwargs = {"timeout": 1}
-        if setting:
-            mocker.patch.object(array_collection._Collection__adapter.ctx.config, "write_lock_timeout", 1)
-            kwargs = {}
-        start = time.monotonic()
-        with pytest.raises(DekerLockError, match="is locked"):
-            array_collection.clear(**kwargs)
-        assert time.monotonic() - start < 2.5
-        assert [a.id for a in array_collection] == [array.id]
-
-    @pytest.mark.timeout(10)
-    def test_clear_goes_on_once_the_lock_is_released(self, array_collection: Collection, held_collection: Flock):
-        array_collection.create()
-        releaser = threading.Timer(0.3, held_collection.release)
-        releaser.start()
-        array_collection.clear(timeout=5)
-        releaser.join()
-        assert list(array_collection) == []
-
-    @pytest.mark.timeout(10)
-    def test_clear_cancelled_while_it_waits_changes_nothing(self, array_collection: Collection, held_collection: Flock):
-        array = array_collection.create()
-        token = SimpleToken()
-        canceller = threading.Timer(0.3, token.cancel)
-        canceller.start()
-        start = time.monotonic()
-        with cancellation_scope(token), pytest.raises(DekerCancelledError):
-            array_collection.clear(timeout=30)
-        canceller.join()
-        assert time.monotonic() - start < 3
-        assert [a.id for a in array_collection] == [array.id]
+        gone = tmp_path / "storage" / directory
+        gone.rename(tmp_path / "away")
+        critical = mocker.patch.object(logging.getLogger("Deker"), "critical")
+        with pytest.raises(DekerCriticalError) as error:
+            getattr(own, operation)()
+        assert str(error.value) == f"Storage directory {gone} doesn't exist"
+        critical.assert_called_once_with(f"Storage directory {gone} doesn't exist")
+        assert not gone.exists()
 
 
 class TestCreateWithoutArguments:
@@ -774,3 +962,46 @@ class TestIterationSkipsWhatDisappears:
         assert read.calls == 3
         assert len(read.gone) == 1
         assert sorted(array.id for array in walked) == sorted(ids - set(read.gone))
+
+
+class TestCollectionNames:
+    """The name of a collection becomes its directory: ``.``, ``..`` and names with ``/`` are refused at the creation,
+    whatever way it goes; other names, dots and spaces in them included, are created as before.
+    """
+
+    SCHEMA = ArraySchema(dimensions=[DimensionSchema("x", 4)], dtype=float)
+
+    @pytest.fixture
+    def own(self, tmp_path: Path) -> Client:
+        """Client of a storage of the test's own.
+
+        :param tmp_path: directory of the test
+        """
+        with Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR") as client:
+            yield client
+
+    @pytest.mark.parametrize("name", [".", "..", "a/b", "a/b/c", "/abs", "a/"])
+    @pytest.mark.parametrize("way", ["create_collection", "collection_from_dict"])
+    def test_name_that_is_not_one_directory_is_refused(self, own: Client, tmp_path: Path, name: str, way: str):
+        valid = own.create_collection("valid", self.SCHEMA)
+        data = {**valid.as_dict, "name": name}
+        valid.delete()
+        storage = tmp_path / "storage"
+        before = sorted(str(path.relative_to(storage)) for path in storage.rglob("*"))
+        assert before == ["collections", "trash"]
+        with pytest.raises(DekerValidationError) as error:
+            if way == "create_collection":
+                own.create_collection(name, self.SCHEMA)
+            else:
+                own.collection_from_dict(data)
+        assert str(error.value) == (
+            f"Collection name shall be neither '.' nor '..' and shall contain no '/', got {name!r}"
+        )
+        assert sorted(str(path.relative_to(storage)) for path in storage.rglob("*")) == before
+        assert sorted(str(path.relative_to(tmp_path)) for path in tmp_path.iterdir()) == ["storage"]
+
+    @pytest.mark.parametrize("name", ["a.b", "..a", "a b"])
+    def test_names_with_dots_and_spaces_are_created(self, own: Client, name: str):
+        collection = own.create_collection(name, self.SCHEMA)
+        assert own.get_collection(name).as_dict == collection.as_dict
+        assert collection.path == own._adapter.collections_resource / name

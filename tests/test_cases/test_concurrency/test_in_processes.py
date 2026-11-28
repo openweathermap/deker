@@ -33,7 +33,13 @@ from tests.parameters.uri import embedded_uri
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerInstanceNotExistsError, DekerLockError, DekerValidationError, DekerVSubsetError
+from deker.errors import (
+    DekerCollectionAlreadyExistsError,
+    DekerInstanceNotExistsError,
+    DekerLockError,
+    DekerValidationError,
+    DekerVSubsetError,
+)
 from deker.locks import (
     CollectionLock,
     Flock,
@@ -1300,4 +1306,276 @@ class TestDeletionOfAVArrayAgainstItsWriters:
         assert longest < 1  # nobody is waited for
         assert failed == []
         assert left == 0
+        assert list(trash.iterdir()) == []
+
+
+def create_arrays(uri: str, collection_name: str, ready, stop, gate, busy, results: Queue) -> None:
+    """Create Arrays in the collection until told to stop; report how the creations ended.
+
+    :param uri: client uri
+    :param collection_name: the collection
+    :param ready: barrier passed once the collection is found
+    :param stop: event that ends the loop
+    :param gate: event that lets the creators work: cleared, it holds them between the creations
+    :param busy: shared number of the creators that are creating
+    :param results: queue for the numbers of the created Arrays, of the creations refused as not existing, and the
+      other errors
+    """
+    created = refused = 0
+    failed: list[str] = []
+    with Client(uri, loglevel="CRITICAL") as client:
+        collection = client.get_collection(collection_name)
+        ready.wait()
+        while not stop.is_set():
+            if not enter(gate, busy):
+                continue
+            try:
+                collection.create()
+                created += 1
+            except DekerInstanceNotExistsError:
+                refused += 1
+            except Exception as e:
+                failed.append(repr(e))
+            leave(busy)
+    results.put((created, refused, failed))
+
+
+def broken_symlinks(collection: Collection) -> list[str]:
+    """List the symlinks of the collection that point to a missing file.
+
+    :param collection: the collection
+    :returns: the symlinks
+    """
+    return [
+        os.path.join(directory, name)
+        for directory, _, names in os.walk(collection.path)
+        for name in names
+        if os.path.islink(os.path.join(directory, name)) and not os.path.exists(os.path.join(directory, name))
+    ]
+
+
+def count_error(errors: dict[str, int], error: Exception) -> None:
+    """Count an error by its class and text.
+
+    :param errors: the counts
+    :param error: the error
+    """
+    key = f"{type(error).__name__}: {error}"
+    errors[key] = errors.get(key, 0) + 1
+
+
+def create_one_name(uri: str, name: str, size: int, stop, results: Queue) -> None:
+    """Create the collection of the name with a schema of its own until told to stop; report how the creations ended.
+
+    :param uri: client uri
+    :param name: name of the collection
+    :param size: size of the only dimension of the schema
+    :param stop: event that ends the loop
+    :param results: queue for the numbers of the creations and of the collections found existing, and the errors
+    """
+    created = existing = 0
+    failed: dict[str, int] = {}
+    schema = ArraySchema(dtype=float, dimensions=[DimensionSchema(name="x", size=size)])
+    with Client(uri, loglevel="CRITICAL") as client:
+        while not stop.is_set():
+            try:
+                client.create_collection(name, schema)
+                created += 1
+            except DekerCollectionAlreadyExistsError:
+                existing += 1
+            except Exception as e:
+                count_error(failed, e)
+    results.put(("creator", created, existing, failed))
+
+
+def delete_one_name(uri: str, name: str, stop, results: Queue) -> None:
+    """Walk the collections, find the collection of the name and delete it, until told to stop; report how it ended.
+
+    :param uri: client uri
+    :param name: name of the collection
+    :param stop: event that ends the loop
+    :param results: queue for the numbers of the deletions and of the collections not found, and the errors
+    """
+    deleted = absent = 0
+    failed: dict[str, int] = {}
+    with Client(uri, loglevel="CRITICAL") as client:
+        while not stop.is_set():
+            try:
+                [collection.name for collection in client]  # noqa: B018  # the walk reads every collection file
+                collection = client.get_collection(name)
+                if collection is None:
+                    absent += 1
+                else:
+                    collection.delete()
+                    deleted += 1
+            except Exception as e:
+                count_error(failed, e)
+    results.put(("deleter", deleted, absent, failed))
+
+
+class TestCollectionOperationsAgainstCreators:
+    """Three processes create Arrays in a collection while it is deleted or cleared; processes create the collection of
+    one name while another deletes it. The operations of the collection take no lock and wait for nobody.
+    """
+
+    SECONDS = 6
+    CREATORS = 3
+
+    @staticmethod
+    def start(mp_context: BaseContext, root_path: Path, collection: Collection):
+        """Start the creators of Arrays of the collection.
+
+        :param mp_context: multiprocessing context
+        :param root_path: the storage
+        :param collection: the collection
+        :returns: the events to stop and to let them go, the number of the busy ones, the queue of the results, and the
+          processes
+        """
+        stop, gate, results = mp_context.Event(), mp_context.Event(), mp_context.Queue()
+        busy = mp_context.Value("i", 0)
+        count = TestCollectionOperationsAgainstCreators.CREATORS
+        ready = mp_context.Barrier(count + 1)
+        arguments = (str(embedded_uri(root_path)), collection.name, ready, stop, gate, busy, results)
+        creators = [mp_context.Process(target=create_arrays, args=arguments) for _ in range(count)]
+        for creator in creators:
+            creator.start()
+        ready.wait(60)  # every creator has found the collection
+        return stop, gate, busy, results, creators
+
+    @staticmethod
+    def finish(stop, gate, results: Queue, creators: list) -> tuple[int, int, list[str]]:
+        """Stop the creators and sum up their results.
+
+        :param stop: event to stop them
+        :param gate: event to let them go
+        :param results: the queue of their results
+        :param creators: the processes
+        :returns: the created Arrays, the refused creations and the other errors
+        """
+        stop.set()
+        gate.set()
+        totals = [results.get(timeout=60) for _ in creators]
+        for creator in creators:
+            creator.join(60)
+        return (
+            sum(total[0] for total in totals),
+            sum(total[1] for total in totals),
+            [error for total in totals for error in total[2]],
+        )
+
+    @pytest.mark.timeout(120)
+    def test_deleted_collection_is_never_made_again(self, client: Client, root_path: Path, mp_context: BaseContext):
+        schema = ArraySchema(dtype=float, dimensions=[DimensionSchema(name="x", size=4)])
+        name = f"deleted_collection_{mp_context.get_start_method()}"
+        collection = client.create_collection(name, schema)
+        trash = root_path / client._Client__ctx.config.trash_directory
+        stop, gate, busy, results, creators = self.start(mp_context, root_path, collection)
+        deletions = recreated = 0
+        longest = 0.0
+        try:
+            deadline = time.monotonic() + self.SECONDS
+            while time.monotonic() < deadline:
+                gate.set()
+                sleep(0.05)  # the creators are on their way
+                start = time.monotonic()
+                collection.delete()
+                longest = max(longest, time.monotonic() - start)
+                gate.clear()
+                while busy.value:
+                    sleep(0.0005)
+                deletions += 1
+                if collection.path.exists():
+                    recreated += 1
+                    collection.delete()  # counted once
+                collection = client.create_collection(name, schema)
+        finally:
+            created, refused, failed = self.finish(stop, gate, results, creators)
+            collection.delete()
+        print(
+            f"\n  {mp_context.get_start_method()}: {deletions} deletions, the longest {longest:.3f} s; creations: "
+            f"{created} done, {refused} refused as not existing; failures {failed[:5]}; collections made again "
+            f"{recreated}"
+        )
+        assert deletions > 0
+        assert created > 0
+        assert longest < 1  # nobody is waited for
+        assert failed == []
+        assert recreated == 0
+        assert list(trash.iterdir()) == []
+
+    @pytest.mark.timeout(120)
+    def test_cleared_collection_has_no_orphans(self, client: Client, root_path: Path, mp_context: BaseContext):
+        schema = ArraySchema(dtype=float, dimensions=[DimensionSchema(name="x", size=4)])
+        collection = client.create_collection(f"cleared_collection_{mp_context.get_start_method()}", schema)
+        trash = root_path / client._Client__ctx.config.trash_directory
+        stop, gate, busy, results, creators = self.start(mp_context, root_path, collection)
+        clearings = orphans = 0
+        longest = 0.0
+        try:
+            deadline = time.monotonic() + self.SECONDS
+            while time.monotonic() < deadline:
+                gate.set()
+                sleep(0.05)  # the creators are on their way
+                start = time.monotonic()
+                collection.clear()
+                longest = max(longest, time.monotonic() - start)
+                gate.clear()
+                while busy.value:
+                    sleep(0.0005)
+                clearings += 1
+                orphans += len(broken_symlinks(collection))
+        finally:
+            created, refused, failed = self.finish(stop, gate, results, creators)
+            collection.delete()
+        print(
+            f"\n  {mp_context.get_start_method()}: {clearings} clearings, the longest {longest:.3f} s; creations: "
+            f"{created} done, {refused} refused as not existing; failures {failed[:5]}; symlinks without files "
+            f"{orphans}"
+        )
+        assert clearings > 0
+        assert created > 0
+        assert longest < 1  # nobody is waited for
+        assert failed == []
+        assert orphans == 0
+        assert list(trash.iterdir()) == []
+
+    @pytest.mark.timeout(120)
+    def test_creators_of_one_name_against_its_deletions(self, tmp_path: Path, mp_context: BaseContext):
+        """Two creators with schemas of their own and two deleters that walk the collections and delete the one of the
+        name: no raw error of the file system and no broken json reaches anybody.
+        """
+        uri = str(embedded_uri(tmp_path / "storage"))
+        with Client(uri, loglevel="ERROR") as client:
+            trash = tmp_path / "storage" / client._Client__ctx.config.trash_directory
+        stop, results = mp_context.Event(), mp_context.Queue()
+        processes = [
+            mp_context.Process(target=create_one_name, args=(uri, "one", 2, stop, results)),
+            mp_context.Process(target=create_one_name, args=(uri, "one", 3, stop, results)),
+            mp_context.Process(target=delete_one_name, args=(uri, "one", stop, results)),
+            mp_context.Process(target=delete_one_name, args=(uri, "one", stop, results)),
+        ]
+        for process in processes:
+            process.start()
+        try:
+            sleep(self.SECONDS)
+        finally:
+            stop.set()
+            totals = [results.get(timeout=60) for _ in processes]
+            for process in processes:
+                process.join(60)
+        created = sum(total[1] for total in totals if total[0] == "creator")
+        existing = sum(total[2] for total in totals if total[0] == "creator")
+        deleted = sum(total[1] for total in totals if total[0] == "deleter")
+        absent = sum(total[2] for total in totals if total[0] == "deleter")
+        failed: dict[str, int] = {}
+        for total in totals:
+            for error, count in total[3].items():
+                failed[error] = failed.get(error, 0) + count
+        print(
+            f"\n  {mp_context.get_start_method()}: creations {created} done, {existing} found existing; deletions "
+            f"{deleted} done, {absent} found nothing; failures {failed}"
+        )
+        assert created > 0
+        assert deleted > 0
+        assert failed == {}
         assert list(trash.iterdir()) == []

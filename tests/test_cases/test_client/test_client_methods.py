@@ -1320,26 +1320,20 @@ class TestGetLocks:
         collection = client.create_collection(**params)
         assert not client._get_locks(collection.name)
 
-    @pytest.mark.parametrize(
-        "params",
-        [
-            *ClientParams.ArraySchema.OK.multi_array_schemas(),
-            *ClientParams.VArraySchema.OK.OK_params_multi_varray_schemas(),
-        ],
-    )
-    def test_client_get_locks_collection_lock(self, client: Client, params):
-        """Tests the lock file of a collection, which stays as its marker, is listed as a collection lock."""
-        collection = client.create_collection(**params)
-        file = collection.path.parent / (collection.name + LocksExtensions.collection_lock.value)
-        expected = {
-            "Lockfile": file.name,
-            "Collection": collection.name,
-            "Type": LocksTypes.collection_lock.value,
-            "Creation": datetime.fromtimestamp(file.stat().st_ctime).isoformat(),
-        }
-        assert expected in client._get_locks()
-        assert expected in client._get_locks(lock_type=LocksTypes.collection_lock)
-        assert expected not in client._get_locks(lock_type=LocksTypes.varray_lock)
+    def test_client_get_locks_lists_no_collection_lock(self, client: Client, array_collection: Collection):
+        """The lock of a collection is its json file, held while it is created: nothing to list after the creation."""
+        assert [lock for lock in client._get_locks() if lock["Collection"] == array_collection.name] == []
+
+    def test_client_get_locks_skips_the_lock_files_of_older_versions(
+        self, client: Client, array_collection: Collection
+    ):
+        """A ``<collection>.lock`` file left next to the collection by an older version is not listed."""
+        old = array_collection.path.parent / (array_collection.name + ".lock")
+        old.touch()
+        try:
+            assert [lock for lock in client._get_locks() if lock["Collection"] == array_collection.name] == []
+        finally:
+            old.unlink()
 
     def test_client_get_locks_lists_no_directories(self, client: Client, inserted_array):
         """Tests the directories of the collections are never taken for lock files."""
@@ -1364,7 +1358,6 @@ class TestGetLocks:
             assert expected in client._get_locks()
             assert [expected] == client._get_locks(lock_type=LocksTypes.varray_lock)
             assert expected in client._get_locks(collection_name=inserted_array.collection)
-            assert expected not in client._get_locks(lock_type=LocksTypes.collection_lock)
         finally:
             file.unlink()
 
@@ -1396,7 +1389,7 @@ class TestGetLocks:
     def test_client_get_locks_lists_nothing_during_a_read(self, client: Client, inserted_array):
         """Tests a read leaves no lock files to list: the read lock lives in the kernel."""
         inserted_array[:].read()
-        assert not [lock for lock in client._get_locks() if lock["Type"] != LocksTypes.collection_lock.value]
+        assert client._get_locks() == []
 
     def test_client_get_locks_lists_nothing_after_a_varray_write(self, client: Client, inserted_varray):
         """Tests a VArray write leaves no lock files to list: the Arrays are held in the kernel."""
@@ -1755,3 +1748,34 @@ class TestEmptyTrash:
         assert str(error.value) == MISSING.format(trash)
         assert critical_records(deker_log) == [MISSING.format(trash)]
         assert not trash.exists()
+
+
+class TestLockFilesOfOlderVersions:
+    """The ``<collection>.lock`` files older versions made next to the collections stay where they are and bother
+    nobody: they are not collections, not findings, not lock files of the listing, and not in the way of a creation.
+    """
+
+    def test_old_lock_files_bother_nobody(self, tmp_path: Path):
+        with Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR") as own:
+            schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=4)], dtype=float)
+            kept = own.create_collection("kept", schema)
+            kept.create()[:].update(1.0)
+            deleted = own.create_collection("deleted", schema)
+            size = own.calculate_storage_size()
+            collections = own._adapter.collections_resource
+            for name in ("kept", "deleted", "orphan"):
+                (collections / f"{name}.lock").touch()
+            assert sorted(collection.name for collection in own) == ["deleted", "kept"]
+            assert own.check_integrity().ok
+            assert own.calculate_storage_size() == size
+            assert own._get_locks() == []
+            orphan = own.create_collection("orphan", schema)
+            assert own.get_collection("orphan").as_dict == orphan.as_dict
+            deleted.delete()
+            assert sorted(path.name for path in collections.iterdir()) == [
+                "deleted.lock",
+                "kept",
+                "kept.lock",
+                "orphan",
+                "orphan.lock",
+            ]

@@ -105,16 +105,14 @@ class DimensionType(str, Enum):
 
 
 class LocksExtensions(str, Enum):
-    """Extensions of the lock files: the collection lock, and the markers of VArray writes of Deker < 2."""
+    """Extensions of the lock files: the markers of VArray writes of Deker < 2."""
 
-    collection_lock = ".lock"
     varray_lock = ".varraylock"  # markers of Deker < 2; TODO: remove in 3.0.0 with Client.clear_locks
 
 
 class LocksTypes(str, Enum):
     """Names of the lock files as the lock listing reports them."""
 
-    collection_lock = "collection creation lock"
     varray_lock = "varray write lock"  # markers of Deker < 2; TODO: remove in 3.0.0 with Client.clear_locks
 
 

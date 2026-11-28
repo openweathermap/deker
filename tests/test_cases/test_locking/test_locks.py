@@ -1,5 +1,6 @@
 import fcntl
 import json
+import logging
 import os
 import shutil
 import threading
@@ -10,11 +11,12 @@ from multiprocessing.synchronize import Event
 from pathlib import Path
 from time import sleep
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
 
 from cantok import DefaultToken, SimpleToken
-from deker_local_adapters import LocalArrayAdapter
+from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter
 from deker_tools.cancel import TokenCancelledError
 from deker_tools.typings import Sentinel
 from pytest_mock import MockerFixture
@@ -23,7 +25,15 @@ from tests.parameters.uri import embedded_uri
 
 from deker.arrays import Array, VArray
 from deker.client import Client
-from deker.errors import DekerCriticalError, DekerInstanceNotExistsError, DekerLockError, DekerMemoryError
+from deker.collection import Collection
+from deker.errors import (
+    DekerCollectionAlreadyExistsError,
+    DekerCollectionNotExistsError,
+    DekerCriticalError,
+    DekerInstanceNotExistsError,
+    DekerLockError,
+    DekerMemoryError,
+)
 from deker.locks import (
     ArrayCreationLock,
     CollectionLock,
@@ -559,61 +569,433 @@ class TestWaitingReadArrayLock:
         assert lock.lock is None
 
 
+class ProbeHeld:
+    """Stand for ``json.dumps`` of the collection adapter: before the metadata is made, it looks whether the json file
+    of the collection is held, then makes the metadata.
+
+    :param real: the real ``json.dumps``
+    :param path: the json file
+    """
+
+    def __init__(self, real, path: Path) -> None:
+        self.real = real
+        self.path = path
+        self.held: list[bool] = []
+
+    def __call__(self, *args, **kwargs) -> str:
+        try:
+            with Flock(self.path):
+                self.held.append(False)
+        except DekerLockError:
+            self.held.append(True)
+        return self.real(*args, **kwargs)
+
+
+class HoldTheWriter:
+    """Stand for ``json.dumps`` of the collection adapter: the first creator tells it holds the lock of the collection
+    and waits for a go before it makes its metadata.
+
+    :param real: the real ``json.dumps``
+    """
+
+    def __init__(self, real) -> None:
+        self.real = real
+        self.holding = threading.Event()
+        self.go = threading.Event()
+
+    def __call__(self, *args, **kwargs) -> str:
+        if not self.holding.is_set():
+            self.holding.set()
+            self.go.wait(30)
+        return self.real(*args, **kwargs)
+
+
+class TellTheWait:
+    """Stand for the sleep between the attempts to take a lock: tells that a creator waits, then sleeps.
+
+    :param real: the real sleep
+    :param release: called once, at the first wait, when not ``None``
+    """
+
+    def __init__(self, real, release=None) -> None:
+        self.real = real
+        self.release = release
+        self.waiting = threading.Event()
+
+    def __call__(self, seconds: float) -> None:
+        if not self.waiting.is_set():
+            self.waiting.set()
+            if self.release is not None:
+                self.release()
+        self.real(seconds)
+
+
+class Create:
+    """Create a collection in a thread and keep the result: the collection or the error.
+
+    :param client: client of the storage
+    :param name: name of the collection
+    :param schema: its schema
+    """
+
+    def __init__(self, client: Client, name: str, schema: ArraySchema) -> None:
+        self.client = client
+        self.name = name
+        self.schema = schema
+        self.result: object = None
+
+    def __call__(self) -> None:
+        try:
+            self.result = self.client.create_collection(self.name, self.schema, timeout=30)
+        except Exception as e:  # noqa: BLE001  # the result of the creation, checked by the test
+            self.result = e
+
+
+class DeleteBeforeTheWrite:
+    """Stand for ``json.dumps`` of the collection adapter: the collection is deleted while its creator holds its lock,
+    before the metadata is written.
+
+    :param real: the real ``json.dumps``
+    :param collection: the collection being created
+    """
+
+    def __init__(self, real, collection: Collection) -> None:
+        self.real = real
+        self.collection = collection
+
+    def __call__(self, *args, **kwargs) -> str:
+        self.collection.delete(_empty_trash=False)
+        return self.real(*args, **kwargs)
+
+
+class TakeAwayAfterTheDirectory:
+    """Stand for ``os.mkdir``: after the first real call, takes a directory away, as the deletion of the collection or
+    the loss of the collections directory of the storage does between the directory of the collection and its file.
+
+    :param real: the real ``os.mkdir``
+    :param directory: the directory to take away
+    :param target: where it goes
+    """
+
+    def __init__(self, real, directory: Path, target: Path) -> None:
+        self.real = real
+        self.directory = directory
+        self.target = target
+        self.calls = 0
+
+    def __call__(self, *args, **kwargs) -> None:
+        self.real(*args, **kwargs)
+        self.calls += 1
+        if self.calls == 1:
+            self.directory.rename(self.target)
+
+
+class TakeAwayUnderTheLock:
+    """Stand for ``get_result`` of the collection lock: once the lock is taken, takes a directory away before the
+    creation reads the json file, as the deletion of the collection or the loss of the collections directory does.
+
+    :param real: the real ``get_result``
+    :param directory: the directory to take away
+    :param target: where it goes
+    """
+
+    def __init__(self, real, directory: Path, target: Path) -> None:
+        self.real = real
+        self.directory = directory
+        self.target = target
+
+    def __call__(self, lock, *args, **kwargs):
+        assert lock.lock is not None  # held
+        self.directory.rename(self.target)
+        return self.real(lock, *args, **kwargs)
+
+
+class RemadeBeforeTheOpen:
+    """Stand for ``Flock.acquire``: the first time, the directory of the file is taken away and made again empty, as a
+    deletion and another creator of the collection do, and the file is not found; then the real acquire.
+
+    :param real: the real ``Flock.acquire``
+    :param directory: the directory of the collection
+    :param target: where it goes
+    """
+
+    def __init__(self, real, directory: Path, target: Path) -> None:
+        self.real = real
+        self.directory = directory
+        self.target = target
+        self.calls = 0
+
+    def __call__(self, flock: Flock) -> None:
+        self.calls += 1
+        if self.calls == 1:
+            self.directory.rename(self.target)
+            self.directory.mkdir()
+            raise FileNotFoundError(2, "No such file or directory", str(flock.file))
+        self.real(flock)
+
+
 class TestCollectionLock:
-    def test_lock_deletes_after_memory_error(self, client: Client, collection_adapter):
+    """The lock of a collection is an exclusive flock on its json file, created empty with the directory of the
+    collection; it is taken by the creation of the collection only. Under it, an empty file is written, a written one
+    is a collection that exists. No other file is made.
+    """
+
+    SCHEMA = ArraySchema(dimensions=[DimensionSchema(name="x", size=2)], dtype=float)
+
+    @pytest.fixture
+    def name(self, client: Client) -> str:
+        """Name of a collection that does not exist; whatever the test makes of it is removed afterwards.
+
+        :param client: client of the storage
+        """
+        name = f"locked_{uuid4().hex}"
+        yield name
+        shutil.rmtree(client._adapter.collections_resource / name, ignore_errors=True)
+
+    @staticmethod
+    def json_file(client: Client, name: str) -> Path:
+        """Path of the json file of a collection.
+
+        :param client: client of the storage
+        :param name: name of the collection
+        :returns: the path
+        """
+        return client._adapter.collections_resource / name / (name + ".json")
+
+    @staticmethod
+    def hold(client: Client, name: str) -> Flock:
+        """Hold the lock of a collection as its creator does: the directory and the empty json file, flocked.
+
+        :param client: client of the storage
+        :param name: name of the collection
+        :returns: the held flock
+        """
+        (client._adapter.collections_resource / name).mkdir()
+        holder = Flock(TestCollectionLock.json_file(client, name), create=True)
+        holder.acquire()
+        return holder
+
+    def test_lock_is_on_the_json_file_of_the_collection(self, client: Client, collection_adapter, name: str):
+        lock = CollectionLock()
+        lock.instance = collection_adapter
+        lock.args = [collection_adapter, SimpleNamespace(name=name)]
+        assert lock.get_path() == collection_adapter.collections_resource / name / (name + ".json")
+
+    def test_json_file_is_held_while_it_is_written(self, client: Client, name: str, mocker: MockerFixture):
+        probe = ProbeHeld(json.dumps, self.json_file(client, name))
+        mocker.patch("deker_local_adapters.collection_adapter.json.dumps", side_effect=probe)
+        collection = client.create_collection(name, self.SCHEMA)
+        assert probe.held == [True]
+        assert json.loads(self.json_file(client, name).read_text()) == json.loads(json.dumps(collection.as_dict))
+        with Flock(self.json_file(client, name)):
+            pass  # not held once the creation is over
+
+    def test_no_lock_file_is_made(self, client: Client, name: str):
+        collections = client._adapter.collections_resource
+        before = sorted(collections.glob("*.lock"))
+        collection = client.create_collection(name, self.SCHEMA)
+        collection.create()
+        collection.clear()
+        assert sorted(collections.glob("*.lock")) == before
+        assert sorted(path.name for path in collection.path.iterdir()) == [name + ".json"]
+        collection.delete()
+        assert sorted(collections.glob("*.lock")) == before
+
+    def test_memory_error_creates_nothing(self, client: Client, name: str):
         schema = ArraySchema(
-            dimensions=[
-                DimensionSchema(name="x", size=100000),
-                DimensionSchema(name="y", size=100000),
-            ],
-            dtype=float,
+            dimensions=[DimensionSchema(name="x", size=100000), DimensionSchema(name="y", size=100000)], dtype=float
         )
-        col_name = "memory_excess_dict"
         with pytest.raises(DekerMemoryError):
-            client.create_collection(col_name, schema)
-        assert not (
-            collection_adapter.collections_resource / f"{col_name}{LocksExtensions.collection_lock.value}"
-        ).exists()
+            client.create_collection(name, schema)
+        assert not (client._adapter.collections_resource / name).exists()
 
-    def test_lock_file_stays_as_the_marker_of_the_collection(self, client: Client, collection_adapter):
-        """Tests the lock file stays after the creation: check_integrity knows the collection by it."""
-        schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=2)], dtype=float)
-        collection = client.create_collection("created_and_marked", schema)
+    def test_existing_collection_is_not_written_again(self, client: Client, name: str):
+        """The json file of the collection is written: the collection exists, the second creator learns so."""
+        collection = client.create_collection(name, self.SCHEMA)
+        other = ArraySchema(dimensions=[DimensionSchema(name="x", size=3)], dtype=float)
+        with pytest.raises(DekerCollectionAlreadyExistsError) as error:
+            client.create_collection(name, other)
+        assert str(error.value) == f"Collection {name} already exists"
+        assert json.loads(self.json_file(client, name).read_text()) == json.loads(json.dumps(collection.as_dict))
+
+    def test_empty_json_file_left_by_a_creator_is_written(self, client: Client, name: str):
+        """A creator that stopped before it wrote leaves the json file empty: the next creator writes it."""
+        self.hold(client, name).release()
+        collection = client.create_collection(name, self.SCHEMA)
+        assert json.loads(self.json_file(client, name).read_text()) == json.loads(json.dumps(collection.as_dict))
+
+    @pytest.mark.timeout(10)
+    @pytest.mark.parametrize("setting", [False, True], ids=["argument", "client-setting"])
+    def test_held_lock_is_waited_for_up_to_the_timeout(self, client: Client, name: str, mocker: MockerFixture, setting):
+        holder = self.hold(client, name)
+        kwargs = {"timeout": 1}
+        if setting:
+            mocker.patch.object(client._Client__ctx.config, "write_lock_timeout", 1)
+            kwargs = {}
         try:
-            lock_file = (
-                collection_adapter.collections_resource / f"{collection.name}{LocksExtensions.collection_lock.value}"
-            )
-            assert lock_file.exists()
-            with Flock(lock_file):
-                pass  # not held once the creation is over
-            collection.clear()
-            assert lock_file.exists()
+            start = time.monotonic()
+            with pytest.raises(DekerLockError) as error:
+                client.create_collection(name, self.SCHEMA, **kwargs)
+            assert 1 <= time.monotonic() - start < 2.5
+            assert str(error.value) == f"Collection {name} is locked by another creation"
         finally:
-            collection.delete()
+            holder.release()
+        assert self.json_file(client, name).read_text() == ""
 
-    def test_lock_file_removed_meanwhile_is_created_again(self, client: Client, collection_adapter):
-        """Tests the lock of a collection whose lock file is missing creates the file, as before (a guard)."""
-        schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=2)], dtype=float)
-        collection = client.create_collection("lock_file_removed", schema)
-        lock_file = (
-            collection_adapter.collections_resource / f"{collection.name}{LocksExtensions.collection_lock.value}"
+    @pytest.mark.timeout(10)
+    def test_creation_goes_on_once_the_lock_is_released(self, client: Client, name: str, mocker: MockerFixture):
+        holder = self.hold(client, name)
+        wait = TellTheWait(time.sleep, holder.release)
+        mocker.patch("deker.ABC.base_locks.sleep", side_effect=wait)
+        collection = client.create_collection(name, self.SCHEMA, timeout=5)
+        assert wait.waiting.is_set()
+        assert json.loads(self.json_file(client, name).read_text()) == json.loads(json.dumps(collection.as_dict))
+
+    @pytest.mark.timeout(60)
+    def test_two_creators_of_one_name_with_different_schemas(self, client: Client, name: str, mocker: MockerFixture):
+        """The second creator waits for the first one and learns that the collection exists; the file is the first
+        one's.
+        """
+        writer = HoldTheWriter(json.dumps)
+        mocker.patch("deker_local_adapters.collection_adapter.json.dumps", side_effect=writer)
+        wait = TellTheWait(time.sleep)
+        mocker.patch("deker.ABC.base_locks.sleep", side_effect=wait)
+        first = Create(client, name, self.SCHEMA)
+        second = Create(client, name, ArraySchema(dimensions=[DimensionSchema(name="x", size=3)], dtype=float))
+        threads = [threading.Thread(target=first), threading.Thread(target=second)]
+        threads[0].start()
+        assert writer.holding.wait(30)
+        threads[1].start()
+        assert wait.waiting.wait(30)
+        writer.go.set()
+        for thread in threads:
+            thread.join(30)
+        assert isinstance(first.result, Collection)
+        assert isinstance(second.result, DekerCollectionAlreadyExistsError)
+        assert str(second.result) == f"Collection {name} already exists"
+        assert json.loads(self.json_file(client, name).read_text()) == json.loads(json.dumps(first.result.as_dict))
+
+    def test_deletion_while_the_creator_holds_the_lock(self, client: Client, name: str, mocker: MockerFixture):
+        """The deletion takes no lock: the creator writes the file it holds, which is in the trash already. The
+        creation is done and the deletion is after it: the collection does not exist.
+        """
+        trash = client._adapter.trash_resource
+        assert list(trash.iterdir()) == []
+        collection = Collection(name, self.SCHEMA, client._adapter, client._factory, HDF5StorageAdapter)
+        mocker.patch(
+            "deker_local_adapters.collection_adapter.json.dumps",
+            side_effect=DeleteBeforeTheWrite(json.dumps, collection),
         )
-        try:
-            lock_file.unlink()
-            collection.clear()
-            assert lock_file.exists()
-        finally:
-            collection.delete()
+        assert client._adapter.create(collection, timeout=Sentinel, token=DefaultToken()) is None
+        assert not (client._adapter.collections_resource / name).exists()
+        assert client.get_collection(name) is None
+        (moved,) = trash.iterdir()
+        assert json.loads((moved / (name + ".json")).read_text()) == json.loads(json.dumps(collection.as_dict))
+        client.empty_trash()
+        assert list(trash.iterdir()) == []
 
-    def test_missing_lock_file_in_a_collections_directory_in_place_is_raised_as_it_is(
-        self, client: Client, collection_adapter, mocker: MockerFixture
-    ):
-        """The lock file is not opened, though the collections directory is there: the error is not critical."""
-        schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=2)], dtype=float)
-        mocker.patch("deker.flock.Flock.acquire", side_effect=FileNotFoundError(2, "No such file or directory"))
-        with pytest.raises(FileNotFoundError):
-            client.create_collection("lock_file_not_opened", schema)
-        assert not (collection_adapter.collections_resource / "lock_file_not_opened").exists()
+    @pytest.mark.parametrize(
+        "storage_gone", [pytest.param(True, id="collections gone"), pytest.param(False, id="collection deleted")]
+    )
+    def test_directory_gone_before_its_file_is_opened(self, tmp_path: Path, mocker: MockerFixture, storage_gone: bool):
+        """The creator makes the directory again and goes on; the loss of the collections directory is critical."""
+        with Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR") as own:
+            collections = own._adapter.collections_resource
+            directory = collections if storage_gone else collections / "own"
+            taker = TakeAwayAfterTheDirectory(os.mkdir, directory, tmp_path / "away")
+            mocker.patch.object(os, "mkdir", side_effect=taker)
+            if storage_gone:
+                critical = mocker.patch.object(logging.getLogger("Deker"), "critical")
+                with pytest.raises(DekerCriticalError) as error:
+                    own.create_collection("own", self.SCHEMA)
+                assert str(error.value) == f"Storage directory {collections} doesn't exist"
+                critical.assert_called_once_with(f"Storage directory {collections} doesn't exist")
+                assert taker.calls == 1
+                assert not collections.exists()
+            else:
+                collection = own.create_collection("own", self.SCHEMA)
+                assert taker.calls == 2
+                assert json.loads((collections / "own" / "own.json").read_text()) == json.loads(
+                    json.dumps(collection.as_dict)
+                )
+                assert list((tmp_path / "away").iterdir()) == []  # the file was never made in the old directory
+
+    @pytest.mark.parametrize(
+        "storage_gone", [pytest.param(True, id="collections gone"), pytest.param(False, id="collection deleted")]
+    )
+    def test_directory_gone_once_the_lock_is_taken(self, tmp_path: Path, mocker: MockerFixture, storage_gone: bool):
+        """The deletion comes after the creation: the creation is done, the collection does not exist; the loss of the
+        collections directory is critical.
+        """
+        with Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR") as own:
+            collections = own._adapter.collections_resource
+            directory = collections if storage_gone else collections / "own"
+            taker = TakeAwayUnderTheLock(CollectionLock.get_result, directory, tmp_path / "away")
+            mocker.patch.object(CollectionLock, "get_result", autospec=True, side_effect=taker)
+            if storage_gone:
+                critical = mocker.patch.object(logging.getLogger("Deker"), "critical")
+                with pytest.raises(DekerCriticalError) as error:
+                    own.create_collection("own", self.SCHEMA)
+                assert str(error.value) == f"Storage directory {collections} doesn't exist"
+                critical.assert_called_once_with(f"Storage directory {collections} doesn't exist")
+                assert not collections.exists()
+            else:
+                assert own.create_collection("own", self.SCHEMA).name == "own"
+                assert not directory.exists()
+                assert own.get_collection("own") is None
+                assert (tmp_path / "away" / "own.json").read_text() == ""  # held, never written
+
+    @staticmethod
+    def take(adapter, name: str) -> None:
+        """Take the lock of the creation of a collection of the name and release it; the name is not checked here.
+
+        :param adapter: the collection adapter
+        :param name: name of the collection
+        """
+        lock = CollectionLock()
+        lock.instance = adapter
+        lock.args = [adapter, SimpleNamespace(name=name)]
+        try:
+            lock.check_existing_lock((), {"timeout": 1, "token": DefaultToken()})
+        finally:
+            lock.release()
+
+    @pytest.mark.timeout(10)
+    def test_directory_that_cannot_be_made_is_not_retried(self, tmp_path: Path):
+        """A directory that cannot be made under the collections directory is refused at once, nothing made. The
+        collection refuses such a name before; the lock is called directly.
+        """
+        with Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR") as own:
+            collections = own._adapter.collections_resource
+            with pytest.raises(FileNotFoundError) as error:
+                self.take(own._adapter, "a/b")
+            assert error.value.filename == str(collections / "a" / "b")
+            assert list(collections.iterdir()) == []
+
+    @pytest.mark.timeout(10)
+    def test_directory_made_again_by_another_creator_meanwhile(self, tmp_path: Path, mocker: MockerFixture):
+        """The json file is not found because the deletion took the directory away, and another creator made the
+        directory again before the creator looked: the creator goes on and creates the collection, no raw error.
+        """
+        with Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR") as own:
+            directory = own._adapter.collections_resource / "own"
+            remade = RemadeBeforeTheOpen(Flock.acquire, directory, tmp_path / "away")
+            mocker.patch.object(Flock, "acquire", autospec=True, side_effect=remade)
+            collection = own.create_collection("own", self.SCHEMA)
+            assert remade.calls == 2
+            assert json.loads((directory / "own.json").read_text()) == json.loads(json.dumps(collection.as_dict))
+
+    def test_collection_being_created_is_not_found(self, client: Client, name: str):
+        """The json file of a collection being created is empty: the collection does not exist yet."""
+        holder = self.hold(client, name)
+        try:
+            assert client.get_collection(name) is None
+            assert name not in [collection.name for collection in client]
+            with pytest.raises(DekerCollectionNotExistsError) as error:
+                client._adapter.read(name)
+            assert str(error.value) == f"{name} collection doesn't exist"
+        finally:
+            holder.release()
 
     def test_release_without_a_lock_does_nothing(self):
         """A lock that was never taken (acquire refused) has nothing to release."""

@@ -282,54 +282,17 @@ class TestCollectionsCheck:
         assert json.loads(meta_file.read_text())["metadata_version"] == client.meta_version
         assert checker(client, IntegrityCheck.collections).check(array_collection.name).ok
 
-    def test_missing_lock_file_is_reported_and_repaired(self, client: Client, array_collection: Collection):
-        lock_file = client.root_path / (array_collection.name + LocksExtensions.collection_lock.value)
-        lock_file.unlink()
-        report = checker(client, IntegrityCheck.collections).check()
-        assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.lock_missing)]
-        finding = report.findings[0]
-        assert finding.collection == array_collection.name
-        assert finding.path == lock_file
-        assert finding.repairable and not finding.repaired
-        assert not lock_file.exists()
-
-        report = checker(client, IntegrityCheck.collections, repair=True).check()
-        assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.lock_missing)]
-        assert report.findings[0].repaired
-        assert lock_file.exists()
-        assert checker(client, IntegrityCheck.collections).check().ok
-
-    def test_orphaned_lock_file_is_reported_and_repaired(self, client: Client, array_collection: Collection):
-        lock_file = client.root_path / ("gone" + LocksExtensions.collection_lock.value)
-        lock_file.touch()
-        try:
-            report = checker(client, IntegrityCheck.collections).check()
-            assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.lock_orphaned)]
-            finding = report.findings[0]
-            assert finding.collection == "gone"
-            assert finding.path == lock_file
-            assert finding.repairable
-            assert lock_file.exists()
-
-            report = checker(client, IntegrityCheck.collections, repair=True).check()
-            assert report.findings[0].repaired
-            assert not lock_file.exists()
-        finally:
-            lock_file.unlink(missing_ok=True)
-
-    def test_one_collection_is_checked_against_its_own_lock_only(self, client: Client, array_collection: Collection):
-        """Checking one collection does not report the lock files of the others."""
-        lock_file = client.root_path / ("gone" + LocksExtensions.collection_lock.value)
-        lock_file.touch()
-        try:
-            assert checker(client, IntegrityCheck.collections).check(array_collection.name).ok
-        finally:
-            lock_file.unlink()
-
-    def test_directory_without_a_collection_file_is_reported(self, client: Client, array_collection: Collection):
-        """A directory in the storage root that holds no collection file is a collection that cannot be read."""
+    @pytest.mark.parametrize("empty_file", [False, True], ids=["no-file", "empty-file"])
+    def test_directory_without_a_collection_file_is_reported(
+        self, client: Client, array_collection: Collection, empty_file: bool
+    ):
+        """A directory in the storage root that holds no collection file, or an empty one (a creation that has not
+        written it), is a collection that cannot be read.
+        """
         stray = client.root_path / "half-made"
         stray.mkdir()
+        if empty_file:
+            (stray / ("half-made" + client._adapter.file_ext)).touch()
         try:
             report = checker(client, IntegrityCheck.collections).check()
             assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.collection_unreadable)]
@@ -340,34 +303,35 @@ class TestCollectionsCheck:
             with pytest.raises(DekerCollectionNotExistsError):
                 checker(client, IntegrityCheck.collections).check("half-made")
         finally:
-            stray.rmdir()
+            shutil.rmtree(stray)
 
-    @pytest.mark.parametrize("with_arrays", [False, True], ids=["empty-directory", "directory-with-arrays"])
+    @pytest.mark.parametrize("kind", ["empty-directory", "empty-file", "directory-with-arrays"])
     def test_directory_without_a_collection_file_is_removed_by_the_repair(
-        self, client: Client, array_schema, with_arrays: bool
+        self, client: Client, array_schema, kind: str
     ):
-        """The directory is removed with everything in it, the files of the arrays too, and its lock file."""
+        """The directory is removed with everything in it, the files of the arrays too."""
         name = "half_made"
         directory = client.root_path / name
-        lock_file = client.root_path / (name + LocksExtensions.collection_lock.value)
-        if with_arrays:
+        json_file = directory / (name + client._adapter.file_ext)
+        if kind == "directory-with-arrays":
             collection = client.create_collection(name, array_schema)
             array_file = main_file(collection.create())
-            (directory / (name + client._adapter.file_ext)).unlink()
-            assert array_file.is_file() and lock_file.is_file()
+            json_file.unlink()
+            assert array_file.is_file()
         else:
             directory.mkdir()
+            if kind == "empty-file":
+                json_file.touch()
         try:
             report = checker(client, IntegrityCheck.collections, repair=True).check()
             assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.collection_unreadable)]
             assert report.findings[0].repaired
             assert report.findings[0].repair_error == ""
             assert not directory.exists()
-            assert not lock_file.exists()
+            assert sorted(client.root_path.glob(f"{name}*")) == []  # no lock file is made
             assert checker(client, IntegrityCheck.collections).check().ok
         finally:
             shutil.rmtree(directory, ignore_errors=True)
-            lock_file.unlink(missing_ok=True)
 
     def test_broken_collection_file_is_not_removed(self, client: Client, array_collection: Collection):
         """A broken collection file is not repairable; given to the repair anyway, it is refused (a guard)."""
@@ -387,36 +351,35 @@ class TestCollectionsCheck:
         """The creator wrote the collection file between the finding and the repair: the repair is refused (a guard)."""
         directory = client.root_path / "half-made"
         directory.mkdir()
-        lock_file = client.root_path / ("half-made" + LocksExtensions.collection_lock.value)
         try:
             finding = checker(client, IntegrityCheck.collections).check().findings[0]
             (directory / ("half-made" + client._adapter.file_ext)).write_text("{}")
             with pytest.raises(DekerIntegrityError, match="cannot be repaired"):
                 CollectionsCheck(client).repair(finding)
-            assert directory.is_dir()
+            assert (directory / ("half-made" + client._adapter.file_ext)).read_text() == "{}"
         finally:
             shutil.rmtree(directory)
-            lock_file.unlink(missing_ok=True)  # the repair creates it when it takes the lock
 
     def test_directory_held_by_its_creator_is_not_removed(self, client: Client, array_collection: Collection):
-        """The creator holds the lock of the collection until it writes the file: the repair does not wait for it."""
+        """The creator holds the lock of the collection, its json file, until it writes the file: the repair does not
+        wait for it.
+        """
         directory = client.root_path / "half-made"
         directory.mkdir()
-        lock_file = client.root_path / ("half-made" + LocksExtensions.collection_lock.value)
+        json_file = directory / ("half-made" + client._adapter.file_ext)
         try:
-            with Flock(lock_file):
-                finding = checker(client, IntegrityCheck.collections).check().findings[0]
-                with pytest.raises(DekerLockError, match=f"{lock_file} is locked"):
+            finding = checker(client, IntegrityCheck.collections).check().findings[0]
+            with Flock(json_file, create=True):
+                with pytest.raises(DekerLockError) as error:
                     CollectionsCheck(client).repair(finding)
+                assert str(error.value) == f"{json_file} is locked"
                 report = checker(client, IntegrityCheck.collections, repair=True).check()
             assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.collection_unreadable)]
             assert not report.findings[0].repaired
-            assert report.findings[0].repair_error == f"{lock_file} is locked"
-            assert directory.is_dir()
-            assert lock_file.is_file()
+            assert report.findings[0].repair_error == f"{json_file} is locked"
+            assert json_file.read_text() == ""
         finally:
             shutil.rmtree(directory)
-            lock_file.unlink(missing_ok=True)
 
     def test_stray_file_in_the_storage_root_is_ignored(self, client: Client, array_collection: Collection):
         stray = client.root_path / "notes.txt"
@@ -878,21 +841,17 @@ class TestIntegrityChecker:
 
     def test_repair_fixes_what_it_can_and_reports_the_rest(self, client: Client, broken_collections: list[Collection]):
         collection = broken_collections[0]
-        lock_file = client.root_path / (collection.name + LocksExtensions.collection_lock.value)
-        lock_file.unlink()
         array = collection.create()
         with h5py.File(main_file(array), "r+") as f:
             del f["meta"]
         report = checker(client, repair=True).check(collection.name)
         assert sorted(kinds(report)) == sorted(
             [
-                (IntegrityCheck.collections, IntegrityFindingKind.lock_missing),
                 (IntegrityCheck.arrays, IntegrityFindingKind.meta_unreadable),
                 (IntegrityCheck.links, IntegrityFindingKind.symlink_missing),
             ]
         )
         assert [finding.kind for finding in report.unrepaired] == [IntegrityFindingKind.meta_unreadable]
-        assert lock_file.exists()
         assert checker(client, IntegrityCheck.collections, IntegrityCheck.links).check(collection.name).ok
 
     def test_repair_failure_is_reported_not_raised(self, client: Client, broken_collections: list[Collection], mocker):

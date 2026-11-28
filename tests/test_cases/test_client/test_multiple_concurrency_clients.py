@@ -8,7 +8,6 @@ import pytest
 from cantok import DefaultToken
 from deker_local_adapters import LocalCollectionAdapter
 from deker_local_adapters.storage_adapters.hdf5.hdf5_storage_adapter import HDF5StorageAdapter
-from deker_tools.typings import Sentinel
 
 from tests.parameters.common import random_string
 from tests.parameters.uri import embedded_uri
@@ -38,9 +37,9 @@ def collection_adapter_methods(method: str, path: str, name: str, array_schema: 
             adapter.create(collection, timeout=1, token=DefaultToken())
             return collection.name
         if method == "delete":
-            return adapter.delete(collection, timeout=Sentinel, token=DefaultToken())
+            return adapter.delete(collection, background=False, _empty_trash=True, token=DefaultToken())
         if method == "clear":
-            return adapter.clear(collection, timeout=1, token=DefaultToken())
+            return adapter.clear(collection, background=False, _empty_trash=True, token=DefaultToken())
     except DekerLockError:
         return DekerLockError
 
@@ -53,9 +52,7 @@ class TestMultipleClients:
         name = "new_collection_for_processes"
         collection = client.create_collection(name, array_schema)
         try:
-            path = collection.path.parent / (collection.name + ".lock")
-            open(path, "w").close()
-            flock = Flock(path)
+            flock = Flock(collection.path / (collection.name + ".json"))  # the lock of the collection
             flock.acquire()
             try:
                 with mp_context.Pool(WORKERS) as pool:

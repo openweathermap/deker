@@ -2,6 +2,7 @@ import fcntl
 import multiprocessing
 import os
 import shutil
+import stat
 import time
 
 from concurrent.futures import ProcessPoolExecutor
@@ -13,7 +14,6 @@ import pytest
 
 from deker.errors import DekerLockError
 from deker.locks import Flock
-from deker.types import LocksExtensions
 
 
 @pytest.fixture
@@ -107,27 +107,36 @@ class TestFlock:
             flock.acquire()
         assert flock.fd is None
 
-    def test_flock_acquire_creates_lock_file(self, tmp_path: Path):
-        """Tests Flock.acquire creates a lock file (.arrlock or .lock) that does not exist yet.
+    @pytest.mark.parametrize("name", ["collection.json", "collection.lock"])
+    def test_flock_creates_a_missing_file_only_when_asked(self, tmp_path: Path, name: str):
+        """Tests Flock.acquire creates a missing file with ``create``, empty and with the mode ``open`` gives a new
+        file; without it a missing file is an error, whatever its name.
 
         :param tmp_path: temporary directory
+        :param name: name of the file
         """
-        path = tmp_path / f"collection{LocksExtensions.collection_lock.value}"
-        flock = Flock(path)
+        path = tmp_path / name
+        with pytest.raises(FileNotFoundError):
+            Flock(path).acquire()
+        assert not path.exists()
+        flock = Flock(path, create=True)
         try:
             flock.acquire()
-            assert path.exists()
+            assert path.read_text() == ""
             assert flock.fd is not None
+            umask = os.umask(0)
+            os.umask(umask)
+            assert stat.S_IMODE(path.stat().st_mode) == 0o666 & ~umask
         finally:
             flock.release()
 
-    def test_flock_never_creates_the_directory_of_a_lock_file(self, tmp_path: Path):
-        """The directory of the collections is created by the client only: a lock file in a missing one is not made.
+    def test_flock_never_creates_the_directory_of_a_file(self, tmp_path: Path):
+        """The directory of the file is never created: a file in a missing one is not made.
 
         :param tmp_path: temporary directory
         """
-        path = tmp_path / "collections" / f"collection{LocksExtensions.collection_lock.value}"
-        flock = Flock(path)
+        path = tmp_path / "collections" / "collection.json"
+        flock = Flock(path, create=True)
         with pytest.raises(FileNotFoundError):
             flock.acquire()
         assert flock.fd is None

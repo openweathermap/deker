@@ -69,6 +69,7 @@ class BaseLock(SelfLoggerMixin, ABC):
 
     ALLOWED_TYPES: list[str] = []
     lock: Flock | None = None
+    create_file: bool = False  # the file of the flock is created when it does not exist
     # bound by __call__ for every decorated call: the decorated method's object and its arguments
     instance: Any
     args: Sequence[Any]
@@ -78,7 +79,7 @@ class BaseLock(SelfLoggerMixin, ABC):
     def get_path(self) -> Path | None:
         """Get the path the ``flock`` is taken on.
 
-        The main file of an ``Array`` or a ``VArray`` for the locks of the arrays, the ``<collection>.lock`` file
+        The main file of an ``Array`` or a ``VArray`` for the locks of the arrays, the json file of the collection
         for the lock of a collection.
 
         :returns: the path, ``None`` for a lock that holds nothing
@@ -112,7 +113,7 @@ class BaseLock(SelfLoggerMixin, ABC):
         :raises DekerLockError: if the file is locked by another holder
         """
         if not self.lock and path:
-            lock = Flock(path)
+            lock = Flock(path, create=self.create_file)
             lock.acquire()  # a refused lock is not kept: the next attempt starts afresh
             self.lock = lock
             self.logger.debug("Set flock for %s", path)

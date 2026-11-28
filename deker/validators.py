@@ -281,11 +281,13 @@ def is_valid_uuid(id_: str) -> bool:
 
 # TODO (next breaking release): CHECK THE NAMES AND THE VALUES THAT BECOME PATHS OF THE STORAGE.
 # The name of a collection and the string values of the primary attributes become parts of the paths of the
-# storage as they are: only the type and the emptiness of a collection name are checked, here and in the
-# constructor of ``Collection``. Any sign passes: spaces, shell signs, a slash inside, which is unsafe for the code
-# that hands the paths to external commands and ambiguous in a URL. A value with ``..`` or an absolute path takes
-# the directory of a collection or the symlink of an array OUTSIDE of the storage (reproduced: an Array with the
-# string primary attribute ``../../../../x`` gets its symlink outside). Both the restriction of the signs and the
+# storage as they are. The constructor of ``Collection`` checks the type and the emptiness of a collection name,
+# and refuses ``.``, ``..`` and a name with ``/``: the name is one directory under the collections directory, so no
+# creation, whatever way it goes, reaches outside it. Left for the next breaking release: any other sign passes
+# (spaces, shell signs), which is unsafe for the code that hands the paths to external commands and ambiguous in a
+# URL; and the string values of the primary attributes are not checked at all: a value with ``..`` or an absolute
+# path takes the symlink of an array OUTSIDE of the storage (reproduced: an Array with the string primary
+# attribute ``../../../../x`` gets its symlink outside). Both the restriction of the signs and the
 # check that a path stays inside its directory are breaking changes for the collections and the arrays stored
 # with such names, for the replication of the collections onto new nodes and for ``collection_from_dict`` as a
 # way around ``create_collection``; they need one separate decision, a version of the metadata and a migration.

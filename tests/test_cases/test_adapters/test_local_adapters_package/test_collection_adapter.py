@@ -1,7 +1,6 @@
 import errno
 import os
 import shutil
-import time
 
 from pathlib import Path
 from uuid import uuid4
@@ -21,12 +20,9 @@ from deker.client import Client
 from deker.collection import Collection
 from deker.errors import (
     DekerAdapterClosedError,
-    DekerCollectionAlreadyExistsError,
     DekerCollectionNotExistsError,
-    DekerLockError,
     DekerMemoryError,
 )
-from deker.flock import Flock
 from deker.schemas import ArraySchema, DimensionSchema
 
 
@@ -60,8 +56,8 @@ class TestCollectionAdapter:
             token=DefaultToken(),
         )
         assert root_path.joinpath(factory.ctx.config.collections_directory).joinpath(name).exists()
-        # the lock file of the creation stays as the marker of the collection
-        assert root_path.joinpath(factory.ctx.config.collections_directory).joinpath(name + ".lock").exists()
+        # the lock of the collection is its json file: no other file is made
+        assert not root_path.joinpath(factory.ctx.config.collections_directory).joinpath(name + ".lock").exists()
 
     def test_collection_adapter_create_collection_memory_error(
         self,
@@ -188,28 +184,26 @@ class TestCollectionAdapter:
         :param array_collection: Pre created array_collection
         :param root_path: Path to collections directory
         """
-        collection_adapter.delete(array_collection, timeout=Sentinel, token=DefaultToken())
+        collection_adapter.delete(array_collection, background=False, _empty_trash=True, token=DefaultToken())
         assert not os.path.exists(array_collection.path)
-        assert not os.path.exists(array_collection.path.parent / (array_collection.name + ".lock"))
 
     def test_collection_adapter_delete_tolerates_a_collection_already_gone(
         self, collection_adapter: LocalCollectionAdapter, array_collection: Collection
     ):
-        """Deleting a collection whose directory is gone already is not an error: the lock file is removed anyway."""
+        """Deleting a collection whose directory is gone already is not an error."""
         shutil.rmtree(array_collection.path)
-        lock = array_collection.path.parent / (array_collection.name + ".lock")
-        assert lock.exists()
-        collection_adapter.delete(array_collection, timeout=Sentinel, token=DefaultToken())
-        assert not lock.exists()
+        assert (
+            collection_adapter.delete(array_collection, background=False, _empty_trash=True, token=DefaultToken())
+            is None
+        )
 
     def test_collection_adapter_delete_raises_when_the_directory_cannot_be_removed(
         self, collection_adapter: LocalCollectionAdapter, array_collection: Collection, mocker: MockerFixture
     ):
         """A failure to remove the directory is not swallowed: the collection would stay with its files."""
-        # a real OSError carries errno and strerror: rmtree of Python 3.12+ adds the filename to it before raising
-        mocker.patch.object(os, "rmdir", side_effect=PermissionError(errno.EACCES, "read-only storage"))
+        mocker.patch.object(os, "rename", side_effect=PermissionError(errno.EACCES, "read-only storage"))
         with pytest.raises(PermissionError, match="read-only storage"):
-            collection_adapter.delete(array_collection, timeout=Sentinel, token=DefaultToken())
+            collection_adapter.delete(array_collection, background=False, _empty_trash=True, token=DefaultToken())
         assert os.path.exists(array_collection.path)
 
     def test_collection_adapter_get_collection(
@@ -237,7 +231,7 @@ class TestCollectionAdapter:
         :param collection_adapter: collection adapter
         :param root_path: Path to collections directory
         """
-        collection_adapter.clear(array_collection, timeout=Sentinel, token=DefaultToken())
+        collection_adapter.clear(array_collection, background=False, _empty_trash=True, token=DefaultToken())
 
         collection_dir = None
         for child in root_path.joinpath(collection_adapter.ctx.config.collections_directory).iterdir():
@@ -247,7 +241,6 @@ class TestCollectionAdapter:
         assert collection_dir is not None
         collection_dir = os.listdir(collection_dir)
         assert f"{array_collection.name}.json" in collection_dir
-        assert os.path.exists(array_collection.path.parent / (array_collection.name + ".lock"))
 
     def test_collection_adapter_iter(self, client: Client, array_schema: ArraySchema, root_path: Path, ctx):
         for root, dirs, files in os.walk(root_path / ctx.config.collections_directory):
@@ -292,21 +285,6 @@ class TestCollectionAdapterClosed:
 
 
 class TestCollectionAdapterEdges:
-    def test_create_path_raises_if_directory_exists(self, collection_adapter: LocalCollectionAdapter):
-        name = "already-there"
-        path = collection_adapter._LocalCollectionAdapter__create_path(name)
-        try:
-            with pytest.raises(DekerCollectionAlreadyExistsError):
-                collection_adapter._LocalCollectionAdapter__create_path(name)
-        finally:
-            shutil.rmtree(path)
-
-    def test_create_writes_nothing_into_a_missing_directory(
-        self, collection_adapter: LocalCollectionAdapter, root_path: Path
-    ):
-        collection_adapter._LocalCollectionAdapter__create("ghost", {}, root_path / "ghost")
-        assert not list(root_path.rglob("ghost*"))
-
     def test_read_raises_for_missing_collection(self, collection_adapter: LocalCollectionAdapter):
         with pytest.raises(DekerCollectionNotExistsError):
             collection_adapter.read("no-such-collection")
@@ -347,7 +325,7 @@ class TestCollectionAdapterCancellation:
         token = SimpleToken()
         token.cancel()
         with pytest.raises(TokenCancelledError):
-            getattr(collection_adapter, operation)(array_collection, timeout=Sentinel, token=token)
+            getattr(collection_adapter, operation)(array_collection, background=False, _empty_trash=True, token=token)
         assert array_collection.path.exists()
         assert [a.id for a in array_collection] == [array.id]
 
@@ -367,60 +345,3 @@ class TestCollectionAdapterCancellation:
             collection_adapter.create(collection, timeout=Sentinel, token=token)
         assert not (collection_adapter.collections_resource / name).exists()
         assert not (collection_adapter.collections_resource / (name + ".lock")).exists(), "no lock without a collection"
-
-    @pytest.mark.parametrize(
-        ("operation", "failure", "collection_left"),
-        [
-            pytest.param("create", "mkdir", False, id="create-fails-before-the-directory"),
-            pytest.param("create", "metadata", True, id="create-fails-after-the-directory"),
-            pytest.param("create", "exists", True, id="create-of-an-existing-collection"),
-            pytest.param("clear", "walk", True, id="clear-fails"),
-        ],
-    )
-    def test_a_failed_operation_leaves_the_lock_only_beside_a_collection(
-        self,
-        client: Client,
-        collection_adapter: LocalCollectionAdapter,
-        array_schema: ArraySchema,
-        name: str,
-        mocker: MockerFixture,
-        operation: str,
-        failure: str,
-        collection_left: bool,
-    ):
-        """The lock file marks a collection: a failure removes it only when no collection directory is left."""
-        collection = Collection(
-            name=name,
-            schema=array_schema,
-            adapter=collection_adapter,
-            factory=client._factory,
-            storage_adapter=HDF5StorageAdapter,
-        )
-        if failure in ("exists", "walk"):
-            collection_adapter.create(collection, timeout=Sentinel, token=DefaultToken())
-        error = OSError(errno.ENOSPC, "No space left on device")
-        if failure == "mkdir":
-            mocker.patch("deker_local_adapters.collection_adapter.os.mkdir", side_effect=error)
-        elif failure == "metadata":
-            mocker.patch.object(LocalCollectionAdapter, "_LocalCollectionAdapter__create", side_effect=error)
-        elif failure == "walk":
-            mocker.patch("deker_local_adapters.collection_adapter.os.walk", side_effect=error)
-        root = collection_adapter.collections_resource
-        try:
-            with pytest.raises((OSError, DekerCollectionAlreadyExistsError)):
-                getattr(collection_adapter, operation)(collection, timeout=Sentinel, token=DefaultToken())
-            assert (root / name).is_dir() is collection_left
-            assert (root / (name + ".lock")).exists() is collection_left
-        finally:
-            mocker.stopall()
-            collection_adapter.delete(collection, timeout=Sentinel, token=DefaultToken())
-
-    @pytest.mark.timeout(10)
-    def test_clear_waits_for_the_collection_up_to_the_timeout(self, array_collection: Collection, collection_adapter):
-        array = array_collection.create()
-        with Flock(collection_adapter.collections_resource / (array_collection.name + ".lock")):
-            start = time.monotonic()
-            with pytest.raises(DekerLockError):
-                collection_adapter.clear(array_collection, timeout=1, token=DefaultToken())
-            assert time.monotonic() - start < 2.5
-        assert [a.id for a in array_collection] == [array.id]

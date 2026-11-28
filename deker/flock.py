@@ -22,7 +22,6 @@ from typing import Any
 
 from deker.errors import DekerLockError
 from deker.log import SelfLoggerMixin
-from deker.types.private.enums import LocksExtensions
 
 
 class Flock(SelfLoggerMixin):
@@ -33,11 +32,13 @@ class Flock(SelfLoggerMixin):
 
     :param file: path to the file or directory to be locked
     :param shared: take a shared lock (several holders at once, no exclusive holder) instead of an exclusive one
+    :param create: create the file, empty, when it does not exist; its directory never
     """
 
-    def __init__(self, file: Path, shared: bool = False) -> None:
+    def __init__(self, file: Path, shared: bool = False, create: bool = False) -> None:
         self.file = file
         self.shared = shared
+        self.create = create
         self.fd: int | None = None  # file descriptor, closed on Flock release
         self.logger.debug("Instantiated")
 
@@ -46,16 +47,11 @@ class Flock(SelfLoggerMixin):
 
         :raises DekerLockError: if the file is already locked by another holder: exclusively, or at all when
           an exclusive lock is asked
-        :raises FileNotFoundError: if the file does not exist; only a collection lock file is created on the way, its
-          directory never
+        :raises FileNotFoundError: if the file does not exist and is not to be created, or its directory does not exist
         """
-        # a collection lock file is created on the way; any other path (a data file, a directory) is locked as it is
         self.logger.debug("Trying to acquire lock for %s", self.file)
-        if str(self.file).endswith(LocksExtensions.collection_lock.value):
-            flags = os.O_WRONLY | os.O_CREAT
-        else:
-            flags = os.O_RDONLY
-        fd = os.open(self.file, flags)
+        # a created file gets the mode a new file of ``open`` gets
+        fd = os.open(self.file, os.O_WRONLY | os.O_CREAT if self.create else os.O_RDONLY, 0o666)
         self.logger.debug("Opened descriptor for %s", self.file)
         try:
             fcntl.flock(fd, (fcntl.LOCK_SH if self.shared else fcntl.LOCK_EX) | fcntl.LOCK_NB)

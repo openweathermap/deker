@@ -62,7 +62,6 @@ class StorageFiles:
 
     :param root: path to the directory of the collections
     :param names: names of the collection directories looked at
-    :param lock_names: names of the collections that have a lock file
     :param collections: the collections that initialised
     :param unreadable: the collections that did not, with the reason
     :param without_file: the names of the unreadable collections whose directory has no collection file
@@ -72,7 +71,6 @@ class StorageFiles:
 
     root: Path
     names: list[str] = field(default_factory=list)
-    lock_names: list[str] = field(default_factory=list)
     collections: list[Collection] = field(default_factory=list)
     unreadable: dict[str, str] = field(default_factory=dict)
     without_file: list[str] = field(default_factory=list)
@@ -299,7 +297,7 @@ def remove_with_empty_parents(path: Path, stop: Path) -> None:
 
 
 class CollectionsCheck(StorageCheck):
-    """Every collection initialises and has its lock file; every lock file has its collection.
+    """Every collection initialises; a directory without its collection file is found.
 
     A collection file of an older metadata version is reported: it opens with the defaults of the current
     version and is never rewritten.
@@ -338,55 +336,25 @@ class CollectionsCheck(StorageCheck):
                     path=target.root / name / (name + file_ext),
                 )
             )
-        for collection in target.collections:
-            if collection.name not in target.lock_names:
-                findings.append(
-                    self.finding(
-                        IntegrityFindingKind.lock_missing,
-                        f"Lock file of collection {collection.name} not found",
-                        collection=collection.name,
-                        path=target.root / (collection.name + LocksExtensions.collection_lock.value),
-                        repairable=True,
-                    )
-                )
-        for name in target.lock_names:
-            if name not in target.names:
-                lock_file = target.root / (name + LocksExtensions.collection_lock.value)
-                findings.append(
-                    self.finding(
-                        IntegrityFindingKind.lock_orphaned,
-                        f"Lock file {lock_file.name} has no collection",
-                        collection=name,
-                        path=lock_file,
-                        repairable=True,
-                    )
-                )
         return findings
 
     def repair(self, finding: IntegrityFinding) -> None:
-        """Create the missing lock file or remove the orphaned one; remove a collection directory without its file.
+        """Remove a collection directory without its collection file, or with an empty one.
 
-        The directory is removed with everything in it, under the lock of the collection taken without waiting:
-        its creator holds the lock until the collection file is written.
+        The directory is removed with everything in it, under the lock of the collection taken without waiting: its
+        creator holds the lock, the collection file, until the file is written.
 
         :param finding: the finding
         :raises DekerLockError: if the lock of the collection is held: its creator is at work, nothing is removed
         """
         if finding.path is None:  # pragma: no cover  # guard: run() sets the path of every finding
             raise DekerIntegrityError(f"Finding {finding.kind.value} names no file")
-        if finding.kind == IntegrityFindingKind.lock_missing:
-            finding.path.touch()
-        elif finding.kind == IntegrityFindingKind.lock_orphaned:
-            finding.path.unlink()
-        elif finding.kind == IntegrityFindingKind.collection_unreadable:
-            directory = finding.path.parent
-            with Flock(directory.with_name(directory.name + LocksExtensions.collection_lock.value)) as lock:
-                if finding.path.exists():  # a broken file, or the creator has written it since the finding
-                    self.refuse(finding)
-                shutil.rmtree(directory)
-                lock.file.unlink(missing_ok=True)  # as LocalCollectionAdapter.delete does
-        else:
+        if finding.kind != IntegrityFindingKind.collection_unreadable:
             self.refuse(finding)
+        with Flock(finding.path, create=True):
+            if finding.path.stat().st_size:  # a broken file, or the creator has written it since the finding
+                self.refuse(finding)
+            shutil.rmtree(finding.path.parent)
 
 
 class MarkersCheck(CollectionCheck):
@@ -878,18 +846,15 @@ class IntegrityChecker(SelfLoggerMixin):
         storage.collections.append(collection)
 
     def _scan_storage(self, collection_name: str | SentinelType) -> StorageFiles:
-        """Look at the root of the storage: the collections and their lock files.
+        """Look at the root of the storage: the directories of the collections.
 
         :param collection_name: the only collection to look at; ``Sentinel`` - every collection
         :returns: the storage files
         :raises DekerCriticalError: if the collections directory of the storage does not exist
         """
         storage = StorageFiles(root=self.root_path)
-        lock_ext = LocksExtensions.collection_lock.value
         if not is_sentinel(collection_name):
             storage.names.append(collection_name)
-            if (self.root_path / (collection_name + lock_ext)).is_file():
-                storage.lock_names.append(collection_name)
         else:
             try:
                 entries = sorted(self.root_path.iterdir())
@@ -899,8 +864,6 @@ class IntegrityChecker(SelfLoggerMixin):
             for entry in entries:
                 if entry.is_dir():
                     storage.names.append(entry.name)
-                elif entry.name.endswith(lock_ext):
-                    storage.lock_names.append(entry.name[: -len(lock_ext)])
         for name in storage.names:
             self._init_collection(name, storage, named=not is_sentinel(collection_name))
         return storage

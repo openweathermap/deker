@@ -15,9 +15,9 @@ class TestIntegrityReport:
         return [
             IntegrityFinding(
                 check=IntegrityCheck.collections,
-                kind=IntegrityFindingKind.lock_orphaned,
-                message="Lock file gone.lock has no collection",
-                path=Path("/storage/gone.lock"),
+                kind=IntegrityFindingKind.collection_unreadable,
+                message="Directory half has no collection file",
+                path=Path("/storage/half/half.json"),
                 repairable=True,
             ),
             IntegrityFinding(
@@ -72,7 +72,7 @@ class TestIntegrityReport:
         report = IntegrityReport(findings)
         assert str(report) == (
             "Storage, collections:\n"
-            "\t- Lock file gone.lock has no collection\n"
+            "\t- Directory half has no collection file\n"
             "Collection weather, links:\n"
             "\t- Symlink of Array a1 not found (repaired)\n"
             "\t- Directory holds several arrays\n"

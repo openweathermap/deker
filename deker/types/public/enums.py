@@ -47,8 +47,6 @@ class IntegrityFindingKind(str, Enum):
 
     collection_unreadable = "collection_unreadable"
     collection_outdated = "collection_outdated"
-    lock_missing = "lock_missing"
-    lock_orphaned = "lock_orphaned"
     marker_left = "marker_left"
     meta_unreadable = "meta_unreadable"
     symlink_missing = "symlink_missing"

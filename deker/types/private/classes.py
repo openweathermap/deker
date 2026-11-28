@@ -32,7 +32,6 @@ __all__ = (
     "ArrayMeta",
     "ArrayLockMeta",
     "ArrayPosition",
-    "CollectionLockMeta",
     "Paths",
 )
 
@@ -115,15 +114,6 @@ class ArrayPositionedData(NamedTuple):
     vposition: tuple[int, ...]
     bounds: tuple[slice | int, ...]
     data: "Data"
-
-
-class CollectionLockMeta(TypedDict):
-    """Description of a collection lock file in the lock listing."""
-
-    Lockfile: str
-    Collection: str
-    Type: str
-    Creation: str
 
 
 class ArrayLockMeta(TypedDict):

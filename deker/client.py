@@ -56,7 +56,6 @@ from deker.tools.path import check_storage_directory
 from deker.types import (
     DEFAULT_INTEGRITY_CHECKS,
     ArrayLockMeta,
-    CollectionLockMeta,
     IntegrityCheck,
     IntegrityReport,
     LocksExtensions,
@@ -637,9 +636,7 @@ class Client(SelfLoggerMixin):
 
     # TODO: remove in 3.0.0 with clear_locks: the markers are not made since 2.0.0
     @staticmethod
-    def _iter_collection_locks(
-        path: Path, collection_name: str, lock_type: LocksTypes | SentinelType = Sentinel
-    ) -> list[ArrayLockMeta]:
+    def _iter_collection_locks(path: Path, collection_name: str) -> list[ArrayLockMeta]:
         """Return the lock files of the ``Arrays`` of a collection.
 
         The only lock files of arrays are the markers of VArray writes left by Deker < 2, named
@@ -647,11 +644,8 @@ class Client(SelfLoggerMixin):
 
         :param path: ``Collection`` path
         :param collection_name: name of a ``Collection``
-        :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
         :returns: lock files of the collection arrays
         """
-        if not is_sentinel(lock_type) and lock_type != LocksTypes.varray_lock:
-            return []
         locks: list[ArrayLockMeta] = []
         for file in Path.rglob(path, f"*{LocksExtensions.varray_lock.value}"):
             meta = file.name[: -len(LocksExtensions.varray_lock.value)].split(":")
@@ -673,25 +667,26 @@ class Client(SelfLoggerMixin):
         self,
         collection_name: str | SentinelType = Sentinel,
         lock_type: LocksTypes | SentinelType = Sentinel,
-    ) -> list[CollectionLockMeta | ArrayLockMeta]:
+    ) -> list[ArrayLockMeta]:
         """Return lockfiles of ``Collections`` and ``Arrays``.
 
-        A collection has a lock file only while it is created or cleared; the arrays have none since 2.0.0,
-        only the markers left by Deker < 2 may be found.
+        The arrays have none since 2.0.0, only the markers left by Deker < 2 may be found; the lock of a collection is
+        its json file, and the ``<collection>.lock`` files of the older versions are not listed.
 
         :param collection_name: Name of a ``Collection``
           If passed - gets locks only from passed ``Collection``, else checks every collection in the storage
-        :param lock_type: ``LocksTypes`` enum attribute, leave empty to get every lockfile
+        :param lock_type: ``LocksTypes`` enum attribute; not used: the markers of VArray writes are the only lock files
+          left to list
         :returns: lock files of collections and arrays
         :raises DekerCollectionNotExistsError: if the collection does not exist
         :raises DekerCriticalError: if the collections directory of the storage does not exist
         """
-        locks: list[CollectionLockMeta | ArrayLockMeta] = []
+        locks: list[ArrayLockMeta] = []
         if not is_sentinel(collection_name):
             collection = self.get_collection(collection_name)
             if not collection:
                 raise DekerCollectionNotExistsError(f"Collection {collection_name} does not exist at this storage")
-            locks.extend(self._iter_collection_locks(self.root_path / collection_name, collection_name, lock_type))
+            locks.extend(self._iter_collection_locks(self.root_path / collection_name, collection_name))
         else:
             try:
                 entries = list(Path(self.root_path).iterdir())
@@ -700,18 +695,8 @@ class Client(SelfLoggerMixin):
                 raise
             for entry in entries:
                 if entry.is_file():
-                    if (is_sentinel(lock_type) or lock_type == LocksTypes.collection_lock) and entry.name.endswith(
-                        LocksExtensions.collection_lock.value
-                    ):
-                        lock: CollectionLockMeta = {
-                            "Lockfile": entry.name,
-                            "Collection": entry.name[: -len(LocksExtensions.collection_lock.value)],
-                            "Type": LocksTypes.collection_lock.value,
-                            "Creation": datetime.fromtimestamp(entry.stat().st_ctime).isoformat(),
-                        }
-                        locks.append(lock)
-                    continue
-                locks.extend(self._iter_collection_locks(entry, entry.name, lock_type))
+                    continue  # not a collection: a lock file of an older version, for instance
+                locks.extend(self._iter_collection_locks(entry, entry.name))
         return locks
 
     # TODO: remove in 3.0.0
@@ -763,8 +748,8 @@ class Client(SelfLoggerMixin):
 
         The checks, from the cheapest to the most expensive:
 
-        - ``collections``: every collection initialises and has its lock file, every lock file has its collection;
-          a collection file of an older metadata version is reported, it is never rewritten
+        - ``collections``: every collection initialises; a collection file of an older metadata version is reported,
+          it is never rewritten
         - ``markers``: no markers of VArray writes are left by Deker < 2
         - ``arrays``: every main file initialises an ``Array`` or a ``VArray``; an ``Array`` of a VArray
           collection refers to an existing ``VArray``, has its ``v_position`` inside the ``vgrid`` and carries
@@ -780,7 +765,8 @@ class Client(SelfLoggerMixin):
         :param collection: name of the only ``Collection`` to check; not given - every collection
         :param checks: the checks to run
         :param stop_on_error: raise ``DekerIntegrityError`` at the first finding instead of collecting them all
-        :param repair: repair the repairable findings: missing or broken symlinks, lock files, markers,
+        :param repair: repair the repairable findings: collection directories without their files, missing or
+          broken symlinks, markers,
           time attributes of Arrays of VArrays, counters of empty cells
         :param workers: threads to check the arrays of a collection with
         :param to_file: write the report to a file: ``True`` for a default-named file in the current directory,

@@ -290,7 +290,7 @@ class TestCreateCollectionFromMeta:
             (IArrayAdapter, name)
             for name in ("create", "update_meta_custom_attributes", "read_data", "update", "clear")
         ],
-        *[(BaseCollectionAdapter, name) for name in ("create", "clear", "delete")],
+        (BaseCollectionAdapter, "create"),
     ],
 )
 def test_operations_of_the_adapters_take_the_timeout_and_the_token(interface, method):
@@ -306,10 +306,13 @@ def test_operations_of_the_adapters_take_the_timeout_and_the_token(interface, me
         (BaseArrayAdapter, "delete_all_by_vid", ["token"]),
         (BaseVArrayAdapter, "delete_main_file", ["background", "_empty_trash"]),
         (IArrayAdapter, "empty_trash", ["background"]),
+        (BaseCollectionAdapter, "delete", ["background", "_empty_trash", "token"]),
+        (BaseCollectionAdapter, "clear", ["background", "_empty_trash", "token"]),
     ],
 )
 def test_deletions_of_arrays_take_no_timeout(interface, method, keywords):
-    """The deletion takes no lock: no timeout; the emptying of the trash is told by the flags of the operation."""
+    """The deletion and the clearing take no lock: no timeout; the emptying of the trash is told by the flags of the
+    operation."""
     parameters = inspect.signature(getattr(interface, method)).parameters
     assert "timeout" not in parameters
     assert [name for name, parameter in parameters.items() if parameter.kind is inspect.Parameter.KEYWORD_ONLY] == (

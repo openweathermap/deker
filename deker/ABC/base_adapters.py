@@ -249,23 +249,23 @@ class BaseCollectionAdapter(SelfLoggerMixin, ABC, Generic[PathT]):
         pass
 
     @abstractmethod
-    def delete(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
-        """Delete collection.
+    def delete(self, collection: "Collection", *, background: bool, _empty_trash: bool, token: AbstractToken) -> None:
+        """Delete collection, taking no lock: it is moved to the trash; a collection deleted already is not an error.
 
         :param collection: Collection to delete
-        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
-          ``write_lock_timeout`` of the client
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the move; ``False`` - only move
         :param token: token of the write operation
         """
         pass
 
     @abstractmethod
-    def clear(self, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken) -> None:
-        """Remove every array of the collection; the collection itself stays.
+    def clear(self, collection: "Collection", *, background: bool, _empty_trash: bool, token: AbstractToken) -> None:
+        """Remove every array of the collection, taking no lock: they are moved to the trash; the collection stays.
 
         :param collection: Collection to be cleared
-        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
-          ``write_lock_timeout`` of the client
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the moves; ``False`` - only move
         :param token: token of the write operation
         """
         pass
