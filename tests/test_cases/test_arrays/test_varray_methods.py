@@ -1119,7 +1119,7 @@ class TestVArrayDelete:
         name = inserted_varray.id + adapter.file_ext
         symlinks = list(inserted_varray._VArray__array_adapter._adapter_iter(inserted_varray.id))
         assert len(symlinks) == 8
-        arrays = [path for symlink in symlinks for path in (symlink.readlink(), symlink)]
+        arrays = [path for symlink in symlinks for path in (symlink, symlink.readlink())]
         move = mocker.spy(deker_local_adapters.mixin, "move_to_trash")
         inserted_varray.delete()
         assert [call.args[0] for call in move.call_args_list] == [paths.symlink / name, *arrays, paths.main / name]

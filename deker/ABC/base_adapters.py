@@ -557,13 +557,28 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         pass
 
     @abstractmethod
-    def clear(self, array: ArrayT, bounds: Slice, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+    def clear(
+        self,
+        array: ArrayT,
+        bounds: Slice,
+        *,
+        timeout: int | SentinelType,
+        background: bool,
+        _empty_trash: bool,
+        token: AbstractToken,
+    ) -> None:
         """Set a section of array to the fill value.
+
+        A section of every cell of an Array is cleared by an empty file put in place of its file, the old file going to
+        the trash; another section is cleared in the file.
 
         :param array: Array or VArray
         :param bounds: bounds of a section to be cleared
         :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
           ``write_lock_timeout`` of the client
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the clearing; ``False`` - leave in the trash what the clearing
+          put there
         :param token: token of the write operation
         """
         pass

@@ -22,8 +22,6 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from typing_extensions import TypedDict
 
-from deker.errors import DekerInstanceNotExistsError
-
 if TYPE_CHECKING:
     from deker.types import Data
 
@@ -88,10 +86,9 @@ class Paths(NamedTuple):
                 except FileExistsError:
                     pass
                 except FileNotFoundError:
-                    from deker.tools.path import check_storage_directory  # circular import otherwise
+                    from deker.tools.path import raise_not_found  # circular import otherwise
 
-                    check_storage_directory(collection_path.parent)
-                    raise DekerInstanceNotExistsError(f"{os.path.dirname(current)} doesn't exist") from None
+                    raise_not_found(Path(os.path.dirname(current)), collection_path.parent)
 
 
 class ArrayPosition(NamedTuple):

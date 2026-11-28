@@ -16,7 +16,13 @@ from deker.errors import DekerCriticalError, DekerInstanceNotExistsError, DekerM
 from deker.tools import array as array_tools
 from deker.tools import check_memory, convert_human_memory_to_bytes, get_default_fill_value, get_paths
 from deker.tools.array import UNCHECKED_SHARE_OF_LIMIT
-from deker.tools.path import check_storage_directory
+from deker.tools.path import (
+    check_storage_directory,
+    get_main_of_temporary,
+    get_temporary_path,
+    is_temporary_path,
+    raise_not_found,
+)
 from deker.tools.time import convert_datetime_attrs_to_iso, convert_iso_attrs_to_datetime
 
 if TYPE_CHECKING:
@@ -346,3 +352,65 @@ class TestCheckStorageDirectory:
         assert str(error.value) == message
         assert [(record.levelno, record.getMessage()) for record in deker_log.records] == [(logging.CRITICAL, message)]
         assert not missing.exists()
+
+
+class TestRaiseNotFound:
+    """A file that is not found is critical when the collections directory is gone, a missing instance otherwise."""
+
+    @pytest.mark.parametrize("storage_gone", [False, True], ids=["file gone", "storage gone"])
+    def test_tells_a_missing_storage_from_a_missing_file(
+        self, tmp_path: Path, deker_log: pytest.LogCaptureFixture, storage_gone: bool
+    ):
+        collections = tmp_path / "collections"
+        if not storage_gone:
+            collections.mkdir()
+        file = collections / "c" / "a.hdf5"
+        try:
+            raise FileNotFoundError(file)
+        except FileNotFoundError:
+            if storage_gone:
+                with pytest.raises(DekerCriticalError) as critical:
+                    raise_not_found(file, collections)
+                assert str(critical.value) == f"Storage directory {collections} doesn't exist"
+                assert [record.levelno for record in deker_log.records] == [logging.CRITICAL]
+                return
+            with pytest.raises(DekerInstanceNotExistsError) as error:
+                raise_not_found(file, collections)
+        assert str(error.value) == f"{file} doesn't exist"
+        assert error.value.__suppress_context__
+        assert deker_log.records == []
+
+
+ARRAY_ID = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0"
+
+
+class TestTemporaryPaths:
+    """The temporary file of a main file is named in one place: ``<main name>.<random hex>.tmp`` next to it."""
+
+    @pytest.mark.parametrize("name", [f"{ARRAY_ID}.hdf5", f"{ARRAY_ID}.json"], ids=["full clearing", "update"])
+    def test_round_trip_from_the_main_file(self, tmp_path: Path, name: str):
+        main = tmp_path / "data" / name
+        temporary = get_temporary_path(main)
+        assert temporary.parent == main.parent
+        assert temporary.name.startswith(main.name + ".")
+        assert temporary.suffix == ".tmp"
+        assert is_temporary_path(temporary)
+        assert get_main_of_temporary(temporary) == main
+        assert get_temporary_path(main) != temporary  # a random tail for every operation
+        assert not is_temporary_path(main)
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "notes.txt",
+            f"{ARRAY_ID}.tmp",
+            f"{ARRAY_ID}.hdf5.tmp",
+            f"{ARRAY_ID}.json.tmp",
+            f"{ARRAY_ID}.json.tmp.bak",
+            f"{ARRAY_ID}.hdf5.{'0' * 31}.tmp",
+            f"{ARRAY_ID}.hdf5.{'g' * 32}.tmp",
+            f"{'0' * 32}.tmp",
+        ],
+    )
+    def test_other_names_are_not_temporary(self, tmp_path: Path, name: str):
+        assert not is_temporary_path(tmp_path / name)

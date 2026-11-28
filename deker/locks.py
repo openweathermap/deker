@@ -34,7 +34,7 @@ from deker_tools.typings import Sentinel, SentinelType, is_sentinel
 from deker.ABC.base_locks import BaseLock, wait_for_unlock
 from deker.errors import DekerInstanceNotExistsError, DekerLockError
 from deker.flock import Flock
-from deker.tools.path import check_storage_directory, get_main_path
+from deker.tools.path import check_storage_directory, get_main_path, raise_not_found
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseVArrayAdapter
@@ -94,14 +94,12 @@ class LockWithArrayMixin(Generic[T]):
             try:
                 lock.acquire()
             except FileNotFoundError:
-                check_storage_directory(self.instance.collection_path.parent)
-                raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
+                raise_not_found(path, self.instance.collection_path.parent)
             try:
                 at_path = os.path.samestat(os.fstat(lock.descriptor), os.stat(path))
             except FileNotFoundError:
                 lock.release()
-                check_storage_directory(self.instance.collection_path.parent)
-                raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
+                raise_not_found(path, self.instance.collection_path.parent)
             if at_path:
                 return lock
             lock.release()
@@ -168,6 +166,50 @@ class WaitingReadArrayLock(ReadArrayLock):
         """
         if not self.lock:
             super().acquire(path)
+
+
+class ClearingArrayLock(LockWithArrayMixin["Array"], BaseLock):
+    """Lock of the full clearing of an Array: an exclusive flock on the directory of its main file.
+
+    The full clearing replaces the main file while it holds the file shared, so two full clearings would both hold
+    it and replace it one after another. They take this lock first, then the shared one: the directory is the own
+    directory of the Array, which nothing else locks, so the readers and the writers never wait for it, and the
+    deletion takes no lock. The lock waits for another full clearing up to the timeout of the call.
+    """
+
+    ALLOWED_TYPES = ["LocalArrayAdapter"]
+
+    def get_path(self) -> Path:
+        """Get the directory of the main file of the Array, which is the directory the lock is taken on."""
+        return self.dir_path
+
+    def acquire(self, path: Path | None) -> None:
+        """Take the exclusive flock on the directory, unless the wait has taken it already.
+
+        :param path: the directory of the main file
+        :raises DekerLockError: if another full clearing holds the directory
+        :raises DekerInstanceNotExistsError: if the directory does not exist
+        :raises DekerCriticalError: if the collections directory of the storage does not exist
+        """
+        if self.lock or path is None:
+            return
+        lock = Flock(path)
+        try:
+            lock.acquire()
+        except FileNotFoundError:
+            raise_not_found(path, self.instance.collection_path.parent)
+        self.lock = lock
+
+    def check_existing_lock(self, func_args: Sequence, func_kwargs: dict) -> None:  # noqa: ARG002
+        """Take the exclusive flock on the directory, waiting for another full clearing to leave.
+
+        :param func_args: arguments of method call
+        :param func_kwargs: keyword arguments of method call: ``timeout`` and ``token`` of the operation
+        :raises DekerLockError: if the directory is not released within the timeout of the operation
+        :raises TokenCancelledError: if the operation is cancelled while it waits
+        :raises DekerInstanceNotExistsError: if the directory does not exist; nothing is waited for
+        """
+        self._wait_and_acquire(func_kwargs, f"{self.array} is locked by another clearing")
 
 
 class WriteArrayLock(LockWithArrayMixin["Array"], BaseLock):
@@ -265,8 +307,7 @@ class ArrayCreationLock:
         except DekerLockError:
             return False
         except FileNotFoundError:
-            check_storage_directory(collections)
-            raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
+            raise_not_found(path, collections)
         self.flock = flock
         return True
 

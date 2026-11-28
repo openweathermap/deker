@@ -16,12 +16,14 @@
 
 import logging
 import os
+import re
+import uuid
 
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Protocol, Union, runtime_checkable
+from typing import TYPE_CHECKING, NoReturn, Protocol, Union, runtime_checkable
 
-from deker.errors import DekerCriticalError
+from deker.errors import DekerCriticalError, DekerInstanceNotExistsError
 from deker.log import _ROOT_DEKER_LOGGER_NAME
 from deker.types import Paths
 
@@ -73,6 +75,58 @@ def check_storage_directory(path: Path) -> None:
         message = f"Storage directory {path} doesn't exist"
         logging.getLogger(_ROOT_DEKER_LOGGER_NAME).critical(message)
         raise DekerCriticalError(message)
+
+
+def raise_not_found(path: Path, collections: Path) -> NoReturn:
+    """Raise the error of a file or a directory of the storage that is not found.
+
+    The only answer of Deker to a missing file: when the collections directory of the storage is gone, that is
+    critical; otherwise the array or the collection the path belongs to does not exist. Called where
+    ``FileNotFoundError`` is caught, the error it raises does not chain it.
+
+    :param path: the file or directory not found, named in the error
+    :param collections: the collections directory of the storage
+    :raises DekerCriticalError: if the collections directory does not exist
+    :raises DekerInstanceNotExistsError: if the collections directory is in place
+    """
+    check_storage_directory(collections)
+    raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
+
+
+# ``<main name>.<32 hex digits>.tmp``: the temporary file of an operation that replaces a main file
+_TEMPORARY_NAME = re.compile(r"(?P<main>.+\.[^.]+)\.[0-9a-f]{32}\.tmp")
+
+
+def get_temporary_path(main_file: Path) -> Path:
+    """Name the temporary file of an operation that replaces a main file: next to it, with a random tail.
+
+    The only scheme of the temporary files of the data directories, ``<main name>.<random hex>.tmp``: the full clearing
+    of an Array and the update of the custom attributes of a VArray write their new file so, the check of the integrity
+    finds the files left so. The name does not end with the extension of the main file, so no walk of the main files
+    takes it for one.
+
+    :param main_file: the main file
+    :returns: the path of the temporary file
+    """
+    return main_file.with_name(f"{main_file.name}.{uuid.uuid4().hex}.tmp")
+
+
+def is_temporary_path(path: Path) -> bool:
+    """Check that a file is named as a temporary file of a main file, by ``get_temporary_path``.
+
+    :param path: the file
+    :returns: ``True`` for ``<main name>.<32 hex digits>.tmp``
+    """
+    return _TEMPORARY_NAME.fullmatch(path.name) is not None
+
+
+def get_main_of_temporary(temporary: Path) -> Path:
+    """Get the main file a temporary file is named after.
+
+    :param temporary: a temporary file, as ``is_temporary_path`` tells it
+    :returns: the main file, next to the temporary one
+    """
+    return temporary.with_name(temporary.name.rsplit(".", 2)[0])
 
 
 def get_main_path(array_id: str, data_directory: Path) -> Path:

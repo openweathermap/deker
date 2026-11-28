@@ -45,6 +45,7 @@ from deker.locks import (
 )
 from deker.schemas import ArraySchema, DimensionSchema
 from deker.tools import get_main_path
+from deker.tools.path import get_temporary_path
 from deker.types import LocksExtensions
 
 
@@ -84,6 +85,62 @@ def open_descriptors() -> int:
     return len(os.listdir("/proc/self/fd"))
 
 
+class ReadUnderTheLock:
+    """Stand for a read decorated by the waiting read lock: it records the open descriptors and tries the file.
+
+    :param path: the main file under the lock
+    """
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.during: list[int] = []
+
+    def __call__(self, adapter, array, *, timeout, token) -> None:
+        self.during.append(open_descriptors())
+        with pytest.raises(DekerLockError):
+            Flock(self.path).acquire()  # exclusive: refused
+        other = Flock(self.path, shared=True)  # shared: welcome
+        other.acquire()
+        other.release()
+
+
+class GoneAtThePath:
+    """Stand for ``os.stat``: the main file is not found at its path; the collections directory may go too.
+
+    :param real: the real ``os.stat``
+    :param path: the main file
+    :param collections: the collections directory of the storage
+    :param storage_gone: take the collections directory away as well
+    """
+
+    def __init__(self, real, path: Path, collections: Path, storage_gone: bool) -> None:
+        self.real = real
+        self.path = path
+        self.collections = collections
+        self.storage_gone = storage_gone
+
+    def __call__(self, target, *args, **kwargs):
+        if str(target) != str(self.path):
+            return self.real(target, *args, **kwargs)
+        if self.storage_gone:
+            self.collections.rename(self.collections.with_name("collections-away"))
+        raise FileNotFoundError(2, "No such file or directory")
+
+
+class EnterAndLeave:
+    """Enter a context manager and leave it.
+
+    :param manager: the context manager
+    """
+
+    def __init__(self, manager) -> None:
+        self.manager = manager
+
+    def __call__(self) -> None:
+        with self.manager:
+            pass
+
+
 class MoveAfterOpen:
     """Stands in for ``os.open`` of ``deker.flock``: after the first opening of the path, moves a file once.
 
@@ -117,7 +174,7 @@ def add_one(self, array: VArray, *, timeout, token) -> None:
     path = self._get_main_path_to_file(array)
     meta = json.loads(path.read_text())
     meta["custom_attributes"]["custom_attribute"] += 1
-    temporary = path.with_name(path.name + ".tmp")
+    temporary = get_temporary_path(path)
     temporary.write_text(json.dumps(meta))
     os.replace(temporary, path)
 
@@ -534,18 +591,9 @@ class TestWaitingReadArrayLock:
         """The wait takes the flock before the call; the second acquire of the decorator does not take another."""
         path = lock.get_path()
         before = open_descriptors()
-        during: list[int] = []
-
-        def read(self, array, *, timeout, token):
-            during.append(open_descriptors())
-            with pytest.raises(DekerLockError):
-                Flock(path).acquire()  # exclusive: refused
-            other = Flock(path, shared=True)  # shared: welcome
-            other.acquire()
-            other.release()
-
+        read = ReadUnderTheLock(path)
         WaitingReadArrayLock()(read)(local_array_adapter, inserted_array, timeout=1, token=DefaultToken())
-        assert during == [before + 1]
+        assert read.during == [before + 1]
         assert open_descriptors() == before
 
     @pytest.mark.timeout(10)
@@ -1438,16 +1486,7 @@ class TestLocksTellAMissingStorageFromAMissingFile:
         adapter = array._adapter
         collections = adapter.collection_path.parent
         path = adapter._get_main_path_to_file(array)
-        stat = os.stat
-
-        def gone_at_the_path(target, *args, **kwargs):
-            if str(target) == str(path):
-                if storage_gone:
-                    collections.rename(collections.with_name("collections-away"))
-                raise FileNotFoundError(2, "No such file or directory")
-            return stat(target, *args, **kwargs)
-
-        mocker.patch.object(os, "stat", side_effect=gone_at_the_path)
+        mocker.patch.object(os, "stat", side_effect=GoneAtThePath(os.stat, path, collections, storage_gone))
         self.check(lambda: adapter.read_meta(array), collections, storage_gone, f"{path} doesn't exist", deker_log)
 
     @pytest.mark.parametrize(
@@ -1466,9 +1505,4 @@ class TestLocksTellAMissingStorageFromAMissingFile:
         if storage_gone:
             collections.rename(collections.with_name("collections-away"))
         lock = ArrayCreationLock(adapter, varray, collection, timeout=Sentinel, token=DefaultToken())
-
-        def enter() -> None:
-            with lock:
-                pass
-
-        self.check(enter, collections, storage_gone, f"{directory} doesn't exist", deker_log)
+        self.check(EnterAndLeave(lock), collections, storage_gone, f"{directory} doesn't exist", deker_log)

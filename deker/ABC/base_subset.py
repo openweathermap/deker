@@ -168,11 +168,16 @@ class BaseSubset(SelfLoggerMixin, ABC, Generic[ArrayT]):
         pass
 
     @abstractmethod
-    def clear(self, *, timeout: int | SentinelType = Sentinel) -> None:
+    def clear(
+        self, *, timeout: int | SentinelType = Sentinel, background: bool = False, _empty_trash: bool = True
+    ) -> None:
         """Set the cells of the subset to the fill value.
 
-        :param timeout: seconds to wait for the write lock of each ``Array``; not given - ``write_lock_timeout``
-          of the client
+        :param timeout: seconds to wait for the lock of each ``Array``; not given - ``write_lock_timeout`` of the
+          client
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the clearing; ``False`` - leave in the trash what the clearing
+          put there
         """
         pass
 

@@ -299,6 +299,14 @@ def test_operations_of_the_adapters_take_the_timeout_and_the_token(interface, me
     assert parameters["token"].kind is inspect.Parameter.KEYWORD_ONLY
 
 
+def test_clear_of_an_array_takes_the_timeout_and_the_flags_of_the_trash():
+    """The clearing waits for its locks up to the timeout and empties the trash as the deletions do."""
+    parameters = inspect.signature(IArrayAdapter.clear).parameters
+    keywords = [name for name, parameter in parameters.items() if parameter.kind is inspect.Parameter.KEYWORD_ONLY]
+    assert keywords == ["timeout", "background", "_empty_trash", "token"]
+    assert all(parameters[name].default is inspect.Parameter.empty for name in keywords)
+
+
 @pytest.mark.parametrize(
     ("interface", "method", "keywords"),
     [

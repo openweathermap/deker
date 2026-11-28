@@ -1,9 +1,14 @@
+import logging
+import os
+import threading
 import time
 
 from collections import OrderedDict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import deker_local_adapters.collection_adapter
+import deker_local_adapters.mixin
 import h5py
 import hdf5plugin
 import numpy as np
@@ -14,20 +19,26 @@ from deker_local_adapters import HDF5CompressionOpts, HDF5Options
 from deker_tools.cancel import cancellation_scope
 from deker_tools.typings import Sentinel
 from numpy import ndarray
+from pytest_mock import MockerFixture
 
 from tests.fixtures.collection import SteppedCollections
 from tests.parameters.index_exp_params import array_step_cases, valid_index_exp_params
+from tests.parameters.uri import embedded_uri
+from tests.test_cases.test_arrays.test_array_methods import HeldEmptying
 
 from deker import ArraySchema, AttributeSchema, DimensionSchema, Scale, TimeDimensionSchema
 from deker.arrays import Array
+from deker.client import Client
 from deker.collection import Collection
 from deker.errors import (
     DekerArrayError,
     DekerCancelledError,
+    DekerCriticalError,
     DekerInstanceNotExistsError,
     DekerLockError,
     DekerSubsetError,
     DekerTimeoutError,
+    DekerTrashError,
     DekerValidationError,
 )
 from deker.flock import Flock
@@ -956,6 +967,23 @@ class TestSubsetTimeoutAndCancellation:
         assert adapter_call.call_args.kwargs["timeout"] == expected
         assert isinstance(adapter_call.call_args.kwargs["token"], AbstractToken)
 
+    @pytest.mark.parametrize(
+        ("kwargs", "background", "empty"),
+        [
+            pytest.param({}, False, True, id="default"),
+            pytest.param({"background": True}, True, True, id="background"),
+            pytest.param({"_empty_trash": False}, False, False, id="no-emptying"),
+            pytest.param({"background": True, "_empty_trash": False}, True, False, id="both"),
+        ],
+    )
+    def test_flags_of_the_clearing_reach_the_adapter(
+        self, inserted_array: Array, mocker, kwargs: dict, background: bool, empty: bool
+    ):
+        adapter_call = mocker.patch.object(inserted_array._adapter, "clear")
+        assert inserted_array[:].clear(**kwargs) is None
+        assert adapter_call.call_args.kwargs["background"] is background
+        assert adapter_call.call_args.kwargs["_empty_trash"] is empty
+
     @pytest.mark.parametrize("operation", list(SUBSET_OPERATIONS))
     @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
     def test_invalid_timeout_is_rejected_before_the_adapter(self, inserted_array: Array, mocker, operation, timeout):
@@ -1047,6 +1075,21 @@ class MoveAwayOnCheck:
 class TestSubsetOfAnArrayWhoseFileIsGone:
     """An Array whose main file is gone does not exist: its subset raises DekerInstanceNotExistsError."""
 
+    def test_directory_gone_between_the_check_and_the_lock_of_the_full_clearing(
+        self, inserted_array: Array, tmp_path: Path, mocker
+    ):
+        """The full clearing locks the directory of the main file first: a directory gone is a missing Array."""
+        file = main_file_of(inserted_array)
+        directory = file.parent
+        check = mocker.patch.object(
+            inserted_array._adapter, "is_deleted", side_effect=MoveAwayOnCheck(directory, tmp_path)
+        )
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            inserted_array[:].clear()
+        assert str(error.value) == f"{directory} doesn't exist"
+        assert check.call_count == 1
+        (tmp_path / directory.name).rename(directory)
+
     @pytest.mark.parametrize("operation", ["read", "update", "clear"])
     def test_file_gone_before_the_call(self, inserted_array: Array, tmp_path: Path, operation: str):
         """The directory of the file stays: the subset still tells that the Array does not exist."""
@@ -1073,3 +1116,374 @@ class TestSubsetOfAnArrayWhoseFileIsGone:
         assert str(error.value) == f"{file} doesn't exist"
         assert check.call_count == 1
         assert not file.exists()
+
+
+def trash_of(array: Array) -> Path:
+    """Find the trash of the storage of an Array.
+
+    :param array: the Array
+    :returns: the trash
+    """
+    return Path(array._adapter.uri.path) / array._adapter.ctx.config.trash_directory
+
+
+def inode_of(path: Path) -> int:
+    """Get the inode of a file: a full clearing puts a new file at the path of the main file.
+
+    :param path: the file
+    :returns: its inode
+    """
+    return os.stat(path).st_ino
+
+
+class MoveAfterReplace:
+    """Stand for ``os.replace``: replaces, then moves paths to the trash, as a deletion of the Array does meanwhile.
+
+    :param real: the real ``os.replace``
+    :param paths: what the deletion moves right after the replace, in its order
+    :param trash: the trash of the storage
+    """
+
+    def __init__(self, real, paths: list[Path], trash: Path) -> None:
+        self.real = real
+        self.paths = paths
+        self.trash = trash
+
+    def __call__(self, source, target, *args, **kwargs):
+        self.real(source, target, *args, **kwargs)
+        for number, path in enumerate(self.paths):
+            os.rename(path, self.trash / f"deleted-{number}")
+
+
+class DeleteBeforeLink:
+    """Stand for ``os.link``: the Array is deleted first, as a deletion that comes meanwhile does, then the link.
+
+    :param real: the real ``os.link``
+    :param array: the Array deleted
+    """
+
+    def __init__(self, real, array: Array) -> None:
+        self.real = real
+        self.array = array
+
+    def __call__(self, *args, **kwargs):
+        self.array.delete(_empty_trash=False)
+        return self.real(*args, **kwargs)
+
+
+class TestClearOfAWholeArray:
+    """A clearing of every cell of an Array puts an empty file in place of its file: it waits for the writer and for
+    another full clearing, never for the readers; the old file goes to the trash by a hard link."""
+
+    @pytest.fixture
+    def main(self, inserted_array: Array) -> Path:
+        """Main file of the Array; the trash is empty before the test and after it.
+
+        :param inserted_array: the Array with its data
+        """
+        trash = trash_of(inserted_array)
+        assert list(trash.iterdir()) == []
+        yield main_file_of(inserted_array)
+        inserted_array._adapter.empty_trash(background=False)
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.parametrize("index_exp", [np.index_exp[:], np.index_exp[...], np.index_exp[0:10, :, ::1]])
+    def test_readers_are_not_waited_for(self, inserted_array: Array, main: Path, index_exp: Slice):
+        before = inode_of(main)
+        with Flock(main, shared=True):
+            start = time.monotonic()
+            assert inserted_array[index_exp].clear(timeout=5) is None
+            assert time.monotonic() - start < 0.5
+        assert inode_of(main) != before
+        assert np.isnan(inserted_array[:].read()).all()
+        assert list(trash_of(inserted_array).iterdir()) == []
+
+    @pytest.mark.timeout(60)
+    def test_writer_is_waited_for_up_to_the_timeout(self, inserted_array: Array, array_data: ndarray, main: Path):
+        before = inode_of(main)
+        with Flock(main):
+            start = time.monotonic()
+            with pytest.raises(DekerLockError) as error:
+                inserted_array[:].clear(timeout=1)
+            assert 0.9 < time.monotonic() - start < 2.5
+        assert str(error.value) == f"{inserted_array} is locked by a writer"
+        assert inode_of(main) == before
+        assert np.array_equal(inserted_array[:].read(), array_data)
+        assert os.listdir(main.parent) == [main.name]
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.parametrize("directory", [False, True], ids=["writer", "another clearing"])
+    def test_holder_that_leaves_within_the_timeout_lets_it_clear(
+        self, inserted_array: Array, main: Path, directory: bool
+    ):
+        holder = Flock(main.parent if directory else main)
+        holder.acquire()
+        release = threading.Timer(1, holder.release)
+        release.start()
+        try:
+            start = time.monotonic()
+            assert inserted_array[:].clear(timeout=10) is None
+            assert time.monotonic() - start > 0.9
+        finally:
+            release.join(30)
+        assert np.isnan(inserted_array[:].read()).all()
+
+    @pytest.mark.timeout(60)
+    def test_another_clearing_is_waited_for_up_to_the_timeout(
+        self, inserted_array: Array, array_data: ndarray, main: Path
+    ):
+        """Another full clearing holds the directory of the main file exclusively."""
+        before = inode_of(main)
+        with Flock(main.parent):
+            start = time.monotonic()
+            with pytest.raises(DekerLockError) as error:
+                inserted_array[:].clear(timeout=1)
+            assert 0.9 < time.monotonic() - start < 2.5
+        assert str(error.value) == f"{inserted_array} is locked by another clearing"
+        assert inode_of(main) == before
+        assert np.array_equal(inserted_array[:].read(), array_data)
+
+    @pytest.mark.timeout(60)
+    def test_lock_of_the_directory_stops_neither_readers_nor_writers(
+        self, inserted_array: Array, array_data: ndarray, main: Path
+    ):
+        with Flock(main.parent):
+            start = time.monotonic()
+            assert inserted_array[0, 0, 0].read(timeout=1) == array_data[0, 0, 0]
+            inserted_array[1, 1, 1].update(-1.0, timeout=1)
+            inserted_array[2, 2, 2].clear(timeout=1)
+            assert time.monotonic() - start < 2
+        assert inserted_array[1, 1, 1].read() == -1.0
+        assert np.isnan(inserted_array[2, 2, 2].read())
+
+    def test_directory_is_locked_before_the_file(self, inserted_array: Array, main: Path, mocker: MockerFixture):
+        acquire = mocker.spy(Flock, "acquire")
+        inserted_array[:].clear()
+        assert [call.args[0].file for call in acquire.call_args_list] == [main.parent, main]
+        assert [call.args[0].shared for call in acquire.call_args_list] == [False, True]
+
+    def test_reader_that_holds_the_old_file_reads_the_old_data(
+        self, inserted_array: Array, array_data: ndarray, main: Path
+    ):
+        with h5py.File(main, "r", locking=False) as old:
+            inserted_array[:].clear()
+            assert np.array_equal(old["data"][()], array_data)
+        assert np.isnan(inserted_array[:].read()).all()
+
+    def test_object_taken_before_reads_the_fill_value(self, inserted_array: Array, main: Path):
+        taken_before = inserted_array._Array__collection.filter({"id": inserted_array.id}).last()
+        inserted_array[:].clear()
+        assert np.isnan(taken_before[:].read()).all()
+        taken_before[0, 0, 0].update(5.0)
+        assert inserted_array[0, 0, 0].read() == 5.0
+
+    def test_symlink_keeps_its_text_and_leads_to_the_new_file(self, inserted_array_with_attributes: Array):
+        array = inserted_array_with_attributes
+        main = main_file_of(array)
+        symlink = get_paths(array, array._adapter.collection_path).symlink / main.name
+        text, attributes = symlink.readlink(), (dict(array.primary_attributes), dict(array.custom_attributes))
+        array[:].clear()
+        assert symlink.readlink() == text
+        assert os.path.samefile(symlink, main)
+        collection = array._Array__collection
+        for found in (collection.filter({"id": array.id}).last(), collection.filter(array.primary_attributes).last()):
+            assert found.id == array.id
+            assert (dict(found.primary_attributes), dict(found.custom_attributes)) == attributes
+            assert np.isnan(found[:].read()).all()
+        array._adapter.empty_trash(background=False)
+
+    def test_metadata_is_taken_from_the_file(self, inserted_array_with_attributes: Array):
+        """The custom attributes updated through another object after this one was taken are kept."""
+        stale = inserted_array_with_attributes
+        collection = stale._Array__collection
+        fresh = collection.filter({"id": stale.id}).last()
+        fresh.update_custom_attributes({"custom_attribute": 9.5})
+        stale[:].clear()
+        assert collection.filter({"id": stale.id}).last().custom_attributes["custom_attribute"] == 9.5
+        stale._adapter.empty_trash(background=False)
+
+    def test_data_directory_holds_the_main_file_only(self, inserted_array: Array, main: Path):
+        inserted_array[:].clear()
+        assert os.listdir(main.parent) == [main.name]
+
+    @pytest.mark.parametrize("call", ["link", "replace"])
+    @pytest.mark.parametrize("error", [OSError("refused"), KeyboardInterrupt()], ids=["error", "interrupt"])
+    def test_failure_before_the_replace_removes_the_new_file(
+        self, inserted_array: Array, array_data: ndarray, main: Path, mocker: MockerFixture, call: str, error
+    ):
+        before = inode_of(main)
+        mocker.patch.object(os, call, side_effect=error)
+        with pytest.raises(type(error)) as raised:
+            inserted_array[:].clear()
+        assert raised.value is error
+        mocker.stopall()
+        assert os.listdir(main.parent) == [main.name]
+        assert inode_of(main) == before
+        assert np.array_equal(inserted_array[:].read(), array_data)
+        linked = list(trash_of(inserted_array).iterdir())
+        assert [inode_of(path) for path in linked] == ([before] if call == "replace" else [])
+
+    @pytest.mark.parametrize("moved", [1, 2], ids=["symlink", "symlink and main file"])
+    def test_deletion_after_the_replace_takes_the_new_file_to_the_trash(
+        self, inserted_array: Array, main: Path, mocker: MockerFixture, moved: int
+    ):
+        """The deletion moves the symlink, then the main file; the clearing finds the symlink gone after the replace."""
+        symlink = get_paths(inserted_array, inserted_array._adapter.collection_path).symlink / main.name
+        stand = MoveAfterReplace(os.replace, [symlink, main][:moved], trash_of(inserted_array))
+        mocker.patch.object(os, "replace", side_effect=stand)
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            inserted_array[:].clear()
+        assert str(error.value) == f"{main} doesn't exist"
+        assert not os.path.lexists(main)
+        assert not os.path.lexists(symlink)
+        assert not main.parent.exists()
+
+    def test_deletion_before_the_link_stops_the_clearing(
+        self, inserted_array: Array, main: Path, mocker: MockerFixture
+    ):
+        mocker.patch.object(os, "link", side_effect=DeleteBeforeLink(os.link, inserted_array))
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            inserted_array[:].clear()
+        assert str(error.value) == f"{main} doesn't exist"
+        assert not main.parent.exists()
+
+    @pytest.mark.parametrize("background", [False, True])
+    def test_without_emptying_the_trash_keeps_the_old_file_there(
+        self, inserted_array: Array, main: Path, mocker: MockerFixture, background: bool
+    ):
+        before = inode_of(main)
+        empty = mocker.spy(deker_local_adapters.mixin, "empty_trash_directory")
+        thread = mocker.spy(threading.Thread, "start")
+        assert inserted_array[:].clear(background=background, _empty_trash=False) is None
+        empty.assert_not_called()
+        thread.assert_not_called()
+        assert [inode_of(path) for path in trash_of(inserted_array).iterdir()] == [before]
+
+    def test_trash_is_emptied_once_by_default(self, inserted_array: Array, main: Path, mocker: MockerFixture):
+        empty = mocker.spy(deker_local_adapters.mixin, "empty_trash_directory")
+        inserted_array[:].clear()
+        empty.assert_called_once_with(trash_of(inserted_array), background=False, logger=inserted_array._adapter.logger)
+        assert list(trash_of(inserted_array).iterdir()) == []
+
+    @pytest.mark.timeout(60)
+    def test_background_returns_while_the_trash_is_emptied(
+        self, inserted_array: Array, main: Path, mocker: MockerFixture
+    ):
+        before = inode_of(main)
+        held = HeldEmptying(deker_local_adapters.collection_adapter._empty_trash_in_background)
+        mocker.patch.object(deker_local_adapters.collection_adapter, "_empty_trash_in_background", side_effect=held)
+        assert inserted_array[:].clear(background=True) is None
+        assert held.started.wait(30)
+        assert [inode_of(path) for path in trash_of(inserted_array).iterdir()] == [before]
+        (thread,) = held.threads
+        assert thread is not threading.current_thread()
+        assert thread.daemon
+        held.go.set()
+        thread.join(30)
+        assert list(trash_of(inserted_array).iterdir()) == []
+
+    def test_failed_emptying_is_raised_after_the_clearing(self, inserted_array: Array, main: Path, client: Client):
+        trash = trash_of(inserted_array)
+        locked = trash / "locked"
+        locked.mkdir()
+        (locked / "kept").write_text("file")
+        locked.chmod(0o500)
+        try:
+            with pytest.raises(DekerTrashError) as error:
+                inserted_array[:].clear()
+            assert str(error.value) == (
+                f"The trash of the storage is not emptied: 1 files are not removed from {trash}. "
+                "Reasons: Permission denied"
+            )
+            assert np.isnan(inserted_array[:].read()).all()
+        finally:
+            locked.chmod(0o700)
+            client.empty_trash()
+
+    def test_cancelled_before_the_start_changes_nothing(self, inserted_array: Array, array_data: ndarray, main: Path):
+        before = inode_of(main)
+        scope = SimpleToken()
+        scope.cancel()
+        with cancellation_scope(scope), pytest.raises(DekerCancelledError):
+            inserted_array[:].clear()
+        assert inode_of(main) == before
+        assert np.array_equal(inserted_array[:].read(), array_data)
+        assert list(trash_of(inserted_array).iterdir()) == []
+
+
+class TestClearCriterionOfAWholeArray:
+    """A subset is the whole Array when it selects every cell, whatever its shape: such a subset is cleared by the
+    replacement of the file, without waiting for the readers; any other subset is cleared in place, waiting for them."""
+
+    @pytest.fixture
+    def flat(self, client: Client) -> Array:
+        """An Array with an axis of size 1, written, in a collection of its own; deleted after the test.
+
+        :param client: client of the storage
+        """
+        dimensions = [DimensionSchema(name="x", size=1), DimensionSchema(name="y", size=4)]
+        collection = client.create_collection(
+            "flat_" + str(os.getpid()), ArraySchema(dimensions=dimensions, dtype=float)
+        )
+        array = collection.create()
+        array[:].update(np.arange(4, dtype=float).reshape(1, 4))
+        yield array
+        collection.delete()
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.parametrize(
+        ("index_exp", "whole"),
+        [
+            pytest.param(np.index_exp[0], True, id="integer-index-on-an-axis-of-size-1"),
+            pytest.param(np.index_exp[0, :], True, id="integer-index-and-slice"),
+            pytest.param(np.index_exp[:, ::-1], True, id="reversed-axis"),
+            pytest.param(np.index_exp[0, ::2], False, id="stride"),
+            pytest.param(np.index_exp[:, 1:], False, id="part"),
+        ],
+    )
+    def test_whole_by_the_cells(self, flat: Array, index_exp: Slice, whole: bool):
+        main = main_file_of(flat)
+        before = inode_of(main)
+        with Flock(main, shared=True):
+            if whole:
+                assert flat[index_exp].clear(timeout=1) is None
+            else:
+                with pytest.raises(DekerLockError) as error:
+                    flat[index_exp].clear(timeout=1)
+                assert str(error.value) == f"{flat} is locked by its readers or a writer"
+        assert (inode_of(main) != before) is whole
+        expected = np.arange(4, dtype=float).reshape(1, 4)
+        if whole:
+            expected[:] = np.nan
+        assert np.array_equal(flat[:].read(), expected, equal_nan=True)
+        flat._adapter.empty_trash(background=False)
+
+
+class TestClearInAStorageWithoutItsDirectories:
+    """The clearing that does not find the trash or the collections directory of the storage is critical."""
+
+    @pytest.fixture
+    def array(self, tmp_path: Path) -> Array:
+        """A written Array in a storage of the test's own.
+
+        :param tmp_path: directory of the test
+        """
+        client = Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR")
+        schema = ArraySchema(dimensions=[DimensionSchema(name="x", size=4)], dtype=float)
+        array = client.create_collection("own", schema).create()
+        array[:].update(np.zeros(4))
+        yield array
+        client.close()
+
+    @pytest.mark.parametrize("directory", ["trash", "collections"])
+    @pytest.mark.parametrize("index_exp", [np.index_exp[:], np.index_exp[1:]], ids=["whole", "part"])
+    def test_missing_storage_directory_is_critical(
+        self, array: Array, tmp_path: Path, mocker: MockerFixture, directory: str, index_exp: Slice
+    ):
+        gone = tmp_path / "storage" / directory
+        gone.rename(tmp_path / "away")
+        critical = mocker.patch.object(logging.getLogger("Deker"), "critical")
+        with pytest.raises(DekerCriticalError) as error:
+            array[index_exp].clear()
+        assert str(error.value) == f"Storage directory {gone} doesn't exist"
+        critical.assert_called_once_with(f"Storage directory {gone} doesn't exist")

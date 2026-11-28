@@ -193,33 +193,51 @@ class Subset(BaseSubset["Array"]):
         with TokenErrorConverter():
             self._update(data, timeout=timeout, token=write_token())
 
-    def _clear(self, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+    def _clear(
+        self, *, timeout: int | SentinelType, background: bool, _empty_trash: bool, token: AbstractToken
+    ) -> None:
         """Clear the cells under the token of an operation built already: a ``VSubset`` clears its ``Arrays`` so.
 
         :param timeout: timeout of the operation as it was given
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the clearing; ``False`` - leave in the trash what the clearing
+          put there
         :param token: token of the write operation
         """
         check(token)
         self.logger.debug("Trying to clear data for %s", self)
-        self.__adapter.clear(self.__array, self.__bounds, timeout=timeout, token=token)
+        self.__adapter.clear(
+            self.__array, self.__bounds, timeout=timeout, background=background, _empty_trash=_empty_trash, token=token
+        )
         self.logger.info("%s data cleared", self)
 
     @not_deleted
-    def clear(self, *, timeout: int | SentinelType = Sentinel) -> None:
+    def clear(
+        self, *, timeout: int | SentinelType = Sentinel, background: bool = False, _empty_trash: bool = True
+    ) -> None:
         """Set the cells of the ``Array`` within the subset to the fill value.
 
-        The data of an ``Array`` that becomes entirely empty are removed from its file.
+        A subset of every cell of the ``Array`` (counted by the cells, whatever its shape) puts an empty file in place
+        of the file of the ``Array``: it waits for the writer of the ``Array`` and for another such clearing, never for
+        the readers, which read the old file to its end; the old file goes to the trash. Any other subset is cleared in
+        the file, waiting for the readers and the writer; the data of an ``Array`` that becomes entirely empty are
+        removed from its file.
 
-        :param timeout: seconds to wait for the lock of the ``Array``; not given - ``write_lock_timeout`` of the
+        :param timeout: seconds to wait for each lock of the ``Array``; not given - ``write_lock_timeout`` of the
           client
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the clearing; ``False`` - leave the old file in the trash
         :raises DekerValidationError: if the timeout is not a positive integer
         :raises DekerLockError: if the ``Array`` is not released within the timeout
         :raises DekerCancelledError: if the clearing is cancelled before it started
-        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
+        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted, also while it was cleared
+        :raises DekerTrashError: if something in the trash is not removed, the ``Array`` cleared all the same; not with
+          ``background``
+        :raises DekerCriticalError: if the collections directory or the trash of the storage does not exist
         """
         validate_timeout(timeout=timeout)
         with TokenErrorConverter():
-            self._clear(timeout=timeout, token=write_token())
+            self._clear(timeout=timeout, background=background, _empty_trash=_empty_trash, token=write_token())
 
 
 class _ArrayBounds(NamedTuple):
@@ -422,22 +440,31 @@ class VSubset(BaseSubset["VArray"]):
             if subset.shape == array.shape:
                 array._delete(background=False, _empty_trash=False, token=token)  # the trash is emptied by the clear
             else:
-                subset._clear(timeout=timeout, token=token)
+                subset._clear(timeout=timeout, background=False, _empty_trash=False, token=token)
 
     @not_deleted
-    def clear(self, *, timeout: int | SentinelType = Sentinel) -> None:
+    def clear(
+        self, *, timeout: int | SentinelType = Sentinel, background: bool = False, _empty_trash: bool = True
+    ) -> None:
         """Clear the data of the ``VArray`` within the subset.
 
-        An ``Array`` the subset covers entirely is deleted: moved to the trash without waiting for anybody; a partly
-        covered one is cleared, waiting for its lock. The trash is emptied once at the end.
+        An ``Array`` the subset covers entirely (by its shape) is deleted: moved to the trash without waiting for
+        anybody; a partly covered one is cleared as ``Subset.clear`` clears it, waiting for its locks. The trash is
+        emptied once at the end. An ``Array`` not released within the timeout stops the clearing: the ``Arrays``
+        started are done, the trash is left for the next emptying, and the clearing again finishes the work.
 
-        :param timeout: seconds to wait for the lock of each partly covered ``Array``; not given -
+        :param timeout: seconds to wait for each lock of each partly covered ``Array``; not given -
           ``write_lock_timeout`` of the client
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the clearing; ``False`` - leave in the trash what the clearing
+          put there
         :raises DekerValidationError: if the timeout is not a positive integer
         :raises DekerLockError: if an ``Array`` is not released within the timeout
         :raises DekerCancelledError: if the clearing is cancelled before any ``Array`` is started
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
-        :raises DekerTrashError: if something in the trash is not removed; the subset is cleared all the same
+        :raises DekerTrashError: if something in the trash is not removed; the subset is cleared all the same; not with
+          ``background``
+        :raises DekerCriticalError: if the collections directory or the trash of the storage does not exist
         """
         validate_timeout(timeout=timeout)
         with TokenErrorConverter():
@@ -448,7 +475,8 @@ class VSubset(BaseSubset["VArray"]):
                 partial(self.__clear_array, timeout=timeout, token=token), self.__arrays
             )
             list(results)
-        self.__array_adapter.empty_trash(background=False)
+        if _empty_trash:
+            self.__array_adapter.empty_trash(background=background)
         self.logger.info("%s data cleared", self)
 
     def __sum_results(self, arrays_data: Iterator) -> np.ndarray:

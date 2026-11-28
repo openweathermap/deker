@@ -2616,3 +2616,101 @@ class TestVSubsetWriteMeetsTheDeletionOfItsVArray:
             assert [path for path in collection_files(varray_collection) if path.startswith(adapter.data_dir)] == []
         finally:
             varray.delete()
+
+
+def trash_of_varray(varray: VArray) -> Path:
+    """Find the trash of the storage of a VArray.
+
+    :param varray: the VArray
+    :returns: the trash
+    """
+    return Path(varray._adapter.uri.path) / varray._adapter.ctx.config.trash_directory
+
+
+class TestVSubsetClearFlagsAndLocks:
+    """``VSubset.clear``: the Arrays covered entirely go to the trash, the partly covered ones are cleared in place,
+    the trash is emptied once at the end by the flags of the call."""
+
+    @pytest.mark.parametrize(
+        ("kwargs", "calls"),
+        [
+            pytest.param({}, [{"background": False}], id="default"),
+            pytest.param({"background": True}, [{"background": True}], id="background"),
+            pytest.param({"_empty_trash": False}, [], id="no-emptying"),
+            pytest.param({"background": True, "_empty_trash": False}, [], id="both"),
+        ],
+    )
+    def test_trash_is_emptied_once_by_the_flags(
+        self, inserted_varray: VArray, mocker: MockerFixture, client: Client, kwargs: dict, calls: list
+    ):
+        adapter = inserted_varray._VArray__array_adapter
+        empty = mocker.patch.object(adapter, "empty_trash")
+        x, y, z = inserted_varray.arrays_shape
+        assert inserted_varray[0:x, 0:y, 0 : z + 1].clear(**kwargs) is None
+        assert [call.kwargs for call in empty.call_args_list] == calls
+        mocker.stopall()
+        assert len(list(trash_of_varray(inserted_varray).iterdir())) == 2  # the covered Array: file and symlink
+        client.empty_trash()
+
+    @pytest.mark.timeout(60)
+    def test_held_array_stops_the_clearing_of_its_part_only(
+        self, inserted_varray: VArray, array_data: np.ndarray, mocker: MockerFixture, client: Client
+    ):
+        """The last Array by position is covered partly and held by a reader: the others are done, the trash is left
+        for the next emptying; the clearing again finishes the work once the reader leaves."""
+        adapter = inserted_varray._VArray__array_adapter
+        x, y, z = inserted_varray.arrays_shape
+        subset: VSubset = inserted_varray[:, :, 0 : 2 * z - 1]
+        held = subset._create_array_from_vposition((1, 1, 1))
+        empty = mocker.spy(adapter, "empty_trash")
+        with Flock(adapter._get_main_path_to_file(held), shared=True):
+            with pytest.raises(DekerLockError) as error:
+                subset.clear(timeout=1)
+        assert str(error.value) == f"{held} is locked by its readers or a writer"
+        empty.assert_not_called()
+        for position in [(0, 0, 0), (0, 1, 0), (1, 0, 0), (1, 1, 0)]:
+            assert subset._create_array_from_vposition(position) is None
+        read = inserted_varray[:].read()
+        assert np.isnan(read[:, :, :z]).all()
+        assert np.isnan(read[:x, :, z : 2 * z - 1]).all()
+        assert np.isnan(read[x:, :y, z : 2 * z - 1]).all()
+        assert np.array_equal(read[x:, y:, z:], array_data[x:, y:, z:])
+        assert np.array_equal(read[:x, :, 2 * z - 1], array_data[:x, :, 2 * z - 1])
+        assert np.array_equal(read[x:, :y, 2 * z - 1], array_data[x:, :y, 2 * z - 1])
+        assert list(trash_of_varray(inserted_varray).iterdir()) != []
+        assert subset.clear() is None
+        read = inserted_varray[:].read()
+        assert np.isnan(read[:, :, : 2 * z - 1]).all()
+        assert np.array_equal(read[:, :, 2 * z - 1], array_data[:, :, 2 * z - 1])
+        assert list(trash_of_varray(inserted_varray).iterdir()) == []
+
+    @pytest.mark.timeout(60)
+    def test_array_covered_by_its_cells_is_cleared_by_replacement(self, client: Client, mocker: MockerFixture):
+        """An integer index on an axis of size 1 covers every cell of the Array, though not its shape: the VSubset
+        clears it as partly covered, and the adapter clears it by the replacement of its file, not waiting for its
+        readers; the trash is emptied once."""
+        dimensions = [DimensionSchema(name="x", size=2), DimensionSchema(name="y", size=4)]
+        collection = client.create_collection(
+            "cells_" + str(os.getpid()), VArraySchema(dimensions=dimensions, dtype=float, vgrid=[2, 1])
+        )
+        try:
+            varray = collection.create()
+            varray[:].update(np.arange(8, dtype=float).reshape(2, 4))
+            subset: VSubset = varray[0]
+            array = subset._create_array_from_vposition((0, 0))
+            adapter = varray._VArray__array_adapter
+            main = adapter._get_main_path_to_file(array)
+            before = os.stat(main).st_ino
+            empty = mocker.spy(adapter, "empty_trash")
+            delete = mocker.spy(array.__class__, "_delete")
+            with Flock(main, shared=True):
+                assert subset.clear(timeout=1) is None
+            assert os.stat(main).st_ino != before
+            delete.assert_not_called()
+            empty.assert_called_once_with(background=False)
+            read = varray[:].read()
+            assert np.isnan(read[0]).all()
+            assert np.array_equal(read[1], np.arange(4, 8, dtype=float))
+            assert list(trash_of_varray(varray).iterdir()) == []
+        finally:
+            collection.delete()

@@ -46,7 +46,7 @@ from deker.errors import (
 from deker.flock import Flock
 from deker.log import SelfLoggerMixin
 from deker.tools import array_time_attributes, get_main_path, get_symlink_path
-from deker.tools.path import check_storage_directory
+from deker.tools.path import check_storage_directory, get_main_of_temporary, is_temporary_path
 from deker.types import (
     DEFAULT_INTEGRITY_CHECKS,
     IntegrityCheck,
@@ -118,6 +118,8 @@ class CollectionFiles:
     :param varrays: the main files of its VArrays
     :param array_symlinks: every entry under the Array symlinks directory that is not a directory
     :param varray_symlinks: every entry under the VArray symlinks directory that is not a directory
+    :param temporary_files: the temporary files in the data directories (``get_temporary_path``): of a full clearing
+        of an Array, of an update of the custom attributes of a VArray
     """
 
     collection: Collection
@@ -125,6 +127,7 @@ class CollectionFiles:
     varrays: list[ArrayOnDisk] = field(default_factory=list)
     array_symlinks: list[Path] = field(default_factory=list)
     varray_symlinks: list[Path] = field(default_factory=list)
+    temporary_files: list[Path] = field(default_factory=list)
 
     @property
     def path(self) -> Path:
@@ -503,7 +506,11 @@ class ArraysCheck(ArrayCheck):
 
 
 class LinksCheck(CollectionCheck):
-    """Main files and symlinks point at each other, one array per directory of primary attributes."""
+    """Main files and symlinks point at each other, one array per directory of primary attributes.
+
+    A temporary file left in a data directory by an interrupted operation is a stray file too: it is removed by the
+    repair, unless a live operation holds the main file it belongs to.
+    """
 
     check = IntegrityCheck.links
 
@@ -633,13 +640,86 @@ class LinksCheck(CollectionCheck):
                     target, target.varrays, target.varray_symlinks, target.path / self.config.varray_symlinks_directory
                 )
             )
+        findings.extend(
+            self.finding(
+                IntegrityFindingKind.stray_file,
+                f"Temporary file {temporary} is left by an interrupted operation",
+                collection=target.collection.name,
+                array_id=temporary.name.split(".")[0],
+                path=temporary,
+                repairable=True,
+            )
+            for temporary in target.temporary_files
+        )
         return findings
 
-    def repair(self, finding: IntegrityFinding) -> None:
-        """Create the missing symlink or remove the broken or misplaced one with the empty directories above.
+    @staticmethod
+    def _lock_main_file(main: Path) -> Flock:
+        """Take the main file exclusively without waiting, making sure the file held is the one at the path.
+
+        :param main: the main file
+        :returns: the held lock
+        :raises DekerLockError: if a live operation holds the file
+        :raises FileNotFoundError: if the file does not exist
+        """
+        while True:
+            lock = Flock(main)
+            lock.acquire()
+            try:
+                at_path = os.path.samestat(os.fstat(lock.descriptor), os.stat(main))
+            except FileNotFoundError:
+                lock.release()
+                raise
+            if at_path:
+                return lock
+            lock.release()  # replaced meanwhile by the operation that finished: the new file is locked
+
+    def _remove_temporary(self, finding: IntegrityFinding, temporary: Path) -> None:
+        """Remove a temporary file of a data directory with the empty directories above, unless its operation is live.
+
+        The full clearing of an Array holds its main file shared and the update of the custom attributes of a VArray
+        holds its json file exclusively until they replace the main file with the temporary one; the repair takes the
+        main file exclusively without waiting, so it never meets a temporary file its operation still needs. Without
+        the main file the array is deleted: the operation that left the file ends with that error anyway.
 
         :param finding: the finding
+        :param temporary: the temporary file
+        :raises DekerLockError: if a live operation holds the main file: nothing is removed
         """
+        collection = self.collection_of(finding)
+        path = collection.path
+        if not isinstance(path, Path):  # pragma: no cover  # guard: the checker works on local storages only
+            raise DekerIntegrityError(f"Collection {collection.name} is not on a local disk: {path}")
+        data = path / self.config.array_data_directory
+        stop = data if temporary.is_relative_to(data) else path / self.config.varray_data_directory
+        main = get_main_of_temporary(temporary)
+        try:
+            lock = self._lock_main_file(main)
+        except FileNotFoundError:
+            if os.path.lexists(temporary):
+                remove_with_empty_parents(temporary, stop)
+            return
+        try:
+            if os.path.lexists(temporary):  # gone meanwhile: its operation removed it
+                remove_with_empty_parents(temporary, stop)
+        finally:
+            lock.release()
+
+    def repair(self, finding: IntegrityFinding) -> None:
+        """Repair a symlink, or remove a temporary file of a data directory.
+
+        A missing symlink is created, a broken or misplaced one is removed with the empty directories above.
+
+        :param finding: the finding
+        :raises DekerLockError: if a live operation holds the main file a temporary file belongs to
+        """
+        if (
+            finding.kind == IntegrityFindingKind.stray_file
+            and finding.path is not None
+            and is_temporary_path(finding.path)
+        ):
+            self._remove_temporary(finding, finding.path)
+            return
         repairable = (
             IntegrityFindingKind.symlink_missing,
             IntegrityFindingKind.symlink_broken,
@@ -936,6 +1016,15 @@ class IntegrityChecker(SelfLoggerMixin):
         ]
         files.varray_symlinks = [
             entry for entry in (path / self.config.varray_symlinks_directory).rglob("*") if not entry.is_dir()
+        ]
+        data_directories = [self.config.array_data_directory]
+        if collection.varray_schema:
+            data_directories.append(self.config.varray_data_directory)
+        files.temporary_files = [
+            entry
+            for directory in data_directories
+            for entry in sorted((path / directory).rglob("*.tmp"))
+            if is_temporary_path(entry)
         ]
         return files
 

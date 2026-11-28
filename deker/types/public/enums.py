@@ -28,7 +28,7 @@ class IntegrityCheck(str, Enum):
     collections = "collections"  # every collection initialises and has its lock file
     markers = "markers"  # no markers of VArray writes are left by Deker < 2
     arrays = "arrays"  # every main file initialises an Array or a VArray, an Array agrees with its VArray
-    links = "links"  # main files and symlinks point at each other, one array per primary attributes
+    links = "links"  # main files and symlinks point at each other, one array per primary attributes, no temporary files
     data = "data"  # one cell of every array reads back with the dtype of the collection
     counters = "counters"  # the counter of empty cells equals the number of fill values in the data
 

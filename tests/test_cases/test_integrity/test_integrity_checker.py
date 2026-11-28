@@ -758,6 +758,195 @@ class TestLinksCheck:
             stray.unlink()
 
 
+TAIL = ".0123456789abcdef0123456789abcdef.tmp"
+
+
+def temporary_of(array: Array | VArray) -> Path:
+    """The temporary file an interrupted operation leaves next to the main file of an array.
+
+    :param array: the array
+    :returns: ``<id>.hdf5.<hex>.tmp`` of a full clearing of an Array, ``<id>.json.<hex>.tmp`` of an update of the
+        custom attributes of a VArray
+    """
+    file = main_file(array)
+    return file.with_name(file.name + TAIL)
+
+
+class ReplaceOnFirstLock:
+    """Stand for ``Flock.acquire``: the first lock taken, the main file at its path is replaced by a copy, as a live
+    operation that finishes meanwhile does, or moved away, as a deletion does.
+
+    :param real: the real ``Flock.acquire``
+    :param main: the main file
+    :param away: where the main file is moved; ``None`` - it is replaced
+    """
+
+    def __init__(self, real, main: Path, away: Path | None) -> None:
+        self.real = real
+        self.main = main
+        self.away = away
+        self.calls = 0
+
+    def __call__(self, flock: Flock) -> None:
+        self.calls += 1
+        self.real(flock)
+        if self.calls > 1:
+            return
+        if self.away is not None:
+            os.rename(self.main, self.away)
+            return
+        copy = self.main.with_name("copy")
+        shutil.copyfile(self.main, copy)
+        os.replace(copy, self.main)
+
+
+class TestTemporaryFiles:
+    """A temporary file left in a data directory by an interrupted full clearing or update of the attributes of a
+    VArray is a stray file; the repair removes it unless a live operation holds the main file."""
+
+    @pytest.mark.parametrize("fixture", ["inserted_array", "inserted_varray"])
+    def test_temporary_file_is_reported_and_removed(self, client: Client, request, fixture: str):
+        array = request.getfixturevalue(fixture)
+        temporary = temporary_of(array)
+        temporary.write_bytes(b"left")
+        report = checker(client, IntegrityCheck.links).check(array.collection)
+        assert kinds(report) == [(IntegrityCheck.links, IntegrityFindingKind.stray_file)]
+        finding = report.findings[0]
+        assert finding.path == temporary
+        assert finding.collection == array.collection
+        assert finding.array_id == array.id
+        assert finding.repairable
+        assert finding.message == f"Temporary file {temporary} is left by an interrupted operation"
+        report = checker(client, IntegrityCheck.links, repair=True).check(array.collection)
+        assert report.findings[0].repaired
+        assert not temporary.exists()
+        assert main_file(array).exists()
+        assert checker(client, IntegrityCheck.links).check(array.collection).ok
+
+    @pytest.mark.parametrize("fixture", ["inserted_array", "inserted_varray"])
+    @pytest.mark.parametrize("name", ["notes.txt", "{}.tmp", "{}.hdf5.tmp", "{}.json.tmp", "{}.json.tmp.bak"])
+    def test_other_files_of_a_data_directory_are_not_temporary(self, client: Client, request, fixture: str, name: str):
+        array = request.getfixturevalue(fixture)
+        other = main_file(array).with_name(name.format(array.id))
+        other.write_bytes(b"x")
+        try:
+            assert checker(client, IntegrityCheck.links).check(array.collection).ok
+        finally:
+            other.unlink()
+
+    @pytest.mark.parametrize(
+        ("fixture", "shared"),
+        [pytest.param("inserted_array", True, id="full clearing"), pytest.param("inserted_varray", False, id="update")],
+    )
+    def test_temporary_file_of_a_live_operation_is_left(self, client: Client, request, fixture: str, shared: bool):
+        """The full clearing holds the main file shared, the update of the attributes of a VArray holds its json file
+        exclusively: the repair does not get the main file exclusively and leaves the temporary file."""
+        array = request.getfixturevalue(fixture)
+        temporary = temporary_of(array)
+        temporary.write_bytes(b"live")
+        try:
+            with Flock(main_file(array), shared=shared):
+                report = checker(client, IntegrityCheck.links, repair=True).check(array.collection)
+            finding = report.findings[0]
+            assert not finding.repaired
+            assert finding.repair_error == f"{main_file(array)} is locked"
+            assert temporary.exists()
+        finally:
+            temporary.unlink()
+
+    @pytest.mark.parametrize("fixture", ["inserted_array", "inserted_varray"])
+    def test_temporary_file_gone_before_the_repair_is_not_an_error(self, client: Client, request, fixture: str):
+        array = request.getfixturevalue(fixture)
+        temporary = temporary_of(array)
+        temporary.write_bytes(b"left")
+        (finding,) = checker(client, IntegrityCheck.links).check(array.collection).findings
+        temporary.unlink()  # its operation removed it
+        assert LinksCheck(client).repair(finding) is None
+        assert main_file(array).exists()
+
+    @pytest.mark.parametrize("fixture", ["inserted_array", "inserted_varray"])
+    def test_main_file_replaced_while_it_is_locked_is_locked_again(self, client: Client, request, fixture: str, mocker):
+        array = request.getfixturevalue(fixture)
+        temporary = temporary_of(array)
+        temporary.write_bytes(b"left")
+        (finding,) = checker(client, IntegrityCheck.links).check(array.collection).findings
+        stand = ReplaceOnFirstLock(Flock.acquire, main_file(array), None)
+        mocker.patch.object(Flock, "acquire", autospec=True, side_effect=stand)
+        assert LinksCheck(client).repair(finding) is None
+        assert stand.calls == 2
+        assert not temporary.exists()
+
+    @pytest.mark.parametrize("fixture", ["inserted_array", "inserted_varray"])
+    def test_main_file_gone_while_it_is_locked_lets_the_temporary_file_go(
+        self, client: Client, request, fixture: str, mocker, tmp_path: Path
+    ):
+        """The array is deleted once the lock is taken: its operation ends with its error, the file is removed."""
+        array = request.getfixturevalue(fixture)
+        temporary = temporary_of(array)
+        temporary.write_bytes(b"left")
+        (finding,) = checker(client, IntegrityCheck.links).check(array.collection).findings
+        stand = ReplaceOnFirstLock(Flock.acquire, main_file(array), tmp_path / "deleted")
+        mocker.patch.object(Flock, "acquire", autospec=True, side_effect=stand)
+        assert LinksCheck(client).repair(finding) is None
+        assert stand.calls == 1
+        assert not temporary.exists()
+        assert not main_file(array).parent.exists()  # emptied: removed up to the data directory
+        main_file(array).parent.mkdir(parents=True)
+        os.rename(tmp_path / "deleted", main_file(array))
+
+    def test_temporary_file_without_its_main_file_gone_before_the_repair_is_not_an_error(
+        self, client: Client, inserted_array: Array
+    ):
+        temporary = temporary_of(inserted_array)
+        finding = IntegrityFinding(
+            check=IntegrityCheck.links,
+            kind=IntegrityFindingKind.stray_file,
+            message="",
+            collection=inserted_array.collection,
+            path=temporary.with_name(
+                "0" + temporary.name[1:] if temporary.name[0] != "0" else "1" + temporary.name[1:]
+            ),
+            repairable=True,
+        )
+        assert LinksCheck(client).repair(finding) is None
+
+    @pytest.mark.parametrize("fixture", ["inserted_array", "inserted_varray"])
+    def test_temporary_file_without_its_main_file_is_removed_with_its_directories(
+        self, client: Client, request, fixture: str
+    ):
+        """The array was deleted meanwhile: the operation that left the file ends with its error anyway."""
+        array = request.getfixturevalue(fixture)
+        main = main_file(array)
+        data = array._adapter.collection_path / array._adapter.data_dir
+        first = "0" if array.id[0] != "0" else "1"  # a tree of directories no array of the test shares
+        other_id = first * 8 + "-" + array.id.split("-", 1)[1]
+        directory = get_main_path(other_id, data)
+        directory.mkdir(parents=True)
+        temporary = directory / temporary_of(array).name.replace(array.id, other_id)
+        temporary.write_bytes(b"left")
+        report = checker(client, IntegrityCheck.links, repair=True).check(array.collection)
+        assert kinds(report) == [(IntegrityCheck.links, IntegrityFindingKind.stray_file)]
+        assert report.findings[0].array_id == other_id
+        assert report.findings[0].repaired
+        assert not (data / first).exists()
+        assert main.exists()
+
+    def test_stray_file_of_a_symlink_directory_is_refused_by_the_repair(self, client: Client, inserted_array: Array):
+        """Only a temporary file of a data directory is removed: a plain file among the symlinks is not."""
+        stray = symlink_of(inserted_array).parent / "notes.txt"
+        finding = IntegrityFinding(
+            check=IntegrityCheck.links,
+            kind=IntegrityFindingKind.stray_file,
+            message="",
+            collection=inserted_array.collection,
+            path=stray,
+            repairable=True,
+        )
+        with pytest.raises(DekerIntegrityError) as error:
+            LinksCheck(client).repair(finding)
+        assert str(error.value) == "stray_file cannot be repaired"
+
+
 class TestDataCheck:
     """One cell of every array reads back with the dtype of the collection."""
 
@@ -848,6 +1037,11 @@ class TestCountersCheck:
         with h5py.File(main_file(inserted_array), "r") as f:
             assert int(f["empty_cells"][()]) == 100
         assert checker(client, IntegrityCheck.counters).check(inserted_array.collection).ok
+
+    def test_full_clearing_leaves_a_true_counter(self, client: Client, inserted_array: Array):
+        inserted_array[:].clear()
+        assert checker(client, IntegrityCheck.counters).check(inserted_array.collection).ok
+        inserted_array._adapter.empty_trash(background=False)
 
     def test_counters_are_not_read_by_the_default_checks(self, client: Client, inserted_array: Array):
         with h5py.File(main_file(inserted_array), "r+") as f:
