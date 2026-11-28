@@ -277,15 +277,21 @@ class VArray(BaseArray[VSubset]):
         d["vgrid"] = self.vgrid
         return d
 
-    def _delete(self, *, timeout: int | SentinelType, token: AbstractToken) -> None:
-        """Delete the ``VArray`` from the storage: first every ``Array`` it is made of, then the ``VArray`` itself.
+    def _delete(self, *, background: bool, _empty_trash: bool, token: AbstractToken) -> None:
+        """Delete the ``VArray`` from the storage: its symlink, every ``Array`` it is made of, its json file.
 
-        :param timeout: timeout of the operation as it was given
+        Without its symlink the ``VArray`` is not found by its attributes and the creators of its ``Arrays`` see it
+        gone; until its json file goes, a deletion stopped halfway is found by its id and done again. The trash is
+        emptied once, after the json file.
+
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the moves; ``False`` - only move
         :param token: token of the write operation
         """
         check(token)
-        self.__array_adapter.delete_all_by_vid(self.id, self.__collection, timeout=timeout, token=token)
-        self._adapter.delete(self, timeout=timeout, token=token)
+        self._adapter.delete(self, background=background, _empty_trash=False, token=token)
+        self.__array_adapter.delete_all_by_vid(self.id, self.__collection, token=token)
+        self._adapter.delete_main_file(self, background=background, _empty_trash=_empty_trash)
         self.logger.debug("VArray %s is deleted", self.id)
 
     @property

@@ -8,6 +8,7 @@ from pathlib import Path
 from random import shuffle
 from typing import Any
 
+import deker_local_adapters.mixin
 import numpy as np
 import pytest
 
@@ -1035,7 +1036,9 @@ if __name__ == "__main__":
 
 
 class TestVArrayTimeoutAndCancellation:
-    """The timeout of an update of the attributes or of a deletion is the limit of the wait for the lock."""
+    """The timeout of an update of the attributes is the limit of the wait for the lock; both it and the deletion stop
+    on a cancelled scope before the adapter.
+    """
 
     @pytest.fixture
     def target(self, inserted_varray_with_attributes):
@@ -1050,7 +1053,6 @@ class TestVArrayTimeoutAndCancellation:
                 ({"custom_attribute": 0.7},),
                 id="attributes",
             ),
-            pytest.param("delete", "delete_all_by_vid", (), id="delete"),
         ],
     )
     @pytest.mark.parametrize(
@@ -1074,7 +1076,6 @@ class TestVArrayTimeoutAndCancellation:
                 ({"custom_attribute": 0.7},),
                 id="attributes",
             ),
-            pytest.param("delete", "delete_all_by_vid", (), id="delete"),
         ],
     )
     @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
@@ -1107,6 +1108,46 @@ class TestVArrayTimeoutAndCancellation:
         with cancellation_scope(token), pytest.raises(DekerCancelledError):
             getattr(target, operation)(*args)
         adapter_call.assert_not_called()
+
+
+class TestVArrayDelete:
+    """The deletion of a VArray: its symlink, every Array, its json file; one emptying of the trash at the end."""
+
+    def test_order_of_the_moves(self, inserted_varray: VArray, mocker: MockerFixture):
+        adapter = inserted_varray._adapter
+        paths = get_paths(inserted_varray, adapter.collection_path)
+        name = inserted_varray.id + adapter.file_ext
+        symlinks = list(inserted_varray._VArray__array_adapter._adapter_iter(inserted_varray.id))
+        assert len(symlinks) == 8
+        arrays = [path for symlink in symlinks for path in (symlink.readlink(), symlink)]
+        move = mocker.spy(deker_local_adapters.mixin, "move_to_trash")
+        inserted_varray.delete()
+        assert [call.args[0] for call in move.call_args_list] == [paths.symlink / name, *arrays, paths.main / name]
+
+    @pytest.mark.parametrize(
+        ("kwargs", "background", "empty"),
+        [
+            pytest.param({}, False, True, id="default"),
+            pytest.param({"background": True, "_empty_trash": False}, True, False, id="given"),
+        ],
+    )
+    def test_adapters_get_one_emptying_at_the_end(
+        self, inserted_varray: VArray, mocker: MockerFixture, kwargs: dict, background: bool, empty: bool
+    ):
+        """The symlink of the VArray never empties the trash, the Arrays know nothing of it, the json file does."""
+        adapter, array_adapter = inserted_varray._adapter, inserted_varray._VArray__array_adapter
+        calls = mocker.Mock()
+        mocker.patch.object(adapter, "delete", calls.delete)
+        mocker.patch.object(array_adapter, "delete_all_by_vid", calls.delete_all_by_vid)
+        mocker.patch.object(adapter, "delete_main_file", calls.delete_main_file)
+        inserted_varray.delete(**kwargs)
+        token = calls.delete.call_args.kwargs["token"]
+        assert isinstance(token, AbstractToken)
+        assert calls.mock_calls == [
+            mocker.call.delete(inserted_varray, background=background, _empty_trash=False, token=token),
+            mocker.call.delete_all_by_vid(inserted_varray.id, inserted_varray._VArray__collection, token=token),
+            mocker.call.delete_main_file(inserted_varray, background=background, _empty_trash=empty),
+        ]
 
 
 class TestVArrayWhoseFileIsGone:

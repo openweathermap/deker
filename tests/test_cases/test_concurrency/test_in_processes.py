@@ -33,7 +33,7 @@ from tests.parameters.uri import embedded_uri
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerLockError, DekerValidationError, DekerVSubsetError
+from deker.errors import DekerInstanceNotExistsError, DekerLockError, DekerValidationError, DekerVSubsetError
 from deker.locks import (
     CollectionLock,
     Flock,
@@ -475,6 +475,78 @@ def read_varray(uri: str, collection_name: str, varray_id: str, queue: Queue) ->
             queue.put(collection.filter({"id": varray_id}).last()[:].read())
     except Exception as e:
         queue.put(e)
+
+
+def leave(busy) -> None:
+    """Announce the end of a write.
+
+    :param busy: shared number of the writers that are writing
+    """
+    with busy.get_lock():
+        busy.value -= 1
+
+
+def enter(gate: EventType, busy) -> bool:
+    """Announce a write and tell whether it may start.
+
+    The writer counts itself busy before it looks at the gate, so whoever closes the gate and then sees nobody
+    busy knows that no write is under way and none will start.
+
+    :param gate: event that lets the writers work
+    :param busy: shared number of the writers that are writing
+    :returns: ``True`` if the write may start; ``False`` if the gate is closed, the writer is not busy then
+    """
+    with busy.get_lock():
+        busy.value += 1
+    if gate.is_set():
+        return True
+    leave(busy)
+    gate.wait(1)
+    return False
+
+
+# the causes of a write of a VArray refused as written partly in the window of its deletion: an Array of the
+# position whose main file is moved, its symlink not yet
+PARTLY_WRITTEN_CAUSES = ("DekerInstanceNotExistsError(", "DekerBrokenSymlinkError(")
+
+
+def write_the_current_varray(uri: str, collection_name: str, stop, gate, busy, current, results: Queue) -> None:
+    """Write the whole current VArray, creating its Arrays, until told to stop; report how the writes ended.
+
+    :param uri: client uri
+    :param collection_name: collection of the VArrays
+    :param stop: event that ends the loop
+    :param gate: event that lets the writers work: cleared, it holds them between the writes
+    :param busy: shared number of the writers that are writing
+    :param current: shared id of the current VArray
+    :param results: queue for the numbers of the written VArrays, of the refused writes, of the writes refused as
+      written partly, and the other errors
+    """
+    written = refused = partly = 0
+    failed: list[str] = []
+    with Client(uri, loglevel="CRITICAL") as client:
+        collection = client.get_collection(collection_name)
+        while not stop.is_set():
+            if not enter(gate, busy):
+                continue
+            try:
+                varray = collection.filter({"id": current.value}).last()
+                if varray is None:
+                    refused += 1
+                else:
+                    varray[:].update(1.0)
+                    written += 1
+            except DekerInstanceNotExistsError:
+                refused += 1
+            except DekerVSubsetError as e:
+                if all(cause.startswith(PARTLY_WRITTEN_CAUSES) for cause in e.exceptions):
+                    partly += 1
+                else:
+                    failed.append(repr(e))
+            except Exception as e:
+                failed.append(repr(e))
+            leave(busy)
+    results.put((written, refused, partly, failed))
 
 
 def array_main_file(collection: Collection, array: Array) -> Path:
@@ -978,7 +1050,11 @@ class TestLocks:
         self, varray_schema: VArraySchema, root_path, inserted_varray_with_attributes: VArray, mp_context: BaseContext
     ):
         """A VArray writer waits for the reader of an Array and gives up by timeout: update and clear both raise
-        DekerLockError, since every Array that failed was still held when the write lock timeout was over."""
+        DekerLockError, since every Array that failed was still held when the write lock timeout was over.
+
+        The writers cover every Array partly: an Array that a clear covers entirely is moved to the trash, waiting for
+        nobody.
+        """
         manager = mp_context.Manager()
         lock_set = manager.Event()
         func_finished = manager.Event()
@@ -1015,6 +1091,9 @@ class TestLocks:
                             func_finished,
                             False,
                             True,
+                            None,
+                            None,
+                            "[1:9, 1:9, 1:9]",
                         )
                         for method in methods
                     ],
@@ -1152,3 +1231,73 @@ class TestLocks:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestDeletionOfAVArrayAgainstItsWriters:
+    """Three processes write a VArray, creating its Arrays, while it is deleted: nothing of it is left.
+
+    The deletion never waits and never fails. A writer is refused with DekerInstanceNotExistsError, or, in the window
+    of the deletion where the main file of an Array is moved and its symlink is not yet, with DekerVSubsetError
+    "written partly" whose causes are DekerInstanceNotExistsError or DekerBrokenSymlinkError; any other error fails.
+    """
+
+    SECONDS = 6
+    WRITERS = 3
+
+    @pytest.mark.timeout(120)
+    def test_nothing_of_a_deleted_varray_is_left(self, client: Client, root_path: Path, mp_context: BaseContext):
+        schema = VArraySchema(dtype=float, dimensions=[DimensionSchema(name="x", size=4)], vgrid=(2,))
+        collection = client.create_collection(f"deleted_varray_{mp_context.get_start_method()}", schema)
+        trash = root_path / client._Client__ctx.config.trash_directory
+        manager = mp_context.Manager()
+        stop, gate, results = mp_context.Event(), mp_context.Event(), mp_context.Queue()
+        busy, current = mp_context.Value("i", 0), manager.Value(str, "")
+        arguments = (str(embedded_uri(root_path)), collection.name, stop, gate, busy, current, results)
+        writers = [mp_context.Process(target=write_the_current_varray, args=arguments) for _ in range(self.WRITERS)]
+        for writer in writers:
+            writer.start()
+        deletions = left = 0
+        longest = 0.0
+        try:
+            deadline = time.monotonic() + self.SECONDS
+            while time.monotonic() < deadline:
+                varray = collection.create()
+                current.value = varray.id
+                gate.set()
+                sleep(0.05)  # the writers are on their way
+                start = time.monotonic()
+                varray.delete()
+                longest = max(longest, time.monotonic() - start)
+                gate.clear()
+                while busy.value:
+                    sleep(0.0005)
+                files = [
+                    os.path.join(directory, name)
+                    for directory, _, names in os.walk(collection.path)
+                    for name in names
+                    if name != f"{collection.name}.json"
+                ]
+                left += len(files)
+                if files:
+                    collection.clear()  # the counted leftovers are taken away: every one is counted once
+                deletions += 1
+        finally:
+            stop.set()
+            gate.set()
+            totals = [results.get(timeout=60) for _ in writers]
+            for writer in writers:
+                writer.join(60)
+            collection.delete()
+        written, refused, partly = (sum(total[i] for total in totals) for i in range(3))
+        failed = [error for total in totals for error in total[3]]
+        print(
+            f"\n  {mp_context.get_start_method()}: {deletions} deletions, the longest {longest:.3f} s; writes: "
+            f"{written} done, {refused} refused as not existing, {partly} refused as written partly; "
+            f"failures {failed[:5]}; files left {left}"
+        )
+        assert deletions > 0
+        assert written > 0
+        assert longest < 1  # nobody is waited for
+        assert failed == []
+        assert left == 0
+        assert list(trash.iterdir()) == []

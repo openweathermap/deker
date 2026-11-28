@@ -62,7 +62,8 @@ class TestVArrayAdapterMethods:
         array = find.first()
         assert array is not None
         paths = get_paths(varray, varray._VArray__collection.path)
-        adapter.delete(varray, timeout=Sentinel, token=DefaultToken())
+        adapter.delete(varray, background=False, _empty_trash=False, token=DefaultToken())
+        adapter.delete_main_file(varray, background=False, _empty_trash=True)
         assert find.first() is None
         assert not (paths.symlink / array.id).exists()
         assert not (paths.main / array.id).exists()
@@ -84,7 +85,8 @@ class TestVArrayAdapterMethods:
             vsubset.update(update_data)
 
         paths = get_paths(varray, varray._VArray__collection.path)
-        adapter.delete(varray, timeout=Sentinel, token=DefaultToken())
+        adapter.delete(varray, background=False, _empty_trash=False, token=DefaultToken())
+        adapter.delete_main_file(varray, background=False, _empty_trash=True)
         assert find.first() is None
         assert not (paths.symlink / array.id).exists()
         assert not (paths.main / array.id).exists()

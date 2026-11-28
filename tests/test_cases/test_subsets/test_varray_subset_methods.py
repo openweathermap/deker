@@ -7,10 +7,12 @@ from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timedelta, timezone
+from functools import partial
 from pathlib import Path
 from threading import Event
 from typing import Any
 
+import deker_local_adapters.mixin
 import h5py
 import hdf5plugin
 import numpy as np
@@ -42,7 +44,7 @@ from deker.errors import (
 from deker.flock import Flock
 from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.subset import Subset, VSubset, _array_positions, _ArrayBounds, _split_axis
-from deker.tools import get_main_path, get_paths
+from deker.tools import get_main_path
 from deker.types.private.classes import ArrayPosition, ArrayPositionedData, Paths
 from deker.types.private.typings import Slice
 from deker.types.public.classes import Scale
@@ -1164,12 +1166,45 @@ class TestVSubsetArrayWorkers:
                 ArrayPositionedData(array_pos.vposition, array_pos.bounds, data), timeout=Sentinel, token=DefaultToken()
             )
 
-    def test_clear_array_deletes_fully_covered_array(self, inserted_varray: VArray):
-        """Tests if an Array fully covered by the subset is deleted."""
+    def test_clear_array_deletes_fully_covered_array(self, inserted_varray: VArray, mocker: MockerFixture):
+        """Tests if an Array fully covered by the subset is moved to the trash; the trash is not emptied here."""
         vsubset: VSubset = inserted_varray[:]
         array_pos = vsubset._VSubset__arrays[0]
+        trash = Path(inserted_varray._adapter.uri.path) / inserted_varray._adapter.ctx.config.trash_directory
+        empty = mocker.spy(deker_local_adapters.mixin, "empty_trash_directory")
         vsubset._VSubset__clear_array(array_pos, timeout=Sentinel, token=DefaultToken())
         assert vsubset._create_array_from_vposition(array_pos.vposition) is None
+        empty.assert_not_called()
+        assert len(list(trash.iterdir())) == 2  # its main file and its symlink; emptied by the deletion of the VArray
+
+    @pytest.mark.timeout(60)
+    def test_clear_moves_the_covered_arrays_without_waiting_and_empties_the_trash_once(
+        self, inserted_varray: VArray, array_data: np.ndarray, mocker: MockerFixture
+    ):
+        """The subset covers the first Array entirely, a writer holds it; its neighbour on the last axis partly."""
+        adapter = inserted_varray._VArray__array_adapter
+        trash = Path(adapter.uri.path) / adapter.ctx.config.trash_directory
+        x, y, z = inserted_varray.arrays_shape
+        subset: VSubset = inserted_varray[0:x, 0:y, 0 : z + 1]
+        covered = subset._create_array_from_vposition((0, 0, 0))
+        empty = mocker.spy(deker_local_adapters.mixin, "empty_trash_directory")
+        with Flock(adapter._get_main_path_to_file(covered)):
+            start = time.monotonic()
+            assert subset.clear() is None
+            assert time.monotonic() - start < 0.5
+        empty.assert_called_once_with(trash, background=False, logger=adapter.logger)
+        assert subset._create_array_from_vposition((0, 0, 0)) is None
+        neighbour = subset._create_array_from_vposition((0, 0, 1))
+        read = neighbour[:].read()
+        assert np.isnan(read[:, :, 0]).all()
+        assert np.array_equal(read[:, :, 1:], array_data[0:x, 0:y, z + 1 : 2 * z])
+        assert list(trash.iterdir()) == []
+
+    def test_clear_of_partly_covered_arrays_empties_the_trash_too(self, inserted_varray: VArray, mocker: MockerFixture):
+        adapter = inserted_varray._VArray__array_adapter
+        empty = mocker.spy(adapter, "empty_trash")
+        inserted_varray[0:2, 0:2, 0:2].clear()
+        empty.assert_called_once_with(background=False)
 
     def test_clear_array_clears_partially_covered_array(self, inserted_varray: VArray, array_data: np.ndarray):
         """Tests if an Array partially covered by the subset is cleared only inside the bounds and kept."""
@@ -2456,21 +2491,6 @@ class MovedAway:
         except FileNotFoundError:
             pass
 
-    def delete_varray(self, varray_symlink: Path, varray_file: Path, symlinks: Path) -> None:
-        """Move a VArray here as its deletion does: its symlink, then every Array found by its symlinks, its json file.
-
-        :param varray_symlink: symlink of the VArray
-        :param varray_file: json file of the VArray
-        :param symlinks: directory of the symlinks of the Arrays of the VArray
-        """
-        self.move(varray_symlink)
-        for directory, _, names in os.walk(symlinks):
-            for name in names:
-                symlink = Path(directory) / name
-                self.move(symlink.readlink())
-                self.move(symlink)
-        self.move(varray_file)
-
 
 def collection_files(collection: Collection) -> list[str]:
     """List the files and the symlinks of a collection, relative to it; the directories are not listed.
@@ -2496,28 +2516,27 @@ class TestVSubsetWriteMeetsTheDeletionOfItsVArray:
 
     @pytest.mark.timeout(60)
     @pytest.mark.parametrize(
-        "point",
+        ("point", "moved"),
         [
-            BEFORE_FIRST_DIRECTORY,
-            BETWEEN_DIRECTORY_LEVELS,
-            BEFORE_SYMLINK_DIRECTORIES,
-            BEFORE_MAIN_FILE,
-            WHILE_MAIN_FILE_IS_WRITTEN,
-            BEFORE_SYMLINK,
-            BEFORE_CHECK,
-            AFTER_CHECK,
+            (BEFORE_FIRST_DIRECTORY, 2),
+            (BETWEEN_DIRECTORY_LEVELS, 2),
+            (BEFORE_SYMLINK_DIRECTORIES, 2),
+            (BEFORE_MAIN_FILE, 2),
+            (WHILE_MAIN_FILE_IS_WRITTEN, 2),
+            (BEFORE_SYMLINK, 2),
+            (BEFORE_CHECK, 4),
+            (AFTER_CHECK, 4),
         ],
     )
     def test_write_tells_that_the_varray_does_not_exist(
-        self, varray_collection: Collection, point: str, tmp_path: Path, mocker: MockerFixture
+        self, varray_collection: Collection, point: str, moved: int, mocker: MockerFixture
     ):
+        """The deletion runs at the point of the creator, in its thread: it takes no lock, so nothing waits."""
         varray = varray_collection.create()
         adapter = varray._VArray__array_adapter
-        paths = get_paths(varray, varray._adapter.collection_path)
-        name = varray.id + varray._adapter.file_ext
-        trash = MovedAway(tmp_path / "trash")
-        symlinks = adapter.collection_path / adapter.symlinks_dir / varray.id
-        hook = AtPoint(point, trash.delete_varray, paths.symlink / name, paths.main / name, symlinks)
+        trash = Path(adapter.uri.path) / adapter.ctx.config.trash_directory
+        assert list(trash.iterdir()) == []
+        hook = AtPoint(point, partial(varray.delete, _empty_trash=False))
         watch_array_creator(mocker, adapter, hook)
         subset = self.first_array(varray)
         with pytest.raises(DekerInstanceNotExistsError) as error:
@@ -2526,6 +2545,10 @@ class TestVSubsetWriteMeetsTheDeletionOfItsVArray:
         assert hook.done
         # no file of the VArray or of its Arrays is left in the collection
         assert collection_files(varray_collection) == [f"{varray_collection.name}.json"]
+        # the files of the VArray, and of its Array once the Array has its symlink, nothing else
+        assert len(list(trash.iterdir())) == moved
+        adapter.empty_trash(background=False)
+        assert list(trash.iterdir()) == []
 
     @pytest.mark.timeout(60)
     def test_array_gone_from_a_living_varray_while_it_is_created_is_a_partial_write(

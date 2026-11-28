@@ -13,7 +13,7 @@ from deker_local_adapters.factory import AdaptersFactory
 
 from tests.parameters.fresh_copy import load_fresh_copy
 
-from deker.ABC.base_adapters import BaseArrayAdapter, BaseCollectionAdapter, IArrayAdapter
+from deker.ABC.base_adapters import BaseArrayAdapter, BaseCollectionAdapter, BaseVArrayAdapter, IArrayAdapter
 from deker.errors import DekerArrayTypeError, DekerMetaDataError, DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema
 from deker.tools import schema as schema_module
@@ -288,9 +288,8 @@ class TestCreateCollectionFromMeta:
     [
         *[
             (IArrayAdapter, name)
-            for name in ("create", "update_meta_custom_attributes", "delete", "read_data", "update", "clear")
+            for name in ("create", "update_meta_custom_attributes", "read_data", "update", "clear")
         ],
-        (BaseArrayAdapter, "delete_all_by_vid"),
         *[(BaseCollectionAdapter, name) for name in ("create", "clear", "delete")],
     ],
 )
@@ -298,6 +297,24 @@ def test_operations_of_the_adapters_take_the_timeout_and_the_token(interface, me
     parameters = inspect.signature(getattr(interface, method)).parameters
     assert parameters["timeout"].kind is inspect.Parameter.KEYWORD_ONLY
     assert parameters["token"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+@pytest.mark.parametrize(
+    ("interface", "method", "keywords"),
+    [
+        (IArrayAdapter, "delete", ["background", "_empty_trash", "token"]),
+        (BaseArrayAdapter, "delete_all_by_vid", ["token"]),
+        (BaseVArrayAdapter, "delete_main_file", ["background", "_empty_trash"]),
+        (IArrayAdapter, "empty_trash", ["background"]),
+    ],
+)
+def test_deletions_of_arrays_take_no_timeout(interface, method, keywords):
+    """The deletion takes no lock: no timeout; the emptying of the trash is told by the flags of the operation."""
+    parameters = inspect.signature(getattr(interface, method)).parameters
+    assert "timeout" not in parameters
+    assert [name for name, parameter in parameters.items() if parameter.kind is inspect.Parameter.KEYWORD_ONLY] == (
+        keywords
+    )
 
 
 @pytest.mark.parametrize(

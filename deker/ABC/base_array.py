@@ -488,29 +488,31 @@ class BaseArray(SelfLoggerMixin, Serializer, _FancySlicer, ABC, Generic[SubsetT]
         self.logger.info("%s meta data read: %s", self, meta)
         return meta
 
-    def _delete(self, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+    def _delete(self, *, background: bool, _empty_trash: bool, token: AbstractToken) -> None:
         """Delete the array under the token of an operation built already: a ``VSubset`` deletes its ``Arrays`` so.
 
-        :param timeout: timeout of the operation as it was given
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the move; ``False`` - only move
         :param token: token of the write operation
         """
         check(token)
-        self._adapter.delete(self, timeout=timeout, token=token)
+        self._adapter.delete(self, background=background, _empty_trash=_empty_trash, token=token)
 
-    def delete(self, *, timeout: int | SentinelType = Sentinel) -> None:
+    def delete(self, *, background: bool = False, _empty_trash: bool = True) -> None:
         """Delete the array from the storage with its data and metadata.
 
-        The deletion waits for the readers and the writers of the array, up to its timeout.
+        The deletion takes no lock and waits for nobody: the files of the array are moved to the trash of the storage
+        at once, and the readers and the writers that hold them go on with them. Then the trash is emptied.
 
-        :param timeout: seconds to wait for the lock of each file of the array; not given - ``write_lock_timeout``
-          of the client
-        :raises DekerValidationError: if the timeout is not a positive integer
-        :raises DekerLockError: if a file of the array is not released within the timeout
-        :raises DekerCancelledError: if the deletion is cancelled before any file of it is started
+        :param background: return right after the move and empty the trash in a daemon thread, which nobody waits for
+        :param _empty_trash: service flag: ``False`` - only move, the trash is not emptied and ``background`` does
+          nothing
+        :raises DekerCancelledError: if the deletion is cancelled before any file of it is moved
+        :raises DekerTrashError: if something in the trash is not removed; not with ``background``. The array is
+          deleted all the same
         """
-        validate_timeout(timeout=timeout)
         with TokenErrorConverter():
-            self._delete(timeout=timeout, token=write_token())
+            self._delete(background=background, _empty_trash=_empty_trash, token=write_token())
         self.logger.info("%s deleted", self)
 
     @staticmethod

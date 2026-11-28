@@ -3,8 +3,6 @@ import os
 import threading
 import time
 
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import TimeoutError as FutureTimeoutError
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -288,44 +286,23 @@ class TestArrayAdapter:
         array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
         filename = paths.main / (inserted_array.id + factory.ctx.storage_adapter.file_ext)
         mainfile = paths.main / filename
-        array_adapter.delete(inserted_array, timeout=Sentinel, token=DefaultToken())
+        array_adapter.delete(inserted_array, background=False, _empty_trash=True, token=DefaultToken())
         assert not os.path.exists(paths.symlink / filename)
         assert not os.path.exists(mainfile)
         assert not paths.main.exists()
 
     @pytest.mark.timeout(60)
-    def test_array_adapter_delete_waits_for_a_reader(self, root_path, inserted_array: Array, factory):
-        """A delete holds the file exclusively: it waits for the reader to leave and only then removes the files."""
+    @pytest.mark.parametrize("shared", [True, False], ids=["reader", "writer"])
+    def test_array_adapter_delete_passes_a_held_file(self, root_path, inserted_array: Array, factory, shared: bool):
+        """The deletion takes no lock and waits for nobody: the files leave while the holder keeps its descriptor."""
         coll_path = root_path / factory.ctx.config.collections_directory / inserted_array.collection
         paths = get_paths(inserted_array, coll_path)
         filename = inserted_array.id + factory.ctx.storage_adapter.file_ext
         array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
-        reader = Flock(paths.main / filename, shared=True)
-        reader.acquire()
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            deletion = pool.submit(array_adapter.delete, inserted_array, timeout=Sentinel, token=DefaultToken())
-            with pytest.raises(FutureTimeoutError):
-                deletion.result(timeout=0.5)  # the reader is still there
-            assert (paths.main / filename).exists()
-            reader.release()
-            assert deletion.result(timeout=10) is None
-        assert not (paths.main / filename).exists()
-        assert not (paths.symlink / filename).exists()
-
-    @pytest.mark.timeout(60)
-    def test_array_adapter_delete_times_out_on_a_long_reader(
-        self, root_path, inserted_array: Array, factory, mocker: MockerFixture
-    ):
-        """A delete gives up by the write lock timeout and leaves the files in place."""
-        coll_path = root_path / factory.ctx.config.collections_directory / inserted_array.collection
-        paths = get_paths(inserted_array, coll_path)
-        filename = inserted_array.id + factory.ctx.storage_adapter.file_ext
-        array_adapter = factory.get_array_adapter(coll_path, HDF5StorageAdapter)
-        mocker.patch.object(array_adapter.ctx.config, "write_lock_timeout", 1)
-        with Flock(paths.main / filename, shared=True), pytest.raises(DekerLockError):
-            array_adapter.delete(inserted_array, timeout=Sentinel, token=DefaultToken())
-        assert (paths.main / filename).exists()
-        assert (paths.symlink / filename).exists()
+        with Flock(paths.main / filename, shared=shared):
+            array_adapter.delete(inserted_array, background=False, _empty_trash=True, token=DefaultToken())
+            assert not (paths.main / filename).exists()
+            assert not os.path.lexists(paths.symlink / filename)
 
     def test_array_adapter_deletes_not_existing_array(
         self,
@@ -348,7 +325,7 @@ class TestArrayAdapter:
         assert symfile.exists()
         for f in (symfile, mainfile):
             os.remove(f)
-        array_adapter.delete(inserted_array, timeout=Sentinel, token=DefaultToken())
+        array_adapter.delete(inserted_array, background=False, _empty_trash=True, token=DefaultToken())
         assert not os.path.exists(filename)
 
     def test_array_adapter_clear(
@@ -588,8 +565,9 @@ def write_attributes(adapter, array, **kwargs):
     adapter.update_meta_custom_attributes(array, {}, **kwargs)
 
 
-def write_delete(adapter, array, **kwargs):
-    adapter.delete(array, **kwargs)
+def write_delete(adapter, array, *, timeout, token):
+    """Delete the array: the deletion takes no timeout, it waits for nobody."""
+    adapter.delete(array, background=False, _empty_trash=True, token=token)
 
 
 WRITES = {
@@ -598,6 +576,7 @@ WRITES = {
     "update_meta_custom_attributes": write_attributes,
     "delete": write_delete,
 }
+LOCKING_WRITES = [operation for operation in WRITES if operation != "delete"]
 
 
 class TestArrayAdapterCancellation:
@@ -620,7 +599,7 @@ class TestArrayAdapterCancellation:
         holder.release()
 
     @pytest.mark.timeout(10)
-    @pytest.mark.parametrize("operation", list(WRITES))
+    @pytest.mark.parametrize("operation", LOCKING_WRITES)
     def test_cancelled_while_waiting_for_the_lock_changes_nothing(
         self, inserted_array: Array, main_file: Path, operation
     ):
@@ -637,7 +616,7 @@ class TestArrayAdapterCancellation:
         assert main_file.read_bytes() == before
 
     @pytest.mark.timeout(10)
-    @pytest.mark.parametrize("operation", list(WRITES))
+    @pytest.mark.parametrize("operation", LOCKING_WRITES)
     def test_timeout_of_the_call_limits_the_wait(self, inserted_array: Array, main_file: Path, operation):
         start = time.monotonic()
         with Flock(main_file, shared=True), pytest.raises(DekerLockError):
@@ -714,9 +693,7 @@ class TestDeleteAllByVidCancellation:
             token = write_token()
         scope.cancel()
         with pytest.raises(TokenCancelledError):
-            array_adapter.delete_all_by_vid(
-                inserted_varray.id, inserted_varray._VArray__collection, timeout=Sentinel, token=token
-            )
+            array_adapter.delete_all_by_vid(inserted_varray.id, inserted_varray._VArray__collection, token=token)
         assert self.arrays_left(inserted_varray, array_adapter) == before > 0
 
     def test_cancelled_after_the_first_array_deletes_every_array(
@@ -726,8 +703,7 @@ class TestDeleteAllByVidCancellation:
         with cancellation_scope(scope):
             token = write_token()
         mocker.patch.object(array_adapter, "_delete", side_effect=CancelScopeAndCall(scope, array_adapter._delete))
-        array_adapter.delete_all_by_vid(
-            inserted_varray.id, inserted_varray._VArray__collection, timeout=Sentinel, token=token
-        )
+        array_adapter.delete_all_by_vid(inserted_varray.id, inserted_varray._VArray__collection, token=token)
         assert scope.cancelled
         assert self.arrays_left(inserted_varray, array_adapter) == 0
+        array_adapter.empty_trash(background=False)

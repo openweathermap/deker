@@ -419,7 +419,7 @@ class VSubset(BaseSubset["VArray"]):
         if array:
             subset = array[array_pos.bounds]
             if subset.shape == array.shape:
-                array._delete(timeout=timeout, token=token)
+                array._delete(background=False, _empty_trash=False, token=token)  # the trash is emptied by the clear
             else:
                 subset._clear(timeout=timeout, token=token)
 
@@ -427,14 +427,16 @@ class VSubset(BaseSubset["VArray"]):
     def clear(self, *, timeout: int | SentinelType = Sentinel) -> None:
         """Clear the data of the ``VArray`` within the subset.
 
-        An ``Array`` the subset covers entirely is deleted, a partly covered one is cleared.
+        An ``Array`` the subset covers entirely is deleted: moved to the trash without waiting for anybody; a partly
+        covered one is cleared, waiting for its lock. The trash is emptied once at the end.
 
-        :param timeout: seconds to wait for the lock of each ``Array``; not given - ``write_lock_timeout`` of the
-          client
+        :param timeout: seconds to wait for the lock of each partly covered ``Array``; not given -
+          ``write_lock_timeout`` of the client
         :raises DekerValidationError: if the timeout is not a positive integer
         :raises DekerLockError: if an ``Array`` is not released within the timeout
         :raises DekerCancelledError: if the clearing is cancelled before any ``Array`` is started
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
+        :raises DekerTrashError: if something in the trash is not removed; the subset is cleared all the same
         """
         validate_timeout(timeout=timeout)
         with TokenErrorConverter():
@@ -445,6 +447,7 @@ class VSubset(BaseSubset["VArray"]):
                 partial(self.__clear_array, timeout=timeout, token=token), self.__arrays
             )
             list(results)
+        self.__array_adapter.empty_trash(background=False)
         self.logger.info("%s data cleared", self)
 
     def __sum_results(self, arrays_data: Iterator) -> np.ndarray:

@@ -1,13 +1,18 @@
 import gc
+import logging
 import os
 import string
 import sys
+import threading
+import time
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from random import shuffle
 from typing import Any
 
+import deker_local_adapters.collection_adapter
+import deker_local_adapters.mixin
 import numpy as np
 import pytest
 
@@ -34,11 +39,14 @@ from deker.dimensions import TimeDimension
 from deker.errors import (
     DekerCancelledError,
     DekerCollectionAlreadyExistsError,
+    DekerCriticalError,
     DekerInstanceNotExistsError,
     DekerMemoryError,
+    DekerTrashError,
     DekerValidationError,
 )
-from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema
+from deker.flock import Flock
+from deker.schemas import ArraySchema, AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.tools import get_paths
 from deker.tools.schema import create_dimensions
 from deker.types import ArrayMeta
@@ -1167,7 +1175,9 @@ if __name__ == "__main__":
 
 
 class TestArrayTimeoutAndCancellation:
-    """The timeout of an update of the attributes or of a deletion is the limit of the wait for the lock."""
+    """The timeout of an update of the attributes is the limit of the wait for the lock; both it and the deletion stop
+    on a cancelled scope before the adapter.
+    """
 
     @pytest.fixture
     def target(self, inserted_array_with_attributes):
@@ -1182,7 +1192,6 @@ class TestArrayTimeoutAndCancellation:
                 ({"custom_attribute": 0.7},),
                 id="attributes",
             ),
-            pytest.param("delete", "delete", (), id="delete"),
         ],
     )
     @pytest.mark.parametrize(
@@ -1204,7 +1213,6 @@ class TestArrayTimeoutAndCancellation:
                 ({"custom_attribute": 0.7},),
                 id="attributes",
             ),
-            pytest.param("delete", "delete", (), id="delete"),
         ],
     )
     @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
@@ -1249,3 +1257,254 @@ class TestArrayWhoseFileIsGone:
             getattr(array, operation)(*args)
         assert str(error.value) == f"{file} doesn't exist"
         assert array.custom_attributes == attributes
+
+
+def trash_of(target: Array) -> Path:
+    """Find the trash of the storage of an Array or a VArray.
+
+    :param target: the Array or the VArray
+    :returns: the trash
+    """
+    return Path(target._adapter.uri.path) / target._adapter.ctx.config.trash_directory
+
+
+def symlinks_of_arrays(target: Array) -> list[Path]:
+    """List the symlinks of the Arrays of a VArray; an Array has none.
+
+    :param target: the Array or the VArray
+    :returns: the symlinks
+    """
+    if isinstance(target, Array):
+        return []
+    return list(target._VArray__array_adapter._adapter_iter(target.id))
+
+
+def held_file_of(target: Array) -> Path:
+    """Find the file a reader or a writer of an Array or a VArray holds: the main file of the Array or of the first
+    Array of the VArray.
+
+    :param target: the Array or the VArray
+    :returns: the file
+    """
+    if isinstance(target, Array):
+        return target._adapter._get_main_path_to_file(target)
+    return symlinks_of_arrays(target)[0].readlink()
+
+
+def files_of(target: Array) -> list[Path]:
+    """List the main files and the symlinks of an Array or a VArray with its Arrays.
+
+    :param target: the Array or the VArray
+    :returns: the files
+    """
+    adapter = target._adapter
+    paths = get_paths(target, adapter.collection_path)
+    name = target.id + adapter.file_ext
+    arrays = [path for symlink in symlinks_of_arrays(target) for path in (symlink.readlink(), symlink)]
+    return [paths.main / name, paths.symlink / name, *arrays]
+
+
+class CancelScopeAndMove:
+    """Stand for the move to the trash: cancel the scope, then move.
+
+    :param scope: token of the cancellation scope
+    :param real: the real move
+    """
+
+    def __init__(self, scope: SimpleToken, real) -> None:
+        self.scope = scope
+        self.real = real
+
+    def __call__(self, *args, **kwargs):
+        self.scope.cancel()
+        return self.real(*args, **kwargs)
+
+
+class HeldEmptying:
+    """Stand for the emptying of the trash in its background thread: it waits for a go, then empties.
+
+    :param real: the real emptying
+    """
+
+    def __init__(self, real) -> None:
+        self.real = real
+        self.started = threading.Event()
+        self.go = threading.Event()
+        self.threads: list[threading.Thread] = []
+
+    def __call__(self, *args, **kwargs):
+        self.threads.append(threading.current_thread())
+        self.started.set()
+        self.go.wait(30)
+        return self.real(*args, **kwargs)
+
+
+class TestDelete:
+    """The deletion of an Array or a VArray: no lock, a move of its files to the trash, one emptying of the trash."""
+
+    @pytest.fixture(
+        params=["inserted_array_with_attributes", "inserted_varray_with_attributes"], ids=["array", "varray"]
+    )
+    def target(self, request) -> Array:
+        """The Array or the VArray to delete, with its data; deleted again after the test.
+
+        :param request: request of the fixture
+        """
+        target = request.getfixturevalue(request.param)
+        assert list(trash_of(target).iterdir()) == []
+        return target
+
+    @staticmethod
+    def assert_deleted(target: Array, files: list[Path]) -> None:
+        """The files of the target are gone; it is found neither by its id nor by its primary attributes.
+
+        :param target: the Array or the VArray
+        :param files: its files before the deletion
+        """
+        assert [path for path in files if os.path.lexists(path)] == []
+        collection = target._collection
+        assert collection.filter({"id": target.id}).last() is None
+        assert collection.filter(target.primary_attributes).last() is None
+
+    @pytest.mark.timeout(60)
+    @pytest.mark.parametrize("shared", [True, False], ids=["reader", "writer"])
+    def test_held_file_does_not_stop_the_deletion(self, target: Array, shared: bool):
+        files = files_of(target)
+        with Flock(held_file_of(target), shared=shared):
+            start = time.monotonic()
+            assert target.delete() is None
+            assert time.monotonic() - start < 0.5  # nobody is waited for
+        self.assert_deleted(target, files)
+        assert list(trash_of(target).iterdir()) == []
+
+    def test_trash_is_emptied_once_before_the_return_by_default(self, target: Array, mocker: MockerFixture):
+        files = files_of(target)
+        empty = mocker.spy(deker_local_adapters.mixin, "empty_trash_directory")
+        target.delete()
+        empty.assert_called_once_with(trash_of(target), background=False, logger=target._adapter.logger)
+        self.assert_deleted(target, files)
+        assert list(trash_of(target).iterdir()) == []
+
+    def test_deletion_of_a_deleted_one_is_not_an_error(self, target: Array):
+        files = files_of(target)
+        target.delete()
+        assert target.delete() is None
+        self.assert_deleted(target, files)
+        assert list(trash_of(target).iterdir()) == []
+
+    @pytest.mark.parametrize("background", [False, True])
+    def test_without_emptying_the_trash_keeps_exactly_what_is_moved(
+        self, target: Array, mocker: MockerFixture, background: bool, client: Client
+    ):
+        files = files_of(target)
+        empty = mocker.spy(deker_local_adapters.mixin, "empty_trash_directory")
+        thread = mocker.spy(threading.Thread, "start")
+        assert target.delete(background=background, _empty_trash=False) is None
+        empty.assert_not_called()
+        thread.assert_not_called()
+        self.assert_deleted(target, files)
+        assert len(list(trash_of(target).iterdir())) == len(files)
+        client.empty_trash()
+        assert list(trash_of(target).iterdir()) == []
+
+    @pytest.mark.timeout(60)
+    def test_background_returns_while_the_trash_is_emptied(self, target: Array, mocker: MockerFixture):
+        files = files_of(target)
+        held = HeldEmptying(deker_local_adapters.collection_adapter._empty_trash_in_background)
+        mocker.patch.object(deker_local_adapters.collection_adapter, "_empty_trash_in_background", side_effect=held)
+        assert target.delete(background=True) is None
+        assert held.started.wait(30)
+        self.assert_deleted(target, files)
+        assert len(list(trash_of(target).iterdir())) == len(files)  # returned while the emptying waits
+        (thread,) = held.threads
+        assert thread is not threading.current_thread()
+        assert thread.daemon
+        held.go.set()
+        thread.join(30)
+        assert list(trash_of(target).iterdir()) == []
+
+    def test_failed_emptying_is_raised_after_the_deletion(self, target: Array, client: Client):
+        files = files_of(target)
+        trash = trash_of(target)
+        locked = trash / "locked"
+        locked.mkdir()
+        (locked / "kept").write_text("file")
+        locked.chmod(0o500)
+        try:
+            with pytest.raises(DekerTrashError) as error:
+                target.delete()
+            assert str(error.value) == (
+                f"The trash of the storage is not emptied: 1 files are not removed from {trash}. "
+                "Reasons: Permission denied"
+            )
+            self.assert_deleted(target, files)
+            assert [path.name for path in trash.iterdir()] == ["locked"]
+        finally:
+            locked.chmod(0o700)
+            client.empty_trash()
+        assert list(trash.iterdir()) == []
+
+    def test_cancelled_before_the_first_move_moves_nothing(self, target: Array):
+        files = files_of(target)
+        scope = SimpleToken()
+        scope.cancel()
+        with cancellation_scope(scope), pytest.raises(DekerCancelledError):
+            target.delete()
+        assert [path for path in files if not os.path.lexists(path)] == []
+        assert list(trash_of(target).iterdir()) == []
+
+    def test_cancelled_after_the_first_move_moves_everything(self, target: Array, mocker: MockerFixture):
+        files = files_of(target)
+        scope = SimpleToken()
+        real = deker_local_adapters.mixin.move_to_trash
+        move = mocker.patch.object(
+            deker_local_adapters.mixin, "move_to_trash", side_effect=CancelScopeAndMove(scope, real)
+        )
+        with cancellation_scope(scope):
+            assert target.delete() is None
+        assert scope.cancelled
+        assert move.call_count == len(files)
+        self.assert_deleted(target, files)
+        assert list(trash_of(target).iterdir()) == []
+
+    def test_timeout_is_not_an_argument(self, target: Array):
+        files = files_of(target)
+        with pytest.raises(TypeError) as error:
+            target.delete(timeout=5)
+        assert str(error.value) == "BaseArray.delete() got an unexpected keyword argument 'timeout'"
+        assert [path for path in files if not os.path.lexists(path)] == []
+
+
+class TestDeleteInAStorageWithoutItsDirectories:
+    """The deletion that does not find the trash or the collections directory of the storage is critical."""
+
+    @pytest.fixture(params=["array", "varray"])
+    def target(self, request, tmp_path: Path) -> Array:
+        """An Array or a VArray with its Arrays, in a storage of the test's own.
+
+        :param request: request of the fixture
+        :param tmp_path: directory of the test
+        """
+        client = Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR")
+        dimensions = [DimensionSchema(name="x", size=4)]
+        if request.param == "array":
+            target = client.create_collection("own", ArraySchema(dimensions=dimensions, dtype=float)).create()
+        else:
+            schema = VArraySchema(dimensions=dimensions, dtype=float, vgrid=[2])
+            target = client.create_collection("own", schema).create()
+            target[:].update(np.zeros(4))
+        yield target
+        client.close()
+
+    @pytest.mark.parametrize("directory", ["trash", "collections"])
+    def test_missing_storage_directory_is_critical(
+        self, target: Array, tmp_path: Path, mocker: MockerFixture, directory: str
+    ):
+        gone = tmp_path / "storage" / directory
+        gone.rename(tmp_path / "away")
+        critical = mocker.patch.object(logging.getLogger("Deker"), "critical")
+        with pytest.raises(DekerCriticalError) as error:
+            target.delete()
+        assert str(error.value) == f"Storage directory {gone} doesn't exist"
+        critical.assert_called_once_with(f"Storage directory {gone} doesn't exist")
+        assert not gone.exists()

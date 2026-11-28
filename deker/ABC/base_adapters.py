@@ -506,13 +506,24 @@ class IArrayAdapter(ABC, Generic[PathT, ArrayT]):
         pass
 
     @abstractmethod
-    def delete(self, array: ArrayT, *, timeout: int | SentinelType, token: AbstractToken) -> None:
-        """Delete a whole array with its data and metadata.
+    def delete(self, array: ArrayT, *, background: bool, _empty_trash: bool, token: AbstractToken) -> None:
+        """Delete a whole array with its data and metadata, taking no lock: its files are moved to the trash.
+
+        Of a VArray only its symlink is moved here: the Arrays follow, its json file goes last, by
+        ``BaseVArrayAdapter.delete_main_file``.
 
         :param array: Array or VArray
-        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
-          ``write_lock_timeout`` of the client
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the move; ``False`` - only move
         :param token: token of the write operation
+        """
+        pass
+
+    @abstractmethod
+    def empty_trash(self, *, background: bool) -> None:
+        """Remove everything from the trash of the storage, once for an operation that moved files without it.
+
+        :param background: return at once and remove in a daemon thread, which nobody waits for
         """
         pass
 
@@ -710,15 +721,11 @@ class BaseArrayAdapter(IArrayAdapter[PathT, "Array"], ABC):
     """Interface for Arrays' adapters."""
 
     @abstractmethod
-    def delete_all_by_vid(
-        self, vid: str, collection: "Collection", *, timeout: int | SentinelType, token: AbstractToken
-    ) -> None:
-        """Delete all the Arrays a VArray is made of.
+    def delete_all_by_vid(self, vid: str, collection: "Collection", *, token: AbstractToken) -> None:
+        """Delete all the Arrays a VArray is made of, taking no lock; the trash is not emptied here.
 
         :param vid: VArray id
         :param collection: Collection instance
-        :param timeout: seconds to wait for the lock of each file, as the call gave them; ``Sentinel`` -
-          ``write_lock_timeout`` of the client
         :param token: token of the write operation
         """
         pass
@@ -726,3 +733,13 @@ class BaseArrayAdapter(IArrayAdapter[PathT, "Array"], ABC):
 
 class BaseVArrayAdapter(IArrayAdapter[PathT, "VArray"], ABC):
     """Interface for VArrays' adapters."""
+
+    @abstractmethod
+    def delete_main_file(self, array: "VArray", *, background: bool, _empty_trash: bool) -> None:
+        """Delete the json file of a VArray, the last step of its deletion: after its symlink and its Arrays.
+
+        :param array: VArray
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the move; ``False`` - only move
+        """
+        pass
