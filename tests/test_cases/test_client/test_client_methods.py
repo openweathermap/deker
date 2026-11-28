@@ -1356,7 +1356,6 @@ class TestGetLocks:
                 "Creation": datetime.fromtimestamp(file.stat().st_ctime).isoformat(),
             }
             assert expected in client._get_locks()
-            assert [expected] == client._get_locks(lock_type=LocksTypes.varray_lock)
             assert expected in client._get_locks(collection_name=inserted_array.collection)
         finally:
             file.unlink()
@@ -1720,6 +1719,24 @@ class TestEmptyTrash:
             client.empty_trash()
             assert list((storage / "trash").iterdir()) == []
         spy.assert_called_once_with(background=False)
+
+    @pytest.mark.parametrize(
+        ("call", "accepted"),
+        [
+            pytest.param(lambda client: client.empty_trash(background=False), True, id="background-by-name"),
+            pytest.param(lambda client: client.empty_trash(False), False, id="background-by-position"),
+            pytest.param(lambda client: client._get_locks(collection_name=Sentinel), True, id="locks-by-name"),
+            pytest.param(lambda client: client._get_locks(lock_type=LocksTypes.varray_lock), False, id="locks-by-type"),
+        ],
+    )
+    def test_arguments_of_the_calls(self, tmp_path: Path, call, accepted: bool):
+        """``background`` is given by name only, as everywhere else; the lock listing takes no type of lock."""
+        with Client(embedded_uri(tmp_path / "storage")) as client:
+            if accepted:
+                assert call(client) in (None, [])
+            else:
+                with pytest.raises(TypeError):
+                    call(client)
 
     def test_background_is_passed_to_the_adapter(self, tmp_path: Path, mocker):
         storage = tmp_path / "storage"

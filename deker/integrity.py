@@ -22,7 +22,6 @@ findings it marks as repairable. The checks are registered by their names in ``I
 
 import json
 import os
-import shutil
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
@@ -38,7 +37,12 @@ from deker_tools.typings import Sentinel, SentinelType, is_sentinel
 
 from deker.arrays import Array, VArray
 from deker.collection import Collection
-from deker.errors import DekerBaseApplicationError, DekerCollectionNotExistsError, DekerIntegrityError
+from deker.errors import (
+    DekerBaseApplicationError,
+    DekerCollectionNotExistsError,
+    DekerCriticalError,
+    DekerIntegrityError,
+)
 from deker.flock import Flock
 from deker.log import SelfLoggerMixin
 from deker.tools import array_time_attributes, get_main_path, get_symlink_path
@@ -339,22 +343,32 @@ class CollectionsCheck(StorageCheck):
         return findings
 
     def repair(self, finding: IntegrityFinding) -> None:
-        """Remove a collection directory without its collection file, or with an empty one.
+        """Move a collection directory without its collection file, or with an empty one, to the trash.
 
-        The directory is removed with everything in it, under the lock of the collection taken without waiting: its
-        creator holds the lock, the collection file, until the file is written.
+        The directory goes with everything in it in one rename, by the move of the deletions (``move_to_trash`` of
+        the local adapters), under the lock of the collection taken without waiting: its creator holds the lock, the
+        collection file, until the file is written. Then the trash is emptied, as the deletion of a collection does.
 
         :param finding: the finding
-        :raises DekerLockError: if the lock of the collection is held: its creator is at work, nothing is removed
+        :raises DekerLockError: if the lock of the collection is held: its creator is at work, nothing is moved
+        :raises DekerCriticalError: if the trash or the collections directory of the storage does not exist
+        :raises DekerTrashError: if something in the trash is not removed; the directory is in the trash already
         """
+        # circular import otherwise
+        from deker_local_adapters.collection_adapter import LocalCollectionAdapter, move_to_trash
+
         if finding.path is None:  # pragma: no cover  # guard: run() sets the path of every finding
             raise DekerIntegrityError(f"Finding {finding.kind.value} names no file")
         if finding.kind != IntegrityFindingKind.collection_unreadable:
             self.refuse(finding)
+        adapter = self.client._adapter
+        if not isinstance(adapter, LocalCollectionAdapter):  # pragma: no cover  # guard: local storages only
+            raise DekerIntegrityError(f"Collection {finding.collection} is not on a local disk: {finding.path}")
         with Flock(finding.path, create=True):
             if finding.path.stat().st_size:  # a broken file, or the creator has written it since the finding
                 self.refuse(finding)
-            shutil.rmtree(finding.path.parent)
+            move_to_trash(finding.path.parent, adapter.trash_resource, adapter.collections_resource)
+        adapter.empty_trash(background=False)
 
 
 class MarkersCheck(CollectionCheck):
@@ -667,7 +681,9 @@ class DataCheck(ArrayCheck):
         name = target.files.collection.name
         try:
             data = array[tuple(size - 1 for size in array.shape)].read()
-        except Exception as e:  # noqa: BLE001  # whatever stops the read is the finding
+        except DekerCriticalError:
+            raise  # the storage is lost: never a finding
+        except Exception as e:  # noqa: BLE001  # whatever else stops the read is the finding
             return [
                 self.finding(
                     IntegrityFindingKind.data_unreadable,
@@ -810,6 +826,8 @@ class IntegrityChecker(SelfLoggerMixin):
                 continue
             try:
                 self.strategies[finding.check].repair(finding)
+            except DekerCriticalError:
+                raise  # the storage is lost: never a failed repair
             except Exception as e:  # noqa: BLE001  # a failed repair is reported, the others go on
                 finding.repair_error = str(e)
                 self.logger.warning("Repair of %s failed: %s", finding.kind.value, e)
@@ -878,7 +896,9 @@ class IntegrityChecker(SelfLoggerMixin):
         manager = collection.varrays if entry.is_varray else collection.arrays
         try:
             entry.array = manager.filter({"id": entry.array_id}).last()
-        except Exception as e:  # noqa: BLE001  # whatever stops the initialisation is the finding
+        except DekerCriticalError:
+            raise  # the storage is lost: never a finding
+        except Exception as e:  # noqa: BLE001  # whatever else stops the initialisation is the finding
             entry.error = str(e)
         if entry.array is None and not entry.error:  # pragma: no cover  # guard: the file is there, so is the array
             entry.error = "the main file is not found by the id"

@@ -62,6 +62,17 @@ class Flock(SelfLoggerMixin):
         self.fd = fd
         self.logger.debug("%s acquired %s lock", self.file, "shared" if self.shared else "exclusive")
 
+    @property
+    def descriptor(self) -> int:
+        """Get the descriptor of the file the lock holds.
+
+        :returns: the descriptor
+        :raises DekerLockError: if the lock holds nothing: never acquired, refused or released
+        """
+        if self.fd is None:
+            raise DekerLockError(f"{self.file} is not locked")
+        return self.fd
+
     def release(self) -> None:
         """Unlock the file and close its descriptor."""
         self.logger.debug("trying to release lock for %s", self.file)

@@ -6,6 +6,7 @@ import shutil
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import h5py
@@ -18,7 +19,13 @@ from deker_tools.typings import Sentinel
 from deker.arrays import Array, VArray
 from deker.client import Client
 from deker.collection import Collection
-from deker.errors import DekerCollectionNotExistsError, DekerIntegrityError, DekerLockError
+from deker.errors import (
+    DekerCollectionNotExistsError,
+    DekerCriticalError,
+    DekerIntegrityError,
+    DekerLockError,
+    DekerTrashError,
+)
 from deker.flock import Flock
 from deker.integrity import (
     INTEGRITY_CHECKS,
@@ -307,12 +314,16 @@ class TestCollectionsCheck:
 
     @pytest.mark.parametrize("kind", ["empty-directory", "empty-file", "directory-with-arrays"])
     def test_directory_without_a_collection_file_is_removed_by_the_repair(
-        self, client: Client, array_schema, kind: str
+        self, client: Client, array_schema, mocker, kind: str
     ):
-        """The directory is removed with everything in it, the files of the arrays too."""
+        """The directory is moved to the trash with everything in it, the files of the arrays too, and the trash is
+        emptied; nothing outside the directory is touched.
+        """
         name = "half_made"
         directory = client.root_path / name
         json_file = directory / (name + client._adapter.file_ext)
+        trash = client._adapter.trash_resource
+        assert list(trash.iterdir()) == []
         if kind == "directory-with-arrays":
             collection = client.create_collection(name, array_schema)
             array_file = main_file(collection.create())
@@ -322,6 +333,12 @@ class TestCollectionsCheck:
             directory.mkdir()
             if kind == "empty-file":
                 json_file.touch()
+        others = {
+            path: mtime
+            for path, mtime in files_of(client.root_path).items()
+            if path != directory and directory not in path.parents
+        }
+        spy = mocker.spy(client._adapter, "empty_trash")
         try:
             report = checker(client, IntegrityCheck.collections, repair=True).check()
             assert kinds(report) == [(IntegrityCheck.collections, IntegrityFindingKind.collection_unreadable)]
@@ -330,8 +347,41 @@ class TestCollectionsCheck:
             assert not directory.exists()
             assert sorted(client.root_path.glob(f"{name}*")) == []  # no lock file is made
             assert checker(client, IntegrityCheck.collections).check().ok
+            spy.assert_called_once_with(background=False)
+            assert list(trash.iterdir()) == []  # emptied by the repair
+            assert files_of(client.root_path) == others
         finally:
             shutil.rmtree(directory, ignore_errors=True)
+            client.empty_trash()
+        assert list(trash.iterdir()) == []
+
+    def test_trash_error_of_the_repair_is_raised_and_reported(
+        self, client: Client, array_collection: Collection, mocker
+    ):
+        """The directory is in the trash already when the trash is not emptied: the repair raises the trash error, the
+        checker reports it as a failed repair.
+        """
+        directory = client.root_path / "half-made"
+        directory.mkdir()
+        trash = client._adapter.trash_resource
+        error = DekerTrashError("The trash of the storage is not emptied")
+        mocker.patch.object(client._adapter, "empty_trash", side_effect=error)
+        try:
+            finding = checker(client, IntegrityCheck.collections).check().findings[0]
+            with pytest.raises(DekerTrashError) as info:
+                CollectionsCheck(client).repair(finding)
+            assert info.value is error
+            assert not directory.exists()
+            assert len(list(trash.iterdir())) == 1
+            directory.mkdir()
+            (repaired,) = checker(client, IntegrityCheck.collections, repair=True).check().findings
+            assert not repaired.repaired
+            assert repaired.repair_error == "The trash of the storage is not emptied"
+        finally:
+            mocker.stopall()
+            shutil.rmtree(directory, ignore_errors=True)
+            client.empty_trash()
+        assert list(trash.iterdir()) == []
 
     def test_broken_collection_file_is_not_removed(self, client: Client, array_collection: Collection):
         """A broken collection file is not repairable; given to the repair anyway, it is refused (a guard)."""
@@ -738,6 +788,31 @@ class TestDataCheck:
         assert finding.path == main_file(inserted_array)
         assert not finding.repairable
 
+    @pytest.mark.parametrize(
+        ("error", "critical"),
+        [
+            pytest.param(DekerCriticalError("Storage directory /nowhere doesn't exist"), True, id="critical"),
+            pytest.param(OSError("unreadable"), False, id="other"),
+        ],
+    )
+    def test_critical_error_of_the_read_is_raised_not_reported(
+        self, client: Client, inserted_array: Array, mocker, error: Exception, critical: bool
+    ):
+        mocker.patch.object(inserted_array._adapter, "read_data", side_effect=error)
+        target = SimpleNamespace(
+            array=inserted_array,
+            files=SimpleNamespace(collection=inserted_array._Array__collection),
+            main_file=main_file(inserted_array),
+        )
+        if critical:
+            with pytest.raises(DekerCriticalError) as info:
+                DataCheck(client).run(target)
+            assert info.value is error
+        else:
+            (finding,) = DataCheck(client).run(target)
+            assert finding.kind == IntegrityFindingKind.data_unreadable
+            assert finding.message == f"Array {inserted_array.id} data is corrupted: unreadable"
+
     def test_data_is_not_read_by_the_default_checks(self, client: Client, inserted_array: Array):
         with h5py.File(main_file(inserted_array), "r+") as f:
             del f["data"]
@@ -862,6 +937,52 @@ class TestIntegrityChecker:
         assert not finding.repaired
         assert finding.repair_error == "Read-only file system"
         assert report.unrepaired == [finding]
+
+    @pytest.mark.parametrize(
+        ("error", "critical"),
+        [
+            pytest.param(DekerCriticalError("Storage directory /nowhere doesn't exist"), True, id="critical"),
+            pytest.param(OSError("Read-only file system"), False, id="other"),
+        ],
+    )
+    def test_critical_error_of_a_repair_is_raised_not_reported(
+        self, client: Client, broken_collections: list[Collection], mocker, error: Exception, critical: bool
+    ):
+        mocker.patch.object(LinksCheck, "repair", side_effect=error)
+        if critical:
+            with pytest.raises(DekerCriticalError) as info:
+                checker(client, repair=True).check(broken_collections[0].name)
+            assert info.value is error
+        else:
+            (finding,) = checker(client, repair=True).check(broken_collections[0].name).findings
+            assert finding.repair_error == "Read-only file system"
+
+    @pytest.mark.parametrize(
+        ("error", "critical"),
+        [
+            pytest.param(DekerCriticalError("Storage directory /nowhere doesn't exist"), True, id="critical"),
+            pytest.param(ValueError("broken metadata"), False, id="other"),
+        ],
+    )
+    def test_critical_error_of_the_initialisation_of_an_array_is_raised_not_reported(
+        self, client: Client, inserted_array: Array, mocker, error: Exception, critical: bool
+    ):
+        collection = inserted_array._Array__collection
+        mocker.patch.object(type(collection.arrays), "filter", side_effect=error)
+        entry = SimpleNamespace(
+            files=SimpleNamespace(collection=collection),
+            is_varray=False,
+            array_id=inserted_array.id,
+            array=None,
+            error="",
+        )
+        if critical:
+            with pytest.raises(DekerCriticalError) as info:
+                checker(client)._read_array(entry)
+            assert info.value is error
+        else:
+            assert checker(client)._read_array(entry) is entry
+            assert entry.error == "broken metadata"
 
     def test_not_repairable_strategy_refuses(self, client: Client):
         finding = IntegrityFinding(check=IntegrityCheck.data, kind=IntegrityFindingKind.data_unreadable, message="m")

@@ -710,6 +710,17 @@ class TakeAwayUnderTheLock:
         return self.real(lock, *args, **kwargs)
 
 
+class Recorder:
+    """Stand for a method decorated with the collection lock: keeps the arguments it is called with."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[tuple, dict]] = []
+
+    def __call__(self, *args, **kwargs) -> str:
+        self.calls.append((args, kwargs))
+        return "result"
+
+
 class RemadeBeforeTheOpen:
     """Stand for ``Flock.acquire``: the first time, the directory of the file is taken away and made again empty, as a
     deletion and another creator of the collection do, and the file is not found; then the real acquire.
@@ -924,26 +935,75 @@ class TestCollectionLock:
         "storage_gone", [pytest.param(True, id="collections gone"), pytest.param(False, id="collection deleted")]
     )
     def test_directory_gone_once_the_lock_is_taken(self, tmp_path: Path, mocker: MockerFixture, storage_gone: bool):
-        """The deletion comes after the creation: the creation is done, the collection does not exist; the loss of the
-        collections directory is critical.
+        """The deletion of the collection, or the loss of the collections directory, comes after the creation: the
+        storage is checked at the entry of the creation, before the lock, so the creation is done and writes the file it
+        holds, wherever it is now; the collection does not exist, the next operation finds a lost storage.
         """
         with Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR") as own:
             collections = own._adapter.collections_resource
             directory = collections if storage_gone else collections / "own"
             taker = TakeAwayUnderTheLock(CollectionLock.get_result, directory, tmp_path / "away")
             mocker.patch.object(CollectionLock, "get_result", autospec=True, side_effect=taker)
+            collection = own.create_collection("own", self.SCHEMA)
+            assert collection.name == "own"
+            assert not directory.exists()
             if storage_gone:
-                critical = mocker.patch.object(logging.getLogger("Deker"), "critical")
                 with pytest.raises(DekerCriticalError) as error:
-                    own.create_collection("own", self.SCHEMA)
+                    own.get_collection("own")
                 assert str(error.value) == f"Storage directory {collections} doesn't exist"
-                critical.assert_called_once_with(f"Storage directory {collections} doesn't exist")
-                assert not collections.exists()
+                held = tmp_path / "away" / "own" / "own.json"
             else:
-                assert own.create_collection("own", self.SCHEMA).name == "own"
-                assert not directory.exists()
                 assert own.get_collection("own") is None
-                assert (tmp_path / "away" / "own.json").read_text() == ""  # held, never written
+                held = tmp_path / "away" / "own.json"
+            # the creator writes the file it holds, wherever it is now
+            assert json.loads(held.read_text()) == json.loads(json.dumps(collection.as_dict))
+
+    def test_creation_is_given_the_descriptor_of_the_held_file(self, tmp_path: Path):
+        """The decorated creation gets the descriptor the lock holds, so it writes the file it holds, not the path."""
+        with Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR") as own:
+            adapter = own._adapter
+            lock = CollectionLock()
+            lock.instance = adapter
+            collection = SimpleNamespace(name="own")
+            lock.args = [adapter, collection]
+            lock.check_existing_lock((), {"timeout": 1, "token": DefaultToken()})
+            recorder = Recorder()
+            try:
+                assert lock.get_result(recorder, (adapter, collection), {"timeout": 1}) == "result"
+                ((args, kwargs),) = recorder.calls
+                assert args == (adapter, collection)
+                assert kwargs == {"timeout": 1, "descriptor": lock.lock.fd}
+                assert os.path.samestat(os.fstat(kwargs["descriptor"]), os.stat(self.json_file(own, "own")))
+            finally:
+                lock.release()
+
+    @pytest.mark.timeout(10)
+    @pytest.mark.parametrize("dangling", [True, False], ids=["symlink-to-nothing", "directory-taken-away"])
+    def test_name_that_is_a_symlink_to_nothing_is_not_retried(
+        self, tmp_path: Path, mocker: MockerFixture, dangling: bool
+    ):
+        """A symlink to nothing stands where the directory of the collection shall be: the json file is never found,
+        so the creation is refused at once: the file does not exist, nothing made. A directory taken away by a
+        deletion is made again and the creation goes on.
+        """
+        with Client(embedded_uri(tmp_path / "storage"), loglevel="ERROR") as own:
+            collections = own._adapter.collections_resource
+            directory = collections / "own"
+            if dangling:
+                directory.symlink_to(tmp_path / "nowhere")
+                with pytest.raises(DekerInstanceNotExistsError) as error:
+                    own.create_collection("own", self.SCHEMA)
+                assert str(error.value) == f"{directory / 'own.json'} doesn't exist"
+                assert error.value.__cause__ is None and error.value.__suppress_context__
+                assert os.readlink(directory) == str(tmp_path / "nowhere")
+                assert not (tmp_path / "nowhere").exists()
+                assert sorted(path.name for path in collections.iterdir()) == ["own"]
+            else:
+                taker = TakeAwayAfterTheDirectory(os.mkdir, directory, tmp_path / "away")
+                mocker.patch.object(os, "mkdir", side_effect=taker)
+                collection = own.create_collection("own", self.SCHEMA)
+                assert taker.calls == 2
+                assert json.loads((directory / "own.json").read_text()) == json.loads(json.dumps(collection.as_dict))
 
     @staticmethod
     def take(adapter, name: str) -> None:
@@ -1024,6 +1084,7 @@ class TestArrayCreationLock:
             inserted_varray._adapter, inserted_varray, collection, timeout=Sentinel, token=DefaultToken()
         )
         assert lock.path == main_dir
+        assert lock.collections == inserted_varray._adapter.collection_path.parent
         with lock:
             assert lock.flock is not None
             assert lock.thread_lock is not None and lock.thread_lock.locked()
@@ -1062,7 +1123,7 @@ class TestArrayCreationLock:
             lock = ArrayCreationLock(
                 inserted_varray._adapter, inserted_varray, collection, timeout=Sentinel, token=DefaultToken()
             )
-            assert lock._try_acquire(main_dir) is False
+            assert lock._try_acquire(main_dir, lock.collections) is False
             assert lock.flock is None
             with pytest.raises(DekerLockError, match="locked for the creation of its Arrays"):
                 with lock:
@@ -1079,6 +1140,7 @@ class TestArrayCreationLock:
         adapter = SimpleNamespace(ctx=inserted_varray._adapter.ctx)
         lock = ArrayCreationLock(adapter, inserted_varray, collection, timeout=Sentinel, token=DefaultToken())
         assert lock.path is None
+        assert lock.collections is Sentinel
         with lock as entered:
             assert entered is lock
             assert lock.flock is None

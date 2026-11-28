@@ -174,6 +174,28 @@ class TestFlock:
         with Flock(directory):
             pass
 
+    def test_flock_descriptor_of_the_held_file(self, hdf_path):
+        """The descriptor of the file the lock holds."""
+        flock = Flock(hdf_path)
+        flock.acquire()
+        try:
+            assert flock.descriptor == flock.fd
+            assert os.path.samestat(os.fstat(flock.descriptor), os.stat(hdf_path))
+        finally:
+            flock.release()
+
+    @pytest.mark.parametrize("taken", [False, True], ids=["never-taken", "released"])
+    def test_flock_descriptor_of_a_lock_not_held_is_refused(self, hdf_path, taken: bool):
+        """A lock that holds nothing has no descriptor to give."""
+        flock = Flock(hdf_path)
+        if taken:
+            flock.acquire()
+            flock.release()
+        with pytest.raises(DekerLockError) as error:
+            assert flock.descriptor is None  # never reached: the property raises
+        assert str(error.value) == f"{hdf_path} is not locked"
+        assert flock.fd is None
+
     def test_flock_release_closes_the_descriptor(self, hdf_path):
         """Tests the descriptor is closed on release, so nothing keeps the file open.
 

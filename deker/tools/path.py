@@ -63,7 +63,8 @@ def check_storage_directory(path: Path) -> None:
     """Check a directory of the storage the client creates when it opens: ``collections`` or ``trash``.
 
     Nobody removes these directories, so Deker cannot work on without one: a missing one is logged as critical and
-    raised. The check is made on the path of an error only, so the usual path makes no extra system call.
+    raised. Every operation of the local adapters checks the collections directory at its entry, the deletions and the
+    clearings check the trash too (``CheckStorage`` of the local adapters); the paths of the errors check it again.
 
     :param path: the directory
     :raises DekerCriticalError: if the directory does not exist

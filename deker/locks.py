@@ -16,7 +16,7 @@
 
 import os
 
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from threading import Lock
 from typing import (
@@ -25,12 +25,11 @@ from typing import (
     Generic,
     TypeVar,
     Union,
-    cast,
 )
 
 from cantok import AbstractToken
 from deker_tools.cancel import resolve_timeout
-from deker_tools.typings import SentinelType
+from deker_tools.typings import Sentinel, SentinelType, is_sentinel
 
 from deker.ABC.base_locks import BaseLock, wait_for_unlock
 from deker.errors import DekerInstanceNotExistsError, DekerLockError
@@ -98,7 +97,7 @@ class LockWithArrayMixin(Generic[T]):
                 check_storage_directory(self.instance.collection_path.parent)
                 raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
             try:
-                at_path = os.path.samestat(os.fstat(cast("int", lock.fd)), os.stat(path))
+                at_path = os.path.samestat(os.fstat(lock.descriptor), os.stat(path))
             except FileNotFoundError:
                 lock.release()
                 check_storage_directory(self.instance.collection_path.parent)
@@ -242,7 +241,8 @@ class ArrayCreationLock:
         from deker_local_adapters.varray_adapter import LocalVArrayAdapter
 
         self.path: Path | None = None
-        self.collections = Path()  # the collections directory of the storage, for a missing directory of the VArray
+        # the collections directory of the storage, for a missing directory of the VArray; Sentinel - no local storage
+        self.collections: Path | SentinelType = Sentinel
         if isinstance(adapter, LocalVArrayAdapter):
             self.path = get_main_path(varray.id, adapter.collection_path / adapter.data_dir)
             self.collections = adapter.collection_path.parent
@@ -251,10 +251,11 @@ class ArrayCreationLock:
         self.flock: Flock | None = None
         self.thread_lock: Lock | None = None
 
-    def _try_acquire(self, path: Path) -> bool:
+    def _try_acquire(self, path: Path, collections: Path) -> bool:
         """Try to take the flock once.
 
         :param path: directory of the main file of the VArray
+        :param collections: the collections directory of the storage
         :returns: ``True`` if the flock is held now
         :raises DekerInstanceNotExistsError: if the directory does not exist
         """
@@ -264,7 +265,7 @@ class ArrayCreationLock:
         except DekerLockError:
             return False
         except FileNotFoundError:
-            check_storage_directory(self.collections)
+            check_storage_directory(collections)
             raise DekerInstanceNotExistsError(f"{path} doesn't exist") from None
         self.flock = flock
         return True
@@ -277,14 +278,18 @@ class ArrayCreationLock:
         :raises TokenCancelledError: if the write is cancelled while it waits
         :raises DekerInstanceNotExistsError: if the directory of the VArray does not exist
         """
-        if self.path is None:  # the server keeps its own order of creation
+        if self.path is None or is_sentinel(self.collections):  # the server keeps its own order of creation
             return self
         with self._thread_locks_guard:
             self.thread_lock = self._thread_locks.setdefault(self.path, Lock())
         self.thread_lock.acquire()
         try:
             acquired = wait_for_unlock(
-                self._try_acquire, (self.path,), timeout=self.timeout, interval=self.POLL_INTERVAL, token=self.token
+                self._try_acquire,
+                (self.path, self.collections),
+                timeout=self.timeout,
+                interval=self.POLL_INTERVAL,
+                token=self.token,
             )
         except BaseException:
             self.thread_lock.release()
@@ -337,13 +342,15 @@ class CollectionLock(BaseLock):
 
         A directory taken away before its file is opened, by the deletion of the collection meanwhile, is made again.
         The retries end: the name is one directory under the collections directory (the constructor of ``Collection``
-        checks it), so its file is not found only while the directory is taken away.
+        checks it), so its file is not found only while the directory is taken away. A symlink to nothing in place of
+        the directory is not taken away and no retry makes the file: the file does not exist.
 
         :param func_args: arguments of method call
         :param func_kwargs: keyword arguments of method call: ``timeout`` and ``token`` of the operation
         :raises DekerLockError: if the collection is not released within the timeout of the operation
         :raises DekerCriticalError: if the collections directory of the storage does not exist
         :raises FileNotFoundError: if the directory of the collection cannot be made
+        :raises DekerInstanceNotExistsError: if a symlink to nothing stands in place of the directory of the collection
         """
         collections = self.instance.collections_resource
         directory = collections / self.args[1].name
@@ -360,6 +367,25 @@ class CollectionLock(BaseLock):
                 return
             except FileNotFoundError:
                 check_storage_directory(collections)  # the directory is gone: made again, unless the storage is gone
+                if os.path.lexists(directory) and not os.path.exists(directory):
+                    # a symlink to nothing, not a directory taken away: a retry would never find the file
+                    raise DekerInstanceNotExistsError(f"{self.get_path()} doesn't exist") from None
+
+    def get_result(self, func: Callable, args: Any, kwargs: Any) -> Any:
+        """Call the creation with the descriptor of the json file the lock holds, as its ``descriptor`` argument.
+
+        The creation reads and writes the file through the descriptor, not the path: a deletion of the collection
+        meanwhile moves the held file to the trash, and another creator may hold a new file at the path by then.
+
+        :param func: decorated function
+        :param args: Arguments of decorated function
+        :param kwargs: Keyword arguments of decorated function
+        :returns: result of ``func``
+        :raises DekerLockError: if the lock holds nothing (a guard: the decorator takes it before the call)
+        """
+        if self.lock is None:  # pragma: no cover  # guard: the decorator takes the lock before the call
+            raise DekerLockError(f"Collection {self.args[1].name} is not locked")
+        return func(*args, **kwargs, descriptor=self.lock.descriptor)
 
     def get_path(self) -> Path:  # noqa: ARG002
         """Get path to the json file of the collection, in its directory."""

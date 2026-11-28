@@ -32,6 +32,7 @@ from numpy import ndarray
 from deker.ABC.base_subset import BaseSubset
 from deker.errors import (
     DekerArrayError,
+    DekerCriticalError,
     DekerInstanceNotExistsError,
     DekerLockError,
     DekerVSubsetError,
@@ -569,6 +570,8 @@ class VSubset(BaseSubset["VArray"]):
         :param data: new data which shall match subset slicing
         :param timeout: timeout of the operation as it was given
         :param token: token of the write operation
+        :raises DekerCriticalError: if an ``Array`` found the collections directory of the storage gone; whatever the
+          others met
         :raises TokenCancelledError: if the write is cancelled before any ``Array`` is started
         :raises DekerInstanceNotExistsError: if an ``Array`` does not exist because the ``VArray`` was deleted
         :raises DekerLockError: if every ``Array`` that failed was not released within the write lock timeout
@@ -601,6 +604,10 @@ class VSubset(BaseSubset["VArray"]):
                 exceptions.append(e)
                 descriptions.append(repr(e) + "\n" + traceback.format_exc(-1))
 
+        # the collections directory of the storage is gone: the critical error itself, never folded into another one
+        critical = [e for e in exceptions if isinstance(e, DekerCriticalError)]
+        if critical:
+            raise critical[0]
         # a cancelled Array means no Array of the write was started: the write is cancelled as a whole
         cancelled = [e for e in exceptions if isinstance(e, TokenCancelledError)]
         if cancelled:
@@ -646,6 +653,7 @@ class VSubset(BaseSubset["VArray"]):
         :raises DekerLockError: if every ``Array`` that failed was not released within the write lock timeout
         :raises DekerVSubsetError: if one or more ``Arrays`` could not be written for other reasons, or for mixed ones
         :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
+        :raises DekerCriticalError: if the collections directory of the storage is gone
         """
         validate_timeout(timeout=timeout)
         self.logger.debug("Trying to update data for %s", self)

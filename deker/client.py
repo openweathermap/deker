@@ -621,7 +621,7 @@ class Client(SelfLoggerMixin):
         return collection
 
     @_open_client_only
-    def empty_trash(self, background: bool = False) -> None:
+    def empty_trash(self, *, background: bool = False) -> None:
         """Remove everything from the trash of the storage, where the deleted files wait for their removal.
 
         The data in the trash is no longer available; the removal frees its disk space. A cancelled operation does not
@@ -630,7 +630,8 @@ class Client(SelfLoggerMixin):
         :param background: return at once and remove in a daemon thread, which nobody waits for; its error goes to the
           log of Deker
         :raises DekerTrashError: if something in the trash is not removed; not with ``background``
-        :raises DekerCriticalError: if the storage has no trash; with ``background`` it is logged only
+        :raises DekerCriticalError: if the storage has no trash or no collections directory when the call comes; a trash
+          lost while it is emptied in the ``background`` is logged only
         """
         self._adapter.empty_trash(background=background)
 
@@ -666,7 +667,6 @@ class Client(SelfLoggerMixin):
     def _get_locks(
         self,
         collection_name: str | SentinelType = Sentinel,
-        lock_type: LocksTypes | SentinelType = Sentinel,
     ) -> list[ArrayLockMeta]:
         """Return lockfiles of ``Collections`` and ``Arrays``.
 
@@ -675,8 +675,6 @@ class Client(SelfLoggerMixin):
 
         :param collection_name: Name of a ``Collection``
           If passed - gets locks only from passed ``Collection``, else checks every collection in the storage
-        :param lock_type: ``LocksTypes`` enum attribute; not used: the markers of VArray writes are the only lock files
-          left to list
         :returns: lock files of collections and arrays
         :raises DekerCollectionNotExistsError: if the collection does not exist
         :raises DekerCriticalError: if the collections directory of the storage does not exist

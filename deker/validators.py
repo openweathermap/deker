@@ -47,7 +47,7 @@ def process_time_dimension_attrs(attributes: dict, attr_name: str) -> datetime.d
     return time_attribute
 
 
-def __dictionaries(primary: object, custom: object) -> tuple[str, ...]:
+def __dictionaries(primary: bool, custom: bool) -> tuple[str, ...]:
     """Name the dictionaries of the attributes an error is in, the primary ones first.
 
     :param primary: true if the error is in the primary attributes
@@ -180,7 +180,7 @@ def process_attributes(
     if any((primary_attributes, custom_attributes)) and not attrs_schema:
         raise DekerValidationError(
             f"{array_type} attributes schema is missing".capitalize(),
-            parameters=__dictionaries(primary_attributes, custom_attributes),
+            parameters=__dictionaries(bool(primary_attributes), bool(custom_attributes)),
         )
 
     if any(attr.primary for attr in attrs_schema) and not primary_attributes:
@@ -206,7 +206,9 @@ def process_attributes(
         raise DekerValidationError(
             f"Setting additional attributes not listed in schema is not allowed. "
             f"Invalid attributes: {sorted(extra_names)}",
-            parameters=__dictionaries(primary_attributes.keys() & extra_names, custom_attributes.keys() & extra_names),
+            parameters=__dictionaries(
+                bool(primary_attributes.keys() & extra_names), bool(custom_attributes.keys() & extra_names)
+            ),
         )
 
     # check every attribute is given in its own dictionary
@@ -219,7 +221,7 @@ def process_attributes(
     if misplaced:
         raise DekerValidationError(
             f"Attributes passed in the wrong dictionary: {'; '.join(misplaced)}",
-            parameters=__dictionaries(custom_among_primary, primary_among_custom),
+            parameters=__dictionaries(bool(custom_among_primary), bool(primary_among_custom)),
         )
 
     __process_attributes_types(

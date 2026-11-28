@@ -34,6 +34,7 @@ from deker.collection import Collection
 from deker.errors import (
     DekerArrayError,
     DekerCancelledError,
+    DekerCriticalError,
     DekerInstanceNotExistsError,
     DekerLockError,
     DekerSubsetError,
@@ -605,6 +606,46 @@ class TestVArraySubset:
         assert len(info.value.exceptions) == arrays
         assert any(text.startswith("DekerLockError('held by a writer')") for text in info.value.exceptions)
         assert any(text.startswith("OSError('disk full')") for text in info.value.exceptions)
+
+    @pytest.mark.parametrize(
+        "others",
+        [
+            pytest.param(None, id="every-array-critical"),
+            pytest.param(OSError("disk full"), id="among-other-failures"),
+            pytest.param(DekerLockError("held by a writer"), id="among-lock-errors"),
+            pytest.param(DekerInstanceNotExistsError("gone"), id="among-missing-arrays"),
+            pytest.param(TokenCancelledError("cancelled", SimpleToken()), id="among-cancelled-arrays"),
+        ],
+    )
+    def test_update_lets_the_critical_error_through(
+        self, inserted_varray: VArray, mocker: MockerFixture, others: Exception | None
+    ):
+        """The collections directory of the storage is gone: the write raises the critical error itself, never folded
+        into the partial write or any other error, whatever the other Arrays met.
+        """
+        adapter = inserted_varray._VArray__array_adapter
+        subset = inserted_varray[:]
+        arrays = len(subset._VSubset__arrays)
+        critical = DekerCriticalError("Storage directory /nowhere doesn't exist")
+        failures = [critical] * arrays if others is None else [critical] + [others] * (arrays - 1)
+        update = mocker.patch.object(adapter, "update", side_effect=failures)
+        with pytest.raises(DekerCriticalError) as info:
+            subset.update(np.zeros(subset.shape))
+        assert info.value is critical
+        assert update.call_count == arrays  # every Array is waited for before the error is raised
+
+    def test_update_without_a_critical_error_keeps_the_partial_write(
+        self, inserted_varray: VArray, mocker: MockerFixture
+    ):
+        """No critical error among the failures: the write is reported as partial, as before."""
+        adapter = inserted_varray._VArray__array_adapter
+        subset = inserted_varray[:]
+        arrays = len(subset._VSubset__arrays)
+        mocker.patch.object(adapter, "update", side_effect=[OSError("disk full")] * arrays)
+        with pytest.raises(DekerVSubsetError) as info:
+            subset.update(np.zeros(subset.shape))
+        assert not isinstance(info.value, DekerCriticalError)
+        assert len(info.value.exceptions) == arrays
 
 
 def array_main_file(array) -> Path:
