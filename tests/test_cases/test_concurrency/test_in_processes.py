@@ -1471,15 +1471,18 @@ class TestCollectionOperationsAgainstCreators:
         trash = root_path / client._Client__ctx.config.trash_directory
         stop, gate, busy, results, creators = self.start(mp_context, root_path, collection)
         deletions = recreated = 0
-        longest = 0.0
+        longest = emptying = 0.0
         try:
             deadline = time.monotonic() + self.SECONDS
             while time.monotonic() < deadline:
                 gate.set()
                 sleep(0.05)  # the creators are on their way
                 start = time.monotonic()
-                collection.delete()
+                collection.delete(_empty_trash=False)  # only the move: the waits would be there
                 longest = max(longest, time.monotonic() - start)
+                start = time.monotonic()
+                client.empty_trash()  # what delete() does next, as the creators go on; it lasts as long as the disk
+                emptying = max(emptying, time.monotonic() - start)
                 gate.clear()
                 while busy.value:
                     sleep(0.0005)
@@ -1492,9 +1495,9 @@ class TestCollectionOperationsAgainstCreators:
             created, refused, failed = self.finish(stop, gate, results, creators)
             collection.delete()
         print(
-            f"\n  {mp_context.get_start_method()}: {deletions} deletions, the longest {longest:.3f} s; creations: "
-            f"{created} done, {refused} refused as not existing; failures {failed[:5]}; collections made again "
-            f"{recreated}"
+            f"\n  {mp_context.get_start_method()}: {deletions} deletions, the longest {longest:.3f} s, the longest "
+            f"emptying of the trash {emptying:.3f} s; creations: {created} done, {refused} refused as not existing; "
+            f"failures {failed[:5]}; collections made again {recreated}"
         )
         assert deletions > 0
         assert created > 0
@@ -1510,15 +1513,18 @@ class TestCollectionOperationsAgainstCreators:
         trash = root_path / client._Client__ctx.config.trash_directory
         stop, gate, busy, results, creators = self.start(mp_context, root_path, collection)
         clearings = orphans = 0
-        longest = 0.0
+        longest = emptying = 0.0
         try:
             deadline = time.monotonic() + self.SECONDS
             while time.monotonic() < deadline:
                 gate.set()
                 sleep(0.05)  # the creators are on their way
                 start = time.monotonic()
-                collection.clear()
+                collection.clear(_empty_trash=False)  # only the moves: the waits would be there
                 longest = max(longest, time.monotonic() - start)
+                start = time.monotonic()
+                client.empty_trash()  # what clear() does next, as the creators go on; it lasts as long as the disk
+                emptying = max(emptying, time.monotonic() - start)
                 gate.clear()
                 while busy.value:
                     sleep(0.0005)
@@ -1528,9 +1534,9 @@ class TestCollectionOperationsAgainstCreators:
             created, refused, failed = self.finish(stop, gate, results, creators)
             collection.delete()
         print(
-            f"\n  {mp_context.get_start_method()}: {clearings} clearings, the longest {longest:.3f} s; creations: "
-            f"{created} done, {refused} refused as not existing; failures {failed[:5]}; symlinks without files "
-            f"{orphans}"
+            f"\n  {mp_context.get_start_method()}: {clearings} clearings, the longest {longest:.3f} s, the longest "
+            f"emptying of the trash {emptying:.3f} s; creations: {created} done, {refused} refused as not existing; "
+            f"failures {failed[:5]}; symlinks without files {orphans}"
         )
         assert clearings > 0
         assert created > 0
