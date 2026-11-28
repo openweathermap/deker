@@ -1,32 +1,49 @@
+import gc
 import os
 import string
+import sys
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from random import shuffle
 from typing import Any
 
+import deker_local_adapters.mixin
 import numpy as np
 import pytest
 
+from cantok import AbstractToken, SimpleToken
 from deker_local_adapters import HDF5StorageAdapter, LocalArrayAdapter, LocalVArrayAdapter
 from deker_local_adapters.factory import AdaptersFactory
-from deker_tools.path import is_empty
+from deker_tools.cancel import cancellation_scope
+from deker_tools.typings import Sentinel
 from numpy import ndarray
+from pytest_mock import MockerFixture
 
 from tests.parameters.array_params import attributes_validation_params
-from tests.parameters.index_exp_params import invalid_index_params, valid_index_exp_params
+from tests.parameters.index_exp_params import (
+    invalid_index_params,
+    invalid_step_index_exp_params,
+    valid_index_exp_params,
+)
 from tests.parameters.uri import embedded_uri
 
 from deker.arrays import VArray
 from deker.client import Client
 from deker.collection import Collection
 from deker.dimensions import TimeDimension
-from deker.errors import DekerMemoryError, DekerValidationError
-from deker.schemas import DimensionSchema, VArraySchema
+from deker.errors import (
+    DekerCancelledError,
+    DekerInstanceNotExistsError,
+    DekerMemoryError,
+    DekerValidationError,
+)
+from deker.schemas import DimensionSchema, TimeDimensionSchema, VArraySchema
 from deker.tools import get_paths
+from deker.tools.schema import create_dimensions
 from deker.types import ArrayMeta
 from deker.types.private.typings import FancySlice, Slice
+from deker.types.public.classes import Scale
 
 
 class TestVArrayMethods:
@@ -61,9 +78,7 @@ class TestVArrayMethods:
         factory: AdaptersFactory,
         varray_collection_with_attributes: Collection,
     ):
-        adapter = factory.get_varray_adapter(
-            varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter
-        )
+        adapter = factory.get_varray_adapter(varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter)
         array_adapter = factory.get_array_adapter(
             varray_collection_with_attributes.path,
             HDF5StorageAdapter,
@@ -136,9 +151,7 @@ class TestVArrayMethods:
         factory: AdaptersFactory,
         varray_collection_with_attributes: Collection,
     ):
-        adapter = factory.get_varray_adapter(
-            varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter
-        )
+        adapter = factory.get_varray_adapter(varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter)
         array_adapter = factory.get_array_adapter(
             varray_collection_with_attributes.path,
             HDF5StorageAdapter,
@@ -155,14 +168,11 @@ class TestVArrayMethods:
             },
         )
         assert isinstance(array.shape, tuple)
-        assert array.shape == tuple(
-            [dim.size for dim in varray_collection_with_attributes.varray_schema.dimensions]
-        )
+        assert array.shape == tuple([dim.size for dim in varray_collection_with_attributes.varray_schema.dimensions])
         assert array.shape == varray_collection_with_attributes.varray_schema.shape
         assert isinstance(array.named_shape, tuple)
         assert array.named_shape == tuple(
-            (dim.name, dim.size)
-            for dim in varray_collection_with_attributes.varray_schema.dimensions
+            (dim.name, dim.size) for dim in varray_collection_with_attributes.varray_schema.dimensions
         )
         assert array.vgrid == varray_collection_with_attributes.varray_schema.vgrid
         assert isinstance(array.vgrid, tuple)
@@ -175,9 +185,7 @@ class TestVArrayMethods:
         factory: AdaptersFactory,
         varray_collection_with_attributes: Collection,
     ):
-        adapter = factory.get_varray_adapter(
-            varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter
-        )
+        adapter = factory.get_varray_adapter(varray_collection_with_attributes.path, storage_adapter=HDF5StorageAdapter)
         array_adapter = factory.get_array_adapter(
             varray_collection_with_attributes.path,
             HDF5StorageAdapter,
@@ -204,9 +212,7 @@ class TestVArrayMethods:
         """
         collection = inserted_varray._VArray__collection
         adapter = factory.get_varray_adapter(collection.path, storage_adapter=HDF5StorageAdapter)
-        array_adapter = factory.get_array_adapter(
-            collection.path, HDF5StorageAdapter, collection.options
-        )
+        array_adapter = factory.get_array_adapter(collection.path, HDF5StorageAdapter, collection.options)
         paths = get_paths(
             inserted_varray,
             root_path / adapter.ctx.config.collections_directory / inserted_varray.collection,
@@ -223,10 +229,12 @@ class TestVArrayMethods:
             / array_adapter.data_dir
             / inserted_varray.id
         ).exists()
-        assert is_empty(
+        # the symlinks of the Arrays live under the VArray id; the collection is shared with other tests
+        assert not (
             inserted_varray._VArray__collection.path  # type: ignore[attr-defined]
             / array_adapter.symlinks_dir
-        )
+            / inserted_varray.id
+        ).exists()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
     def test_update_varray(self, inserted_varray: VArray, array_data: np.ndarray, index_exp):
@@ -248,27 +256,49 @@ class TestVArrayMethods:
         data = inserted_varray[index_exp].read()
         assert (data == update).all()
 
-    def test_update_custom_attributes(self, inserted_array_with_attributes: VArray):
+    def test_dimensions_are_built_once(self, inserted_varray_with_attributes: VArray):
+        """The dimensions of an array are built on the first access and then reused."""
+        first = inserted_varray_with_attributes.dimensions
+        assert inserted_varray_with_attributes.dimensions is first
+        fresh = create_dimensions(
+            inserted_varray_with_attributes.schema.dimensions,
+            {**inserted_varray_with_attributes.primary_attributes, **inserted_varray_with_attributes.custom_attributes},
+        )
+        assert [d.as_dict for d in first] == [d.as_dict for d in fresh]
+
+    def test_dimensions_are_rebuilt_after_an_update_of_the_custom_attributes(
+        self, inserted_varray_with_attributes: VArray
+    ):
+        """A time dimension starting at a custom attribute follows the attribute after an update."""
+        before = inserted_varray_with_attributes.dimensions
+        new_start = datetime(2030, 1, 1, tzinfo=timezone.utc)
+        inserted_varray_with_attributes.update_custom_attributes({"time_attr_name": new_start})
+        after = inserted_varray_with_attributes.dimensions
+        assert after is not before
+        assert [d.start_value for d in after if isinstance(d, TimeDimension)] == [new_start]
+        assert [d.start_value for d in before if isinstance(d, TimeDimension)] != [new_start]
+
+    def test_update_custom_attributes(self, inserted_varray_with_attributes: VArray):
         """Tests array update method.
 
-        :param inserted_array_with_attributes: Array object
+        :param inserted_varray_with_attributes: VArray object
         """
         new_custom_attributes = {
             "custom_attribute": 0.6,
             "time_attr_name": datetime.now(timezone.utc),
         }
 
-        assert inserted_array_with_attributes.custom_attributes != new_custom_attributes
-        inserted_array_with_attributes.update_custom_attributes(new_custom_attributes)
-        assert inserted_array_with_attributes.custom_attributes == new_custom_attributes
-        meta = inserted_array_with_attributes.read_meta()
+        assert inserted_varray_with_attributes.custom_attributes != new_custom_attributes
+        inserted_varray_with_attributes.update_custom_attributes(new_custom_attributes)
+        assert inserted_varray_with_attributes.custom_attributes == new_custom_attributes
+        meta = inserted_varray_with_attributes.read_meta()
         meta_time = datetime.fromisoformat(meta["custom_attributes"]["time_attr_name"])
         assert (
             meta_time
-            == inserted_array_with_attributes.custom_attributes["time_attr_name"]
+            == inserted_varray_with_attributes.custom_attributes["time_attr_name"]
             == new_custom_attributes["time_attr_name"]
         )
-        for d in inserted_array_with_attributes.dimensions:
+        for d in inserted_varray_with_attributes.dimensions:
             if isinstance(d, TimeDimension):
                 assert d.start_value == new_custom_attributes["time_attr_name"]
 
@@ -321,6 +351,56 @@ class TestVArrayMethods:
             inserted_varray_with_attributes.update_custom_attributes(new_custom_attributes)
 
     @pytest.mark.parametrize(
+        ("new_custom_attributes", "message"),
+        [
+            pytest.param(
+                {"zzz": 1},
+                "Setting additional attributes not listed in schema is not allowed. Invalid attributes: ['zzz']",
+                id="unknown",
+            ),
+            pytest.param(
+                {"zzz": 1, "custom_attribute": 0.7},
+                "Setting additional attributes not listed in schema is not allowed. Invalid attributes: ['zzz']",
+                id="unknown_and_custom",
+            ),
+            pytest.param(
+                {"primary_attribute": 5},
+                "Key and custom attributes shall not have same names; invalid names: {'primary_attribute'}",
+                id="primary",
+            ),
+            pytest.param(
+                {"primary_attribute": 5, "custom_attribute": 0.7},
+                "Key and custom attributes shall not have same names; invalid names: {'primary_attribute'}",
+                id="primary_and_custom",
+            ),
+        ],
+    )
+    def test_varray_update_custom_attributes_with_a_name_out_of_the_custom_ones_fails(
+        self,
+        varray_collection_with_attributes: Collection,
+        inserted_varray_with_attributes: VArray,
+        new_custom_attributes: dict,
+        message: str,
+    ):
+        """An update with a name that is not a custom attribute of the schema changes nothing.
+
+        A primary name fails as a name both primary and custom: the update checks the given attributes as the custom
+        ones against the primary attributes of the VArray.
+        """
+        before = dict(inserted_varray_with_attributes.custom_attributes)
+        with pytest.raises(DekerValidationError) as error:
+            # a copy: the parameters are shared by the runs
+            inserted_varray_with_attributes.update_custom_attributes(dict(new_custom_attributes))
+        assert str(error.value) == message
+        assert inserted_varray_with_attributes.custom_attributes == before
+        assert inserted_varray_with_attributes.primary_attributes == {"primary_attribute": 3}
+        stored = varray_collection_with_attributes.filter({"primary_attribute": 3}).last()
+        assert stored is not None
+        assert stored.id == inserted_varray_with_attributes.id
+        assert stored.primary_attributes == {"primary_attribute": 3}
+        assert stored.custom_attributes == before
+
+    @pytest.mark.parametrize(
         ("new_custom_attributes", "skipped_attr"),
         [
             ({"custom_attribute": 0.7}, "time_attr_name"),
@@ -330,21 +410,21 @@ class TestVArrayMethods:
     )
     def test_varray_update_custom_attributes_update_just_passed_attrs(
         self,
+        varray_collection_with_attributes: Collection,
         inserted_varray_with_attributes: VArray,
         new_custom_attributes: dict,
         skipped_attr: str,
     ):
         old_attrs = inserted_varray_with_attributes.custom_attributes
+        expected = {**old_attrs, **new_custom_attributes}
         new_attr_name = list(new_custom_attributes.keys())[0]
         inserted_varray_with_attributes.update_custom_attributes(new_custom_attributes)
-        assert (
-            inserted_varray_with_attributes.custom_attributes[new_attr_name]
-            == new_custom_attributes[new_attr_name]
-        )
-        assert (
-            old_attrs[skipped_attr]
-            == inserted_varray_with_attributes.custom_attributes[skipped_attr]
-        )
+        assert inserted_varray_with_attributes.custom_attributes[new_attr_name] == new_custom_attributes[new_attr_name]
+        assert old_attrs[skipped_attr] == inserted_varray_with_attributes.custom_attributes[skipped_attr]
+        assert inserted_varray_with_attributes.custom_attributes == expected
+        stored = varray_collection_with_attributes.filter({"primary_attribute": 3}).last()
+        assert stored is not None
+        assert stored.custom_attributes == expected
 
     @pytest.mark.parametrize("index_exp", invalid_index_params)
     def test_array_getitem_raises(self, inserted_varray: VArray, index_exp: Slice):
@@ -372,9 +452,8 @@ class TestVArrayMethods:
             (np.index_exp[-90.0, -90.0], np.index_exp[360, 180]),
             (np.index_exp[:, -90.0], np.index_exp[:, 180]),
             (np.index_exp[-90.0, :], np.index_exp[360, :]),
-            (np.index_exp[..., -90.0], np.index_exp[..., 180]),
+            (np.index_exp[..., "j"], np.index_exp[..., 9]),  # the index after an ellipsis is for the last axis
             (np.index_exp[-90.0, ...], np.index_exp[360, ...]),
-            (np.index_exp[360, -90.0], np.index_exp[360, 180]),
             (np.index_exp[-90.0, 180], np.index_exp[360, 180]),
             (-89.5, 359),
             (np.index_exp[90.0:0.0, -180.0:0.0], np.index_exp[0:180, 0:360]),
@@ -402,9 +481,7 @@ class TestVArrayMethods:
             (np.index_exp[:, :, "d":], np.index_exp[:, :, 3:]),
         ],
     )
-    def test_varray_fancy_getitem_ok(
-        self, scaled_varray: VArray, index_exp: Slice, fancy_index_exp: FancySlice
-    ):
+    def test_varray_fancy_getitem_ok(self, scaled_varray: VArray, index_exp: Slice, fancy_index_exp: FancySlice):
         """Tests subset fancy creation from array __getitem__.
 
         :param scaled_varray: Pre created Varray
@@ -439,7 +516,6 @@ class TestVArrayMethods:
             np.index_exp[0.0:-90.0:1.5],
             np.index_exp[0.0:-90.0:-1],
             np.index_exp[0.0:-90.0, 0.0:179.5:-1],
-            np.index_exp[0.0:-90.0, 0.0:179.5:2],
             np.index_exp[:, :, "а"],  # cyrillic
             np.index_exp[:, :, "aa"],
             np.index_exp[:, :, " a"],
@@ -485,15 +561,11 @@ class TestVArrayMethods:
                 np.index_exp[0, 0],
             ),
             (
-                np.index_exp[
-                    datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat()
-                ],
+                np.index_exp[datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat()],
                 np.index_exp[14, 12],
             ),
             (
-                np.index_exp[
-                    datetime(2023, 1, 31).isoformat(), datetime(2023, 1, 1, 23).isoformat()
-                ],
+                np.index_exp[datetime(2023, 1, 31).isoformat(), datetime(2023, 1, 1, 23).isoformat()],
                 np.index_exp[-1, -1],
             ),
             (
@@ -504,15 +576,11 @@ class TestVArrayMethods:
                 np.index_exp[1:29, 4:23],
             ),
             (
-                np.index_exp[
-                    : datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat() :
-                ],
+                np.index_exp[: datetime(2023, 1, 15).isoformat(), datetime(2023, 1, 1, 12).isoformat() :],
                 np.index_exp[:14, 12:],
             ),
             (
-                np.index_exp[
-                    datetime(2023, 1, 10).isoformat() :, : datetime(2023, 1, 1, 4).isoformat()
-                ],
+                np.index_exp[datetime(2023, 1, 10).isoformat() :, : datetime(2023, 1, 1, 4).isoformat()],
                 np.index_exp[9:, :4],
             ),
             (
@@ -538,12 +606,12 @@ class TestVArrayMethods:
             ),
             (
                 np.index_exp[
-                    datetime(2023, 1, 2, tzinfo=timezone.utc)
-                    .timestamp() : datetime(2023, 1, 30, tzinfo=timezone.utc)
-                    .timestamp(),
-                    datetime(2023, 1, 1, 4, tzinfo=timezone.utc)
-                    .timestamp() : datetime(2023, 1, 1, 23, tzinfo=timezone.utc)
-                    .timestamp(),
+                    datetime(2023, 1, 2, tzinfo=timezone.utc).timestamp() : datetime(
+                        2023, 1, 30, tzinfo=timezone.utc
+                    ).timestamp(),
+                    datetime(2023, 1, 1, 4, tzinfo=timezone.utc).timestamp() : datetime(
+                        2023, 1, 1, 23, tzinfo=timezone.utc
+                    ).timestamp(),
                 ],
                 np.index_exp[1:29, 4:23],
             ),
@@ -563,9 +631,7 @@ class TestVArrayMethods:
             ),
         ],
     )
-    def test_timed_varray_fancy_getitem_ok(
-        self, timed_varray: VArray, index_exp: Slice, fancy_index_exp: FancySlice
-    ):
+    def test_timed_varray_fancy_getitem_ok(self, timed_varray: VArray, index_exp: Slice, fancy_index_exp: FancySlice):
         """Tests subset fancy creation from varray __getitem__.
 
         :param timed_varray: Pre created varray
@@ -610,14 +676,8 @@ class TestVArrayMethods:
             np.index_exp[:, 0.1],
             np.index_exp[:, -0.1],
             np.index_exp[datetime(2023, 1, 1) : datetime(2023, 1, 2).isoformat()],
-            np.index_exp[
-                datetime(2023, 1, 1)
-                .isoformat() : datetime(2023, 1, 2, tzinfo=timezone.utc)
-                .timestamp()
-            ],
-            np.index_exp[
-                datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp() : datetime(2023, 1, 2)
-            ],
+            np.index_exp[datetime(2023, 1, 1).isoformat() : datetime(2023, 1, 2, tzinfo=timezone.utc).timestamp()],
+            np.index_exp[datetime(2023, 1, 1, tzinfo=timezone.utc).timestamp() : datetime(2023, 1, 2)],
             np.index_exp[
                 datetime(2023, 1, 1, tzinfo=timezone(timedelta(hours=2))).timestamp(),
                 datetime(2023, 1, 1, tzinfo=timezone(timedelta(hours=2))).timestamp(),
@@ -642,9 +702,11 @@ class TestVArrayMethods:
                 int(datetime(2023, 1, 31, tzinfo=timezone.utc).timestamp()),
                 int(datetime(2023, 1, 1, 23, tzinfo=timezone.utc).timestamp()),
             ],
-            np.index_exp[datetime(2023, 1, 1) :: 2],
-            np.index_exp[datetime(2023, 1, 1) :: timedelta(days=2)],
-            np.index_exp[datetime(2023, 1, 1) :: timedelta(days=3)],
+            np.index_exp[datetime(2023, 1, 1) :: timedelta(hours=36)],  # not a multiple of the step of one day
+            np.index_exp[datetime(2023, 1, 1) :: timedelta(0)],
+            np.index_exp[datetime(2023, 1, 1) :: 1.0],
+            np.index_exp[timedelta(days=1) :: 2],
+            np.index_exp[: timedelta(days=1) : 2],
         ],
     )
     def test_varray_time_getitem_raises(self, timed_varray: VArray, scale_index_exp: FancySlice):
@@ -680,9 +742,7 @@ class TestVArrayMethods:
                 collection.delete()
 
     @pytest.mark.parametrize("index_exp", valid_index_exp_params)
-    def test_varray_getitem_ok(
-        self, inserted_varray: VArray, array_data: ndarray, index_exp: Slice
-    ):
+    def test_varray_getitem_ok(self, inserted_varray: VArray, array_data: ndarray, index_exp: Slice):
         """Tests subset creation from array __getitem__.
 
         :param inserted_varray: Pre created VArray
@@ -746,42 +806,66 @@ class TestVArrayMethods:
         factory,
         id_: Any,
     ):
-        varray_adapter = factory.get_varray_adapter(
-            varray_collection.path, storage_adapter=HDF5StorageAdapter
-        )
-        array_adapter = factory.get_array_adapter(
-            varray_collection.path, HDF5StorageAdapter, varray_collection.options
-        )
+        varray_adapter = factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(varray_collection.path, HDF5StorageAdapter, varray_collection.options)
         with pytest.raises(DekerValidationError):
             assert VArray(varray_collection, varray_adapter, array_adapter, id_=id_)
+
+    @pytest.mark.parametrize(
+        "kwargs",
+        [
+            pytest.param({"id_": "not-a-uuid"}, id="invalid-id"),
+            pytest.param({"primary_attributes": "not-a-dict"}, id="invalid-primary-attributes"),
+            pytest.param({"custom_attributes": ["not-a-dict"]}, id="invalid-custom-attributes"),
+        ],
+    )
+    def test_varray_rejected_by_validation_is_dropped_silently(self, mocker: MockerFixture, kwargs: dict):
+        """Tests that a VArray rejected by the validation is destroyed without an error in its finalizer."""
+        gc.collect()  # the garbage of other tests is not counted
+        hook = mocker.patch.object(sys, "unraisablehook")
+        with pytest.raises(DekerValidationError) as excinfo:
+            VArray(None, None, None, **kwargs)  # type: ignore[arg-type]
+        del excinfo
+        gc.collect()
+        assert [call.args[0].exc_value for call in hook.call_args_list] == []
+
+    @pytest.mark.parametrize("id_", [Sentinel, "c9b83915-95e7-5b8e-bf4a-65a7cf806edf"])
+    def test_valid_varray_is_dropped_silently(
+        self,
+        mocker: MockerFixture,
+        varray_collection: Collection,
+        factory: AdaptersFactory,
+        id_: Any,
+    ):
+        """Tests that a valid VArray is destroyed without an error in its finalizer."""
+        gc.collect()  # the garbage of other tests is not counted
+        hook = mocker.patch.object(sys, "unraisablehook")
+        varray_adapter = factory.get_varray_adapter(varray_collection.path, storage_adapter=HDF5StorageAdapter)
+        array_adapter = factory.get_array_adapter(varray_collection.path, HDF5StorageAdapter, varray_collection.options)
+        varray = VArray(varray_collection, varray_adapter, array_adapter, id_=id_)
+        assert varray.id
+        del varray
+        gc.collect()
+        assert [call.args[0].exc_value for call in hook.call_args_list] == []
 
     def test_varray_str(self, varray: VArray, varray_with_attributes: VArray):
         arrays = (varray, varray_with_attributes)
         for ar in arrays:
-            s = f"{ar.__class__.__name__}({ar.id!r}"
+            s = f"{ar.__class__.__name__}({ar.id!r}"  # noqa: F841  # the test asserts nothing
 
     def test_varray_repr(self, varray: VArray, varray_with_attributes: VArray):
         arrays = (varray, varray_with_attributes)
         for ar in arrays:
-            s = f"{ar.__class__.__name__}(" f"id={ar.id!r}, " f"collection={ar.collection!r})"
+            s = f"{ar.__class__.__name__}(id={ar.id!r}, collection={ar.collection!r})"
             if ar.primary_attributes:
                 s = s[:-1] + f", primary_attributes={ar.primary_attributes!r})"
             if ar.custom_attributes:
                 s = s[:-1] + f", custom_attributes={ar.custom_attributes!r})"
             assert repr(ar) == s
 
-    @pytest.mark.parametrize(
-        "index_exp",
-        (
-            (None, slice(None, None, 2)),
-            (None, slice(None, None, -2)),
-            (slice(None, None, -2)),
-            (slice(None, None, 2)),
-            (slice(None, None, 0)),
-            (slice(None, None, None), slice(None, None, None), slice(None, None, 3)),
-        ),
-    )
-    def test_step_validaor(self, varray: VArray, index_exp):
+    @pytest.mark.parametrize("index_exp", invalid_step_index_exp_params)
+    def test_step_validator(self, varray: VArray, index_exp):
+        """Tests if a zero or a boolean step is rejected."""
         with pytest.raises(IndexError):
             varray[index_exp]
 
@@ -820,5 +904,269 @@ class TestVArrayMethods:
         assert array.custom_attributes == varray_with_attributes.custom_attributes
 
 
+# Described dimensions used by the step tests, split into Arrays along every axis
+STEP_START = datetime(2024, 1, 1, tzinfo=timezone.utc)
+STEP_LABELS = ["a", "b", "c", "d", "e"]
+
+
+def _step_dimensions():
+    """Dimensions of the varray for the step tests: time (24 x 1h), scale down (10 x -0.5), scale up (10 x 0.5), labels.
+
+    :returns: dimension schemas
+    """
+    return [
+        TimeDimensionSchema(name="t", size=24, start_value=STEP_START, step=timedelta(hours=1)),
+        DimensionSchema(name="y", size=10, scale=Scale(start_value=90.0, step=-0.5)),
+        DimensionSchema(name="x", size=10, scale=Scale(start_value=-180.0, step=0.5)),
+        DimensionSchema(name="layers", size=5, labels=STEP_LABELS),
+    ]
+
+
+# Fancy steps of the described varray and the plain integer slices they convert to
+fancy_step_params = [
+    pytest.param(
+        np.index_exp[STEP_START + timedelta(hours=2) : STEP_START + timedelta(hours=10) : timedelta(hours=2)],
+        (slice(2, 10, 2),),
+        id="time-forward-2h",
+    ),
+    pytest.param(
+        np.index_exp[STEP_START + timedelta(hours=10) : STEP_START + timedelta(hours=2) : -timedelta(hours=2)],
+        (slice(10, 2, -2),),
+        id="time-backward-2h",
+    ),
+    pytest.param(np.index_exp[:, 89.0:86.0:-1.0], (slice(None), slice(2, 8, 2)), id="scale-down-against-the-scale"),
+    pytest.param(np.index_exp[:, 86.0:89.0:1.0], (slice(None), slice(8, 2, -2)), id="scale-down-along-the-scale"),
+    pytest.param(
+        np.index_exp[:, :, -176.0:-179.0:-1.5], (slice(None), slice(None), slice(8, 2, -3)), id="scale-up-backward"
+    ),
+    pytest.param(
+        np.index_exp[:, :, :, "e":"a":-1],
+        (slice(None), slice(None), slice(None), slice(4, 0, -1)),
+        id="labels-backward",
+    ),
+    pytest.param(
+        np.index_exp[STEP_START + timedelta(hours=3) :: timedelta(hours=4), 89.0::-1.0, ::3, "b"::2],
+        (slice(3, None, 4), slice(2, None, 2), slice(None, None, 3), slice(1, None, 2)),
+        id="every-axis-at-once",
+    ),
+    # the steps 3, -2 and -3 in the units of every axis, without bounds: hours on the time axis, scale units on the
+    # scales (the sign is relative to the direction of the scale: on the scale down -1.0 walks up the positions),
+    # positions on the labels, and the four at once
+    pytest.param(np.index_exp[:: timedelta(hours=3)], (slice(None, None, 3),), id="time-3h"),
+    pytest.param(np.index_exp[:: -timedelta(hours=2)], (slice(None, None, -2),), id="time-minus-2h"),
+    pytest.param(np.index_exp[:: -timedelta(hours=3)], (slice(None, None, -3),), id="time-minus-3h"),
+    pytest.param(np.index_exp[:, ::1.5], (slice(None), slice(None, None, -3)), id="scale-down-1.5"),
+    pytest.param(np.index_exp[:, ::-1.0], (slice(None), slice(None, None, 2)), id="scale-down-minus-1.0"),
+    pytest.param(np.index_exp[:, ::-1.5], (slice(None), slice(None, None, 3)), id="scale-down-minus-1.5"),
+    pytest.param(np.index_exp[:, :, ::1.5], (slice(None), slice(None), slice(None, None, 3)), id="scale-up-1.5"),
+    pytest.param(
+        np.index_exp[:, :, ::-1.0], (slice(None), slice(None), slice(None, None, -2)), id="scale-up-minus-1.0"
+    ),
+    pytest.param(
+        np.index_exp[:, :, ::-1.5], (slice(None), slice(None), slice(None, None, -3)), id="scale-up-minus-1.5"
+    ),
+    pytest.param(
+        np.index_exp[:, :, :, ::3], (slice(None), slice(None), slice(None), slice(None, None, 3)), id="labels-3"
+    ),
+    pytest.param(
+        np.index_exp[:, :, :, ::-2], (slice(None), slice(None), slice(None), slice(None, None, -2)), id="labels-minus-2"
+    ),
+    pytest.param(
+        np.index_exp[:, :, :, ::-3], (slice(None), slice(None), slice(None), slice(None, None, -3)), id="labels-minus-3"
+    ),
+    pytest.param(
+        np.index_exp[:: -timedelta(hours=3), ::-1.0, ::1.5, ::-2],
+        (slice(None, None, -3), slice(None, None, 2), slice(None, None, 3), slice(None, None, -2)),
+        id="every-axis-3-minus-2-minus-3",
+    ),
+]
+
+invalid_fancy_step_params = [
+    pytest.param(np.index_exp[:: timedelta(minutes=30)], id="time-step-not-a-multiple"),
+    pytest.param(np.index_exp[:: timedelta(0)], id="time-zero-step"),
+    pytest.param(np.index_exp[::1.0], id="time-float-step"),
+    pytest.param(np.index_exp[timedelta(hours=1) :: 2], id="time-timedelta-start"),
+    pytest.param(np.index_exp[:, ::0.3], id="scale-step-not-a-multiple"),
+    pytest.param(np.index_exp[:, ::0.0], id="scale-zero-step"),
+    pytest.param(np.index_exp[:, :: timedelta(hours=1)], id="scale-timedelta-step"),
+    pytest.param(np.index_exp[:, :, :, ::1.0], id="labels-float-step"),
+    pytest.param(np.index_exp[:, :, :, ::"b"], id="labels-string-step"),
+    pytest.param(np.index_exp[:, 89.0:86.0:1.0], id="scale-step-walks-away-from-stop"),
+]
+
+
+class TestVArrayStepIndexing:
+    """Steps in the index expressions of a VArray convert exactly as for an Array, whatever the grid."""
+
+    @pytest.fixture(
+        scope="class", params=[(1, 1, 1, 1), (4, 2, 5, 1), (3, 5, 2, 5)], ids=lambda v: "x".join(map(str, v))
+    )
+    def described_varray(self, request, client: Client) -> VArray:
+        vgrid = request.param
+        schema = VArraySchema(dtype=float, dimensions=_step_dimensions(), vgrid=vgrid)
+        collection = client.create_collection(f"varray_steps_{'_'.join(map(str, vgrid))}", schema)
+        try:
+            varray = collection.create()
+            varray[:].update(np.arange(24 * 10 * 10 * 5, dtype=float).reshape(24, 10, 10, 5))
+            yield varray
+        finally:
+            collection.delete()
+
+    @pytest.mark.parametrize(("index_exp", "bounds"), fancy_step_params)
+    def test_fancy_steps_convert_to_integer_slices(self, described_varray: VArray, index_exp: FancySlice, bounds):
+        subset = described_varray[index_exp]
+        assert subset.bounds == bounds
+        expected = described_varray[:].read()[bounds]
+        assert subset.shape == expected.shape
+        assert np.array_equal(subset.read(), expected)
+
+    @pytest.mark.parametrize("index_exp", invalid_fancy_step_params)
+    def test_steps_of_a_wrong_kind_raise(self, described_varray: VArray, index_exp: FancySlice):
+        with pytest.raises(IndexError):
+            described_varray[index_exp]
+
+    @pytest.mark.parametrize("index_exp", invalid_step_index_exp_params)
+    def test_zero_and_boolean_steps_raise(self, described_varray: VArray, index_exp: Slice):
+        with pytest.raises(IndexError):
+            described_varray[index_exp]
+
+
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestVArrayTimeoutAndCancellation:
+    """The timeout of an update of the attributes is the limit of the wait for the lock; both it and the deletion stop
+    on a cancelled scope before the adapter.
+    """
+
+    @pytest.fixture
+    def target(self, inserted_varray_with_attributes):
+        return inserted_varray_with_attributes
+
+    @pytest.mark.parametrize(
+        ("operation", "method", "args"),
+        [
+            pytest.param(
+                "update_custom_attributes",
+                "update_meta_custom_attributes",
+                ({"custom_attribute": 0.7},),
+                id="attributes",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize(
+        ("kwargs", "expected"),
+        [pytest.param({"timeout": 5}, 5, id="given"), pytest.param({}, Sentinel, id="not-given")],
+    )
+    def test_timeout_reaches_the_adapter(self, target, mocker, operation, method, args, kwargs, expected):
+        adapter_call = mocker.patch.object(
+            target._adapter if method != "delete_all_by_vid" else target._VArray__array_adapter, method
+        )
+        getattr(target, operation)(*args, **kwargs)
+        assert adapter_call.call_args.kwargs["timeout"] == expected
+        assert isinstance(adapter_call.call_args.kwargs["token"], AbstractToken)
+
+    @pytest.mark.parametrize(
+        ("operation", "method", "args"),
+        [
+            pytest.param(
+                "update_custom_attributes",
+                "update_meta_custom_attributes",
+                ({"custom_attribute": 0.7},),
+                id="attributes",
+            ),
+        ],
+    )
+    @pytest.mark.parametrize("timeout", [0, -1, 1.5, True, "10", None])
+    def test_invalid_timeout_is_rejected_before_the_adapter(self, target, mocker, operation, method, args, timeout):
+        adapter_call = mocker.patch.object(
+            target._adapter if method != "delete_all_by_vid" else target._VArray__array_adapter, method
+        )
+        with pytest.raises(DekerValidationError):
+            getattr(target, operation)(*args, timeout=timeout)
+        adapter_call.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("operation", "method", "args"),
+        [
+            pytest.param(
+                "update_custom_attributes",
+                "update_meta_custom_attributes",
+                ({"custom_attribute": 0.7},),
+                id="attributes",
+            ),
+            pytest.param("delete", "delete_all_by_vid", (), id="delete"),
+        ],
+    )
+    def test_cancelled_scope_stops_before_the_adapter(self, target, mocker, operation, method, args):
+        adapter_call = mocker.patch.object(
+            target._adapter if method != "delete_all_by_vid" else target._VArray__array_adapter, method
+        )
+        token = SimpleToken()
+        token.cancel()
+        with cancellation_scope(token), pytest.raises(DekerCancelledError):
+            getattr(target, operation)(*args)
+        adapter_call.assert_not_called()
+
+
+class TestVArrayDelete:
+    """The deletion of a VArray: its symlink, every Array, its json file; one emptying of the trash at the end."""
+
+    def test_order_of_the_moves(self, inserted_varray: VArray, mocker: MockerFixture):
+        adapter = inserted_varray._adapter
+        paths = get_paths(inserted_varray, adapter.collection_path)
+        name = inserted_varray.id + adapter.file_ext
+        symlinks = list(inserted_varray._VArray__array_adapter._adapter_iter(inserted_varray.id))
+        assert len(symlinks) == 8
+        arrays = [path for symlink in symlinks for path in (symlink, symlink.readlink())]
+        move = mocker.spy(deker_local_adapters.mixin, "move_to_trash")
+        inserted_varray.delete()
+        assert [call.args[0] for call in move.call_args_list] == [paths.symlink / name, *arrays, paths.main / name]
+
+    @pytest.mark.parametrize(
+        ("kwargs", "background", "empty"),
+        [
+            pytest.param({}, False, True, id="default"),
+            pytest.param({"background": True, "_empty_trash": False}, True, False, id="given"),
+        ],
+    )
+    def test_adapters_get_one_emptying_at_the_end(
+        self, inserted_varray: VArray, mocker: MockerFixture, kwargs: dict, background: bool, empty: bool
+    ):
+        """The symlink of the VArray never empties the trash, the Arrays know nothing of it, the json file does."""
+        adapter, array_adapter = inserted_varray._adapter, inserted_varray._VArray__array_adapter
+        calls = mocker.Mock()
+        mocker.patch.object(adapter, "delete", calls.delete)
+        mocker.patch.object(array_adapter, "delete_all_by_vid", calls.delete_all_by_vid)
+        mocker.patch.object(adapter, "delete_main_file", calls.delete_main_file)
+        inserted_varray.delete(**kwargs)
+        token = calls.delete.call_args.kwargs["token"]
+        assert isinstance(token, AbstractToken)
+        assert calls.mock_calls == [
+            mocker.call.delete(inserted_varray, background=background, _empty_trash=False, token=token),
+            mocker.call.delete_all_by_vid(inserted_varray.id, inserted_varray._VArray__collection, token=token),
+            mocker.call.delete_main_file(inserted_varray, background=background, _empty_trash=empty),
+        ]
+
+
+class TestVArrayWhoseFileIsGone:
+    """A VArray whose json file is gone does not exist: its metadata calls raise DekerInstanceNotExistsError."""
+
+    @pytest.mark.parametrize("operation", ["update_custom_attributes", "read_meta"])
+    @pytest.mark.parametrize("directory_gone", [False, True], ids=["file-gone", "file-and-directory-gone"])
+    def test_file_gone_before_the_call(
+        self, inserted_varray_with_attributes: VArray, tmp_path: Path, operation: str, directory_gone: bool
+    ):
+        """The update of the attributes locks the json file first: the file is the one missing."""
+        varray = inserted_varray_with_attributes
+        file = get_paths(varray, varray._adapter.collection_path).main / (varray.id + varray._adapter.file_ext)
+        file.rename(tmp_path / file.name)
+        if directory_gone:
+            file.parent.rmdir()
+        attributes = dict(varray.custom_attributes)
+        args = ({"custom_attribute": 0.9},) if operation == "update_custom_attributes" else ()
+        with pytest.raises(DekerInstanceNotExistsError) as error:
+            getattr(varray, operation)(*args)
+        assert str(error.value) == f"{file} doesn't exist"
+        assert varray.custom_attributes == attributes

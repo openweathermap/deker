@@ -25,6 +25,21 @@ If you have several collections on the same storage, you can iterate them with t
       for collection in client:
          print(collection)
 
+For type checkers ``Collection`` is generic over the kind of arrays it holds:
+``create_collection`` with an ``ArraySchema`` gives a ``Collection[Array]``, with a
+``VArraySchema`` a ``Collection[VArray]``, and ``create``, ``filter`` and iteration follow that
+type. A collection read from the storage can be either, so ``get_collection`` returns
+``Collection[Array] | Collection[VArray] | None``; check ``varray_schema`` to tell::
+
+   with Client("file:///tmp/deker") as client:
+      collection = client.create_collection("winds", VArraySchema(...))  # Collection[VArray]
+      varray = collection.create({"model": "gfs"})                         # VArray
+      vsubset = varray[0:10]                                               # VSubset
+
+      stored = client.get_collection("weather")
+      if stored is not None and stored.varray_schema is None:
+         arrays: Collection[Array] = stored
+
 ``Collection`` object has several useful properties and methods for self-managing::
 
    with Client("file:///tmp/deker") as client:
@@ -289,21 +304,36 @@ slicing parameters::
 DEKER™ allows you to index and slice its ``Array`` and ``VArray`` not only with integers, but with
 the ``types`` by which the dimensions are described.
 
-But let's start with a **constraint**.
-
-
 Step
 ~~~~
 
-Since a ``VArray`` is split in separate files, and each file can contain an ``Array`` with more
-than one dimension, the calculation of their inner bounds is a non-trivial problem.
+The ``step`` of a slice works as it does in NumPy, for both ``Array`` and ``VArray``:
+``array[::2]`` takes every other cell, ``array[::-1]`` reverses the axis, ``array[10:2:-2]`` walks
+backwards. A ``VArray`` splits the selection over its ``Arrays`` itself, whatever the ``vgrid``::
 
-That's why the ``step`` parameter **is limited** to ``1`` for both ``Array`` and ``VArray``
-dimensions. This constraint is introduced to keep consistent behavior, although that there is no
-such a problem for ``Array``.
+   varray[::3, 5, ::-1]          # every third row, one column, the last axis reversed
+   varray[::2].update(data)      # data has the shape of the selection
+   varray[1::2].clear()
 
-Workaround for ``VArray`` would be to read your data and slice it again with steps, if you need,
-as it will be a ``numpy.ndarray``.
+Besides integers, a step may be expressed in the values an axis is described with:
+
+* on a ``TimeDimension`` a ``datetime.timedelta`` step shall be a non-zero multiple of the
+  dimension ``step``: ``array[start::timedelta(hours=6)]`` with an hourly axis takes every sixth
+  hour, ``-timedelta(hours=6)`` walks backwards;
+* on a ``Dimension`` with a ``scale`` a ``float`` step shall be a non-zero multiple of the scale
+  ``step`` and is counted in the values of the scale: on a latitude axis described as
+  ``Scale(start_value=90.0, step=-0.25)`` the step ``-1.0`` walks from the north to the south, that
+  is forwards along the axis, and ``1.0`` walks backwards;
+* on a ``Dimension`` with ``labels`` only integer steps are valid: ``array[:, "a":"e":2]``.
+
+A zero step, a boolean step, a step of a kind the axis does not accept (a ``float`` on a time axis,
+a ``timedelta`` on a scale, a ``str`` anywhere) and a step that is not a multiple of the axis step
+raise ``IndexError``. So does a selection that ends up empty, for instance a negative step whose
+``start`` lies before its ``stop``.
+
+.. note::
+   A ``timedelta`` is a step, never a position: ``start`` and ``stop`` of a time axis take
+   ``datetime`` objects, ISO 8601 strings or timestamps.
 
 
 Start and Stop
@@ -436,23 +466,41 @@ them into 11 cells, as there are no instructions how to arrange them properly. :
 
        subset.update(data)
 
-The provided data ``dtype`` shall match the dtype of ``Array`` or ``VArray`` set by the schema or
-shall have the correspondent Python type to be converted into such ``dtype``::
+A scalar is the exception to the shape rule: it fills every cell of the ``Subset`` or ``VSubset``,
+whatever its shape, so ``subset.update(0.0)`` zeroes the whole selection of an ``Array`` and of a
+``VArray`` alike::
+
+   with Client("file:///tmp/deker") as client:
+       collection: Collection = client.get_collection("weather")
+       array: Array = collection.filter({"dt": datetime(2023, 1, 1, 0)}).first()
+       array[:, :, 0].update(273.15)  # one value in every cell of the selection
+
+Numpy data is written as it is: the ``dtype`` of a ``numpy.ndarray`` or a numpy scalar shall be
+exactly the dtype of the ``Array`` or ``VArray`` set by the schema, otherwise
+``DekerArrayTypeError`` is raised; numpy types are never converted to one another. Python
+numbers (a scalar, a list or a tuple, nested as deep as the selection has dimensions) are
+converted to the array dtype, provided every value fits it: an integer dtype takes the values it
+holds exactly (no wrapping, no fractions, no ``nan``), a float dtype takes the values it holds up
+to rounding (a finite value stays finite), a complex dtype applies the same to both parts. A value
+that does not fit raises
+``DekerArrayTypeError`` before anything is written::
 
    with Client("file:///tmp/deker") as client:
        collection: Collection = client.get_collection("weather")
        array: Array = collection.filter({"dt": datetime(2023, 1, 1, 0)}).first()
        subset = array[:]  # captures full array shape
 
-       data = np.random.random(subset.shape).tolist  # converts data into Python list of Python floats
+       data = np.random.random(subset.shape).tolist()  # Python list of Python floats
 
        subset.update(data)  # data will be converted to array.dtype
+
+       array[0, 0, 0].update(300)  # DekerArrayTypeError for a uint8 array: 300 does not fit
 
 If your ``Array`` or ``VArray`` is utterly empty, ``Subset`` or ``VSubset`` will create a
 ``numpy.ndarray`` of the ``Array`` shape filled with the ``fill_value`` from the ``Collection``
 schema and than, using the indicated bounds, it will insert the data provided by you in this array.
 Afterwards it will be dumped to the storage. In the scope of ``VArray`` it will work in the same
-manner, except that only corresponding affected inner ``Array`` will be created.
+manner, except that only corresponding affected ``Array`` of the ``VArray`` will be created.
 
 If there is some data in your ``Array`` or ``VArray`` and you provide some new values by this
 method, the old values in the affected bounds will be substituted with new ones::
@@ -601,26 +649,114 @@ It provides even more opportunities. Refer to ``xarray.DataArray`` API_ for deta
 
 Locks
 ======
-DEKER™ is thread and process safe. It uses its own locks for the majority of operations.
-DEKER™ locks can be divided into two groups: **read** and **write** locks
+DEKER™ is thread and process safe: the files of the storage are protected by locks of the operating
+system (``flock``) taken on the data files themselves. The locks are **read** (shared) and
+**write** (exclusive) locks.
 
-**Read locks** can be shared between threads and processes with no risk of data corruption.
+A **read** of an ``Array`` holds a shared lock on its file from the start of the read to its end:
+any number of readers may read the file at once, and a writer waits for them to leave.
 
-**Write locks** are exclusive and are taken for the files with correspondent data content.
-Only the process/thread, which has already acquired a write lock, may produce any changes
-in the data.
-
-It means that if one process is already writing some data into a ``HDF5`` file (or into
-an ``Array``) and some other processes want to read from it or to write some other data
-into the same file, they will receive a ``DekerLockError``.
+A **write** into an ``Array`` (``update``, ``clear``, ``update_custom_attributes``, ``delete``)
+holds an exclusive lock on its file: the writer waits for the readers of the file to leave
+(``write_lock_timeout`` seconds at most, checked every ``write_lock_check_interval`` seconds, then
+``DekerLockError``) and keeps everybody out while it writes. A reader that meets a writer does not
+wait: it gets ``DekerLockError`` at once.
 
 .. note::
    Reading data from an ``Array``, which is locked for writing, is impossible.
 
-Speaking about ``VArray`` it means that several processes are able to update data
-in several non-intersecting ``VSubsets``. In case if any updating ``VSubset`` intersects
-with another one, the update operation will be rejected for the ``VSubset``, which met
-the write lock.
+A ``VArray`` has no lock of its own. It finds its ``Arrays`` without touching their files: it
+knows their schema and attributes already, and the storage gives it the id of the ``Array`` at a
+position. So the file of an ``Array`` is opened once, for the data, and a writer holding it does
+not stop the search. A ``VArray`` write goes ``Array`` by ``Array``: every ``Array`` of it is held
+exclusively only while its part of the data is written, as a plain ``Array`` write holds it. So
+several processes may write into one ``VArray`` at the same time: the writers of different
+Arrays never wait for each other, and the writers of one Array queue on it, each waiting for the
+previous one as it waits for readers. The parts of the Array they write do not get mixed; when they
+write the same cells, the last writer wins. If an Array is still held when ``write_lock_timeout``
+is over, the ``VArray`` update raises ``DekerLockError``, with the Arrays written meanwhile left as
+they are: nothing is broken, and the write can simply be repeated. When an Array fails for another
+reason, with or without lock timeouts next to it, the update raises ``DekerVSubsetError`` listing
+every cause.
 
-Please note that operation of custom attributes updating also locks Array or VArray files
-for writing.
+An Array of a ``VArray`` that does not exist yet is created by the first writer to reach it. The
+creation of an ``Array`` with primary attributes (an Array has them: the ``VArray`` id and the
+position) holds the directory of its symlink exclusively, so two creators of one Array, through a
+``VArray`` or through the ``arrays`` manager, never create two files for one position: the second
+one learns that the Array exists. The writers of one fresh ``VArray`` also take a short lock on the
+directory of the ``VArray`` file while they create its Arrays, so the later writers find the Array
+and update it instead of failing. An update of the custom attributes of a ``VArray`` holds the
+same directory, waiting for the previous updater as a writer waits, and replaces the metadata file
+in one step, so a reader never meets a half-written file.
+
+The locks live in the kernel: a process that dies in the middle of a read or a write releases its
+locks at once, nobody waits for a dead reader or writer, and no file is left behind. There is
+nothing to clean up after a crash. The only lock file on the disk is ``<collection name>.lock``
+next to the directory of a collection: it is held while the collection is created or cleared and
+stays afterwards as the marker of the collection, which ``check_integrity`` relies on.
+
+.. note::
+   ``flock`` works for the processes of one machine whatever way they run, in containers sharing a
+   volume as well. It does not work on network file systems such as NFS: the locks of different
+   machines do not see each other there. Put the storage of DEKER™ on a local disk of the machine
+   that writes into it.
+
+.. note::
+   DEKER™ before 2.0.0 marked the Arrays a ``VArray`` was writing with ``.varraylock`` files, which
+   a crashed writer left behind. The new versions neither make nor respect them. Call
+   ``client.clear_locks()`` once after the upgrade to remove the leftovers of the old versions; the
+   method is deprecated and will be removed in 3.0.0.
+
+Integrity check
+================
+``client.check_integrity()`` walks a local storage and returns an ``IntegrityReport`` with
+everything it has found. The checks are named by the ``IntegrityCheck`` enum, from the cheapest to
+the most expensive:
+
+- ``collections``: every collection initialises and has its lock file, every lock file has its
+  collection; a collection file of an older metadata version is reported with the fields a rewrite
+  in the current format would add, remove or change, as it opens with the defaults of the current
+  version and is never rewritten;
+- ``markers``: no markers of ``VArray`` writes are left by DEKER™ before 2.0.0;
+- ``arrays``: every main file initialises an ``Array`` or a ``VArray``; an ``Array`` of a VArray
+  collection refers to an existing ``VArray``, has its ``v_position`` inside the ``vgrid`` and
+  carries the time attributes of its ``v_position``;
+- ``links``: main files and symlinks point at each other, with one array per directory of primary
+  attributes;
+- ``data``: one cell of every ``Array`` reads back with the dtype of the collection;
+- ``counters``: the counter of empty cells of every ``Array`` equals the number of fill values in
+  its data.
+
+The default set is the first four: they read metadata and symlinks only. ``data`` reads one cell of
+every array and ``counters`` reads every array whole, so they run on request only.
+
+.. code-block:: python
+
+   from deker import Client
+   from deker.types import IntegrityCheck
+
+   with Client("file:///tmp/deker") as client:
+       report = client.check_integrity()                       # every collection, the default checks
+       report = client.check_integrity("weather", checks=[IntegrityCheck.links])
+       report = client.check_integrity(checks=IntegrityCheck)  # everything, the data included
+
+       if not report.ok:
+           for finding in report.findings:
+               print(finding.check, finding.kind, finding.collection, finding.array_id, finding.path)
+               print(finding.message, finding.repairable)
+
+A finding tells which check made it, what exactly was found (``IntegrityFindingKind``), the
+collection, the array and the file it is about, and whether it can be repaired. ``str(report)`` is
+the same text that goes to the log and, with ``to_file``, to a file. ``stop_on_error=True`` raises
+``DekerIntegrityError`` at the first finding instead of collecting them all.
+
+``repair=True`` repairs the findings that can be repaired once their collection is checked: a
+missing symlink is created, a broken or misplaced one is removed with the empty directories above
+it, a missing lock file is created and an orphaned one removed, the markers of the old versions are
+removed, the time attributes of an ``Array`` of a ``VArray`` are calculated from its ``v_position`` again, the counter of
+empty cells is counted again. What cannot be repaired stays in the report: unreadable metadata,
+corrupted data, two arrays with the same primary attributes (the checker cannot tell which one is
+right), a plain file among the symlinks. ``report.unrepaired`` lists what is left.
+
+``workers`` sets the number of threads that check the arrays of a collection. Repairs and several
+workers are safe only when nobody else works with the storage.

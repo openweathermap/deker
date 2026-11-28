@@ -1,0 +1,40 @@
+{#- The flyout of the theme is rendered by Read the Docs only; this one lists the versions published at the site root. -#}
+<div class="rst-versions" data-toggle="rst-versions" role="note" aria-label="Versions"
+     id="deker-versions" data-page="{{ pagename }}{{ file_suffix }}" data-current="{{ current_version }}">
+  <span class="rst-current-version" data-toggle="rst-current-version">
+    <span class="fa fa-book"> {{ project }}</span>
+    {{ current_version }}
+    <span class="fa fa-caret-down"></span>
+  </span>
+  <div class="rst-other-versions">
+    <dl>
+      <dt>Versions</dt>
+    </dl>
+  </div>
+</div>
+<script>
+  (function () {
+    var box = document.getElementById("deker-versions");
+    var list = box.querySelector("dl");
+    var page = box.dataset.page;
+    var current = box.dataset.current;
+    function add(name, url, title) {
+      var dd = document.createElement("dd");
+      var a = document.createElement("a");
+      a.href = url + page;
+      a.textContent = title;
+      if (name === current) { dd.className = "rtd-current-item"; }
+      dd.appendChild(a);
+      list.appendChild(dd);
+    }
+    fetch("/versions.json", {cache: "no-store"})
+      .then(function (response) { return response.ok ? response.json() : null; })
+      .then(function (data) {
+        if (!data) { return; }
+        var inVersion = data.versions.some(function (v) { return location.pathname.indexOf(v.url) === 0; });
+        add(inVersion ? "" : current, "/", "latest (" + data.latest + ")");
+        data.versions.forEach(function (v) { add(inVersion ? v.name : "", v.url, v.name); });
+      })
+      .catch(function () {});
+  })();
+</script>

@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,8 +16,6 @@
 
 import uuid
 
-from typing import Dict, List, Tuple, Union
-
 import numpy as np
 
 from deker_tools.data import convert_size_to_human
@@ -26,21 +24,25 @@ from psutil import swap_memory, virtual_memory
 from deker.errors import DekerMemoryError, DekerValidationError
 
 
-def calculate_total_cells_in_array(seq: Union[Tuple[int, ...], List[int]]) -> int:
+def calculate_total_cells_in_array(shape: tuple[int, ...] | list[int]) -> int:
     """Get total quantity of cells in the array.
 
-    :param seq: sequence of integers (normally array shape)
+    :param shape: array shape (sequence of integers)
+    :returns: number of cells
     """
-    return int(np.prod(np.array(seq)))
+    return int(np.prod(np.array(shape)))
 
 
-def convert_human_memory_to_bytes(memory_limit: Union[int, str]) -> int:
+def convert_human_memory_to_bytes(memory_limit: int | str) -> int:
     """Convert a human memory limit to bytes.
 
-    :param memory_limit: memory limit provided by the user
+    :param memory_limit: memory limit provided by the user: a number of bytes, or a string of a number and a unit
+      (``k``, ``m``, ``g``, ``t``, in any case), e.g. ``"8G"`` or ``"512m"``
+    :returns: memory limit in bytes
+    :raises DekerValidationError: if the value is neither a number nor such a string
     """
     bytes_ = 1024
-    mapping: Dict[str, int] = {"k": bytes_, "m": bytes_**2, "g": bytes_**3, "t": bytes_**4}
+    mapping: dict[str, int] = {"k": bytes_, "m": bytes_**2, "g": bytes_**3, "t": bytes_**4}
     error = (
         f"invalid memory_limit value: {memory_limit}; expected `int` or `str` in format [number][unit] "
         f'where unit is one of ["k", "K", "m", "M", "g", "G", "t", "T"], e.g. "8G" or "512m"'
@@ -65,31 +67,45 @@ def convert_human_memory_to_bytes(memory_limit: Union[int, str]) -> int:
         raise DekerValidationError(error)
 
 
-def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> None:
-    """Memory allocation checker decorator.
+# the share of the limit of the client a request may take without a query of the free memory of the machine:
+# a query costs a read of the system tables on every read or write, and a small request fits anyway
+UNCHECKED_SHARE_OF_LIMIT = 0.01
 
-    Checks if it is possible to allocate memory for array/subset.
+
+def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> None:
+    """Check that the data of the shape and dtype fit the memory.
+
+    The limit is the smaller of the limit of the client and the memory free on the machine right now. The
+    free memory is queried only for a request above ``UNCHECKED_SHARE_OF_LIMIT`` of the limit of the client:
+    a smaller one fits anyway, and the query is not free.
 
     :param shape: array or subset shape
     :param dtype: array or subset values dtype
     :param mem_limit_from_settings: deker ram limit in bytes
+    :raises DekerMemoryError: if the data would not fit
     """
     array_values = calculate_total_cells_in_array(shape)
     array_size_bytes = np.dtype(dtype).itemsize * array_values
+    if array_size_bytes <= mem_limit_from_settings * UNCHECKED_SHARE_OF_LIMIT:
+        return
     array_size_human = convert_size_to_human(array_size_bytes)
+    config_human_limit = convert_size_to_human(mem_limit_from_settings)
+    deker_limit = f"{config_human_limit} ({mem_limit_from_settings} bytes). "
+    if array_size_bytes > mem_limit_from_settings:
+        raise DekerMemoryError(
+            f"Can not allocate {array_size_human} for array/subset with shape {shape} and dtype {dtype}. "
+            f"Deker Client memory usage is limited to {deker_limit}"
+            f"Reduce your schema or the `shape` of your subset or increase the value of Deker Client memory limit."
+        )
 
-    total_machine_mem = virtual_memory().total + swap_memory().total
+    virtual, swap = virtual_memory(), swap_memory()
+    total_machine_mem = virtual.total + swap.total
     total_human_mem = convert_size_to_human(total_machine_mem)
-    current_limit = virtual_memory().available + swap_memory().free
+    current_limit = virtual.available + swap.free
     limit = min(mem_limit_from_settings, current_limit)
     limit_human = convert_size_to_human(limit)
-    config_human_limit = convert_size_to_human(mem_limit_from_settings)
 
-    deker_limit = f"{config_human_limit} ({mem_limit_from_settings} bytes). "
-    limit_message = (
-        "Deker Client memory usage is limited to the total memory available on this machine: "
-        + deker_limit
-    )
+    limit_message = "Deker Client memory usage is limited to the total memory available on this machine: " + deker_limit
     advise = ""
     if total_machine_mem > mem_limit_from_settings:
         limit_message = (
@@ -108,5 +124,8 @@ def check_memory(shape: tuple, dtype: type, mem_limit_from_settings: int) -> Non
 
 
 def get_id() -> str:
-    """Generate unique id with uuid4."""
+    """Generate a unique id of an array: a ``uuid4`` string.
+
+    :returns: the id
+    """
     return str(uuid.uuid4())

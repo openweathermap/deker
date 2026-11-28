@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,13 +16,15 @@
 
 import datetime
 
-from typing import TYPE_CHECKING, Any, Dict, List, Tuple, Type, Union
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerInvalidSchemaError
+from deker.errors import DekerInvalidSchemaError, DekerMetaDataError, DekerValidationError
 from deker.types import DTypeEnum, Numeric
+from deker.types.private.enums import PLATFORM_DEPENDENT_DTYPES
 from deker.validators import process_time_dimension_attrs
 
 if TYPE_CHECKING:
@@ -30,90 +32,119 @@ if TYPE_CHECKING:
     from deker.schemas import AttributeSchema, TimeDimensionSchema
 
 
-def get_default_fill_value(dtype: Type[Numeric]) -> Any:
+def get_default_fill_value(dtype: type[Numeric]) -> Any:
     """Get default fill value by dtype.
 
     :param dtype: schema dtype
+    :returns: minimal value of an integer dtype, ``numpy.nan`` for a floating or complex one
+    :raises DekerValidationError: for a dtype that is neither
     """
-    if issubclass(dtype, np.inexact):
+    if issubclass(dtype, (np.inexact, float, complex)):
         return np.nan
-    return np.iinfo(dtype).min  # type: ignore[type-var]
+    if issubclass(dtype, (np.integer, int)):
+        return np.iinfo(dtype).min
+    raise DekerValidationError(f"No default fill value for dtype {dtype}")
+
+
+def _create_time_dimension(tdim_schema: "TimeDimensionSchema", attributes: dict[str, Any]) -> TimeDimension:
+    """Create TimeDimension from schema.
+
+    :param tdim_schema: TimeDimensionSchema
+    :param attributes: primary and custom attributes' joint dictionary, resolving ``$`` references
+    :returns: ``TimeDimension`` built from the dictionary
+    :raises DekerValidationError: if the attribute a ``$`` reference points to is missing or not a datetime
+    """
+    # as_dict serializes the start as a string (an iso datetime or a $-reference) and the step as a dict
+    d = tdim_schema.as_dict
+    if d["start_value"].startswith("$"):
+        d["start_value"] = process_time_dimension_attrs(attributes, d["start_value"][1:])
+    else:
+        d["start_value"] = datetime.datetime.fromisoformat(d["start_value"])
+    d["step"] = datetime.timedelta(**d["step"])
+    d.pop("type")
+    return TimeDimension(**d)
 
 
 def create_dimensions(
-    dimension_schemas: Tuple["BaseDimensionSchema", ...], attributes: Dict[str, Any]
-) -> Tuple[Union[Dimension, TimeDimension], ...]:
-    """Create Dimension and/or TimeDimension instances from dictionaries.
+    dimension_schemas: Sequence["BaseDimensionSchema"], attributes: dict[str, Any]
+) -> tuple[Dimension | TimeDimension, ...]:
+    """Create the Dimension and/or TimeDimension instances of an array from the schemas.
 
-     Dimensions' and primary/custom attributes' schemas,
-     stored as dictionaries in collection metadata, are converted into objects:
-     Dimensions and/or TimeDimensions.
+    A time dimension whose start is an attribute reference gets the value of that attribute of the array.
 
-    :param dimension_schemas: a tuple of dimensions' schemas
+    :param dimension_schemas: a sequence of dimensions' schemas
     :param attributes: primary and custom attributes' joint dictionary
+    :returns: dimensions in the order of the schemas
+    :raises DekerValidationError: if the attribute a ``$`` reference points to is missing or not a datetime
     """
+    from deker.schemas import TimeDimensionSchema
 
-    def create_time_dimension(tdim_schema: "TimeDimensionSchema") -> TimeDimension:
-        """Create TimeDimension from schema.
-
-        :param tdim_schema: TimeDimensionSchema
-        """
-        d = tdim_schema.as_dict
-        if isinstance(d["start_value"], str):
-            if d["start_value"].startswith("$"):
-                d["start_value"] = process_time_dimension_attrs(attributes, d["start_value"][1:])
-            else:
-                d["start_value"] = datetime.datetime.fromisoformat(d["start_value"])
-
-        if isinstance(d["step"], dict):
-            d["step"] = datetime.timedelta(**d["step"])
-        d.pop("type")
-        return TimeDimension(**d)
-
-    dimensions: List[Union[Dimension, TimeDimension]] = []
+    dimensions: list[Dimension | TimeDimension] = []
     for schema in dimension_schemas:
-        if hasattr(schema, "start_value"):
-            dimensions.append(create_time_dimension(schema))  # type: ignore[arg-type]
+        if isinstance(schema, TimeDimensionSchema):
+            dimensions.append(_create_time_dimension(schema, attributes))
         else:
             dimensions.append(Dimension(**schema.as_dict))
     return tuple(dimensions)
 
 
-def create_attributes_schema(attributes_schemas: List[dict]) -> Tuple["AttributeSchema", ...]:
+def dtype_from_name(name: str) -> type:
+    """Return the type stored in the metadata under a name, as ``DTypeEnum.get_name`` writes it.
+
+    :param name: the name: ``int``, ``string``, ``numpy.int8``, ``numpy.float128``, ...
+    :returns: the type
+    :raises DekerMetaDataError: if NumPy does not provide the type on this platform (``float128`` and
+      ``complex256`` are absent on Apple silicon and Windows): the data written with it elsewhere cannot be read here
+    :raises KeyError: if the name is unknown
+    """
+    short_name = name.split("numpy.")[-1]
+    if short_name in PLATFORM_DEPENDENT_DTYPES and short_name not in DTypeEnum.__members__:
+        raise DekerMetaDataError(
+            f"The dtype {name} is not available: NumPy does not provide it on this platform "
+            f"(Apple silicon, Windows), so the data written with it elsewhere cannot be read here"
+        )
+    return DTypeEnum[short_name].value
+
+
+def create_attributes_schema(attributes_schemas: list[dict]) -> tuple["AttributeSchema", ...]:
     """Create AttributeSchema instances from a list of dictionaries.
 
     Primary and/or custom attributes' schemas, stored as dictionaries in collection metadata,
     are converted into AttributeSchema instances.
 
     :param attributes_schemas: a list of attributes' schemas dictionaries
+    :returns: attribute schemas
+    :raises DekerInvalidSchemaError: if a dictionary is not a valid attribute schema
+    :raises DekerMetaDataError: if a dtype is not available on this platform
     """
     from deker.schemas import AttributeSchema
 
     attributes = []
     try:
         for params in attributes_schemas:
-            dtype = DTypeEnum[params["dtype"].split("numpy.")[-1]].value
+            dtype = dtype_from_name(params["dtype"])
             attr_schema = AttributeSchema(**{**params, "dtype": dtype})
             attributes.append(attr_schema)
         return tuple(attributes)
-    except (KeyError, ValueError, AttributeError) as e:
+    except (KeyError, ValueError, AttributeError, TypeError) as e:
         raise DekerInvalidSchemaError(f'Schema "AttributeSchema" is invalid/corrupted : {e}')
 
 
-def create_dimensions_schema(dimension_schemas: List[dict]) -> Tuple["BaseDimensionSchema", ...]:
+def create_dimensions_schema(dimension_schemas: list[dict]) -> tuple["BaseDimensionSchema", ...]:
     """Create DimensionSchema and/or TimeDimensionSchema instances from a list of dictionaries.
 
-     Dimensions' schemas, stored as dictionaries in collection metadata, are converted into objects:
-     DimensionSchema and/or TimeDimensionSchema.
+    Dimensions' schemas, stored as dictionaries in collection metadata, are converted into objects:
+    DimensionSchema and/or TimeDimensionSchema; a dictionary with a ``start_value`` is a time dimension.
 
     :param dimension_schemas: a list of dimensions' schemas dictionaries
+    :returns: dimension schemas
     """
     from deker.schemas import DimensionSchema, TimeDimensionSchema
 
     schemas = []
     for dim in dimension_schemas:
         if "start_value" not in dim.keys():
-            converted_dim = DimensionSchema(  # type: ignore[call-arg]
+            converted_dim = DimensionSchema(
                 name=dim["name"], size=dim["size"], labels=dim["labels"], scale=dim.get("scale")
             )
         else:
@@ -122,7 +153,7 @@ def create_dimensions_schema(dimension_schemas: List[dict]) -> Tuple["BaseDimens
             except ValueError:
                 start_value = dim["start_value"]
 
-            converted_dim = TimeDimensionSchema(  # type: ignore[call-arg]
+            converted_dim = TimeDimensionSchema(
                 name=dim["name"],
                 size=dim["size"],
                 start_value=start_value,

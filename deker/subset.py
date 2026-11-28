@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,37 +14,45 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-import builtins
 import traceback
 
-from typing import TYPE_CHECKING, Iterator, List, Optional, Tuple, Union
+from collections.abc import Iterator, Sequence
+from functools import partial
+from itertools import product
+from typing import TYPE_CHECKING, NamedTuple, Optional
 
 import numpy as np
 
-from deker_tools.slices import create_shape_from_slice, match_slice_size, slice_converter
+from cantok import AbstractToken
+from deker_tools.cancel import TokenCancelledError, check, read_token, resolve_timeout, write_token
+from deker_tools.slices import create_shape_from_slice, positive_bounds
+from deker_tools.typings import Sentinel, SentinelType
 from numpy import ndarray
 
 from deker.ABC.base_subset import BaseSubset
-from deker.errors import DekerArrayError, DekerVSubsetError
-from deker.locks import WriteVarrayLock
-from deker.schemas import TimeDimensionSchema
-from deker.tools import not_deleted
-from deker.types.private.classes import (
-    ArrayOffset,
-    ArrayPosition,
-    ArrayPositionedData,
-    ArraysCoordinatesWithOffset,
+from deker.errors import (
+    DekerArrayError,
+    DekerCriticalError,
+    DekerInstanceNotExistsError,
+    DekerLockError,
+    DekerVSubsetError,
+    TokenErrorConverter,
 )
-from deker.types.private.typings import Arrays, ArraysCoordinates, Data, Numeric, Slice
+from deker.locks import ArrayCreationLock
+from deker.tools import not_deleted
+from deker.tools.decorators import _NOT_EXISTING
+from deker.tools.time import array_time_attributes
+from deker.types.private.classes import ArrayPosition, ArrayPositionedData
+from deker.types.private.typings import Arrays, Data, Numeric, Slice
+from deker.validators import validate_timeout
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.arrays import Array, VArray
     from deker.collection import Collection
-    from deker.dimensions import TimeDimension
 
 
-class Subset(BaseSubset):
+class Subset(BaseSubset["Array"]):
     """``Array`` subset.
 
     A subset of the ``Array`` data with set ``bounds``, ``shape``, ``dtype`` and ``fill_value``.
@@ -79,8 +87,9 @@ class Subset(BaseSubset):
 
       .. note::
          * Data cannot be ``None``
-         * Data ``shape`` should be equal to the ``Subset.shape``
-         * Data ``dtype`` should be equal to the ``Array.dtype``
+         * Data ``shape`` should be equal to the ``Subset.shape``, or data is a number that fills the whole subset
+         * Python numbers, lists and tuples are converted to the ``Array.dtype`` when every value fits it;
+           NumPy arrays and scalars shall have the ``Array.dtype`` already
 
     - ``clear``: removes or resets with `fill_value` all data from the storage within the subset bounds;
     """
@@ -94,8 +103,8 @@ class Subset(BaseSubset):
 
     def __init__(
         self,
-        slice_expression: Tuple[Union[slice, int], ...],
-        shape: Tuple[int, ...],
+        slice_expression: tuple[slice | int, ...],
+        shape: tuple[int, ...],
         array: "Array",
         adapter: "BaseArrayAdapter",
     ):
@@ -111,47 +120,200 @@ class Subset(BaseSubset):
         self.__array = array
         self.__adapter = adapter
         super().__init__(slice_expression, shape, array, adapter)
-        self.logger.debug(f"{self.__str__} instantiated")
+        self.logger.debug("%s instantiated", self)
 
-    @not_deleted
-    def read(self) -> Union[Numeric, np.ndarray]:
-        """Read data from ``Array`` slice."""
-        self.logger.debug(
-            f"Trying to read data from {self.__array.id} bounds={slice_converter[self.__bounds]}"
-        )
-        data = self.__adapter.read_data(self.__array, self.__bounds)
-        self.logger.info(f"{self!s} data read")
+    def _read(self, *, timeout: int | SentinelType, token: AbstractToken) -> Numeric | np.ndarray:
+        """Read the data under the token of an operation built already: a ``VSubset`` reads its ``Arrays`` so.
+
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the read operation
+        :returns: the data of the subset shape; a number for a single cell
+        """
+        check(token)
+        self.logger.debug("Trying to read data from %s", self)
+        data = self.__adapter.read_data(self.__array, self.__bounds, timeout=timeout, token=token)
+        check(token)
+        self.logger.info("%s data read", self)
         return data
 
     @not_deleted
-    def update(self, data: Data) -> None:
+    def read(self, *, timeout: int | SentinelType = Sentinel) -> Numeric | np.ndarray:
+        """Read data from ``Array`` slice.
+
+        :param timeout: seconds the read may take; not given - ``read_timeout`` of the client
+        :returns: the data of the subset shape; a number for a single cell; the fill value where nothing was written
+        :raises DekerValidationError: if the timeout is not a positive integer
+        :raises DekerLockError: if a writer holds the ``Array``
+        :raises DekerTimeoutError: if the read takes longer than its timeout; no data is returned then
+        :raises DekerCancelledError: if the read is cancelled from outside
+        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
+        """
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            token = read_token(resolve_timeout(timeout, self.__adapter.ctx.config.read_timeout))
+            return self._read(timeout=timeout, token=token)
+
+    def _update(self, data: Data, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+        """Write the data under the token of an operation built already: a ``VSubset`` writes its ``Arrays`` so.
+
+        :param data: new data which shall match subset slicing
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        """
+        check(token)
+        self.logger.debug("Trying to update data for %s", self)
+        self.__adapter.update(self.__array, self.__bounds, data, timeout=timeout, token=token)
+        self.logger.info("%s data updated", self)
+
+    @not_deleted
+    def update(self, data: Data, *, timeout: int | SentinelType = Sentinel) -> None:
         """Update data in ``Array`` by slice.
 
         * Data cannot be ``None``
-        * Data ``shape`` should be equal to the ``Subset.shape``
-        * Data ``dtype`` should be equal to the ``Array.dtype``
+        * Data ``shape`` should be equal to the ``Subset.shape``, or data is a number that fills the whole subset
+        * Python numbers, lists and tuples are converted to the ``Array.dtype`` when every value fits it;
+          NumPy arrays and scalars shall have the ``Array.dtype`` already
+
+        The write waits for the readers of the ``Array`` to leave, up to its timeout; once the file is started,
+        the write goes to its end.
 
         :param data: new data which shall match subset slicing
+        :param timeout: seconds to wait for the lock of the ``Array``; not given - ``write_lock_timeout`` of the
+          client
+        :raises DekerArrayError: if the data is ``None``
+        :raises DekerValidationError: if the data does not fit the shape or the dtype, or the timeout is not a
+          positive integer
+        :raises DekerLockError: if the ``Array`` is not released within the timeout
+        :raises DekerCancelledError: if the write is cancelled before it started
+        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted
         """
-        self.logger.debug(
-            f"Trying to update data for {self.__array.id} bounds={slice_converter[self.__bounds]}"
-        )
+        validate_timeout(timeout=timeout)
         if data is None:
             raise DekerArrayError("Updating data shall not be None")
-        self.__adapter.update(self.__array, self.__bounds, data)
-        self.logger.info(f"{self!s} data updated")
+        with TokenErrorConverter():
+            self._update(data, timeout=timeout, token=write_token())
+
+    def _clear(
+        self, *, timeout: int | SentinelType, background: bool, _empty_trash: bool, token: AbstractToken
+    ) -> None:
+        """Clear the cells under the token of an operation built already: a ``VSubset`` clears its ``Arrays`` so.
+
+        :param timeout: timeout of the operation as it was given
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the clearing; ``False`` - leave in the trash what the clearing
+          put there
+        :param token: token of the write operation
+        """
+        check(token)
+        self.logger.debug("Trying to clear data for %s", self)
+        self.__adapter.clear(
+            self.__array, self.__bounds, timeout=timeout, background=background, _empty_trash=_empty_trash, token=token
+        )
+        self.logger.info("%s data cleared", self)
 
     @not_deleted
-    def clear(self) -> None:
-        """Clear data in ``Array`` by slice."""
-        self.logger.debug(
-            f"Trying to clear data for {self.__array.id} bounds={slice_converter[self.__bounds]}"
+    def clear(
+        self, *, timeout: int | SentinelType = Sentinel, background: bool = False, _empty_trash: bool = True
+    ) -> None:
+        """Set the cells of the ``Array`` within the subset to the fill value.
+
+        A subset of every cell of the ``Array`` (counted by the cells, whatever its shape) puts an empty file in place
+        of the file of the ``Array``: it waits for the writer of the ``Array`` and for another such clearing, never for
+        the readers, which read the old file to its end; the old file goes to the trash. Any other subset is cleared in
+        the file, waiting for the readers and the writer; the data of an ``Array`` that becomes entirely empty are
+        removed from its file.
+
+        :param timeout: seconds to wait for each lock of the ``Array``; not given - ``write_lock_timeout`` of the
+          client
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the clearing; ``False`` - leave the old file in the trash
+        :raises DekerValidationError: if the timeout is not a positive integer
+        :raises DekerLockError: if the ``Array`` is not released within the timeout
+        :raises DekerCancelledError: if the clearing is cancelled before it started
+        :raises DekerInstanceNotExistsError: if the ``Array`` was deleted, also while it was cleared
+        :raises DekerTrashError: if something in the trash is not removed, the ``Array`` cleared all the same; not with
+          ``background``
+        :raises DekerCriticalError: if the collections directory or the trash of the storage does not exist
+        """
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            self._clear(timeout=timeout, background=background, _empty_trash=_empty_trash, token=write_token())
+
+
+class _ArrayBounds(NamedTuple):
+    """Part of one ``Array`` of the ``VArray`` along one axis, selected by a subset bound."""
+
+    position: int
+    """Index of the Array along the axis of the ``vgrid``."""
+    bounds: slice | int
+    """Bounds inside the Array along the axis."""
+    data_slice: slice | None
+    """Slice of the subset data along the axis; ``None`` for an integer bound, which drops the axis."""
+
+
+def _split_axis(bound: slice | int, size: int, array_size: int) -> list[_ArrayBounds]:
+    """Split a subset bound of one axis into the parts that fall into each Array.
+
+    The selected positions are walked in their order: the Arrays with no selected position are skipped
+    (a step larger than an Array jumps over Arrays), and the slice of the subset data of every Array continues
+    where the previous one ended. The step of the bound shall be positive: a negative step is replaced by
+    its forward twin before, see ``deker_tools.slices.positive_bounds``.
+
+    :param bound: subset bound along the axis, a slice with a positive step or an integer
+    :param size: size of the VArray along the axis
+    :param array_size: size of an Array along the axis
+    :returns: parts of the Arrays the bound selects, in the order of the Arrays
+    """
+    if isinstance(bound, int):
+        position = bound if bound >= 0 else size + bound
+        return [_ArrayBounds(position // array_size, position % array_size, None)]
+
+    start, stop, step = bound.indices(size)
+    if step < 0:  # pragma: no cover
+        raise DekerVSubsetError(f"A negative step {step} shall be replaced by its forward twin before", [])
+    parts: list[_ArrayBounds] = []
+    selected_before = 0
+    first = start
+    while first < stop:
+        position = first // array_size
+        array_end = min(stop, (position + 1) * array_size)
+        count = (array_end - 1 - first) // step + 1
+        last = first + (count - 1) * step
+        offset = position * array_size
+        local_start, local_stop = first - offset, last - offset + 1
+        if step == 1:
+            # a whole Array is the plain slice(None, None), a cut one keeps its bounds
+            bounds = (
+                slice(None, None) if (local_start, local_stop) == (0, array_size) else slice(local_start, local_stop)
+            )
+        else:
+            bounds = slice(local_start, local_stop, step)
+        parts.append(_ArrayBounds(position, bounds, slice(selected_before, selected_before + count)))
+        selected_before += count
+        first = last + step
+    return parts
+
+
+def _array_positions(bounds: Sequence[slice | int], shape: Sequence[int], arrays_shape: Sequence[int]) -> Arrays:
+    """Find the ``Arrays`` of the ``VArray`` a subset covers, with their bounds and slices of the subset data.
+
+    :param bounds: subset bounds, one slice with a positive step or integer per axis of the VArray
+    :param shape: shape of the VArray
+    :param arrays_shape: shape of the Arrays
+    :returns: ``v_position`` of the Arrays in the ``vgrid`` with their bounds and data slices, sorted by position
+    """
+    axes = [_split_axis(bound, size, array_size) for bound, size, array_size in zip(bounds, shape, arrays_shape)]
+    return [
+        ArrayPosition(
+            vposition=tuple(part.position for part in parts),
+            bounds=tuple(part.bounds for part in parts),
+            data_slice=tuple(part.data_slice for part in parts if part.data_slice is not None),
         )
-        self.__adapter.clear(self.__array, self.__bounds)
-        self.logger.info(f"{self!s} data cleared")
+        for parts in product(*axes)
+    ]
 
 
-class VSubset(BaseSubset):
+class VSubset(BaseSubset["VArray"]):
     """``VArray`` subset.
 
     A subset of ``VArray`` data with set ``bounds``, ``shape``, ``dtype`` and ``fill_value``.
@@ -186,15 +348,21 @@ class VSubset(BaseSubset):
 
       .. note::
          * Data cannot be ``None``
-         * Data ``shape`` shall be equal to the ``VSubset.shape``
-         * Data ``dtype`` shall be equal to the ``VArray.dtype``
+         * Data ``shape`` shall be equal to the ``VSubset.shape``, or data is a number that fills the whole subset
+         * Python numbers, lists and tuples are converted to the ``VArray.dtype`` when every value fits it;
+           NumPy arrays and scalars shall have the ``VArray.dtype`` already
+
+      The ``Arrays`` the subset covers are written one by one, each under its own lock; a missing ``Array``
+      is created.
 
     - ``clear``: removes or resets with `fill_value` all data from the storage within the virtual subset bounds;
+      an ``Array`` the subset covers entirely is deleted
 
     :param slice_expression: a slice, tuple of slices or numpy IndexExpression, created by VArray.__getitem__()
     :param shape: subset shape, calculated by VArray.__getitem__()
     :param array: an instance of VArray to which the virtual subset is bound
     :param array_adapter: ArrayAdapter instance
+    :param varray_adapter: VArrayAdapter instance
     :param collection: Collection instance, to which the virtual array is bound
     """
 
@@ -206,439 +374,319 @@ class VSubset(BaseSubset):
         "__array_adapter",
         "__collection",
         "__arrays",
+        "__flipped_axes",
     )
-
-    def __match_slice_exp(
-        self, slice_exp: Union[slice, int, None], current_index: int, array: "VArray"
-    ) -> ArraysCoordinates:
-        """Create a list of vgrid indexes by expression.
-
-        :param slice_exp: Slice expression (e.g 1,  slice(None, 2, 1), EllipsisType)
-        :param current_index: current index of dimension
-        :param array: Varray object
-        """
-        # Size of dimension
-        dim_size = array.dimensions[current_index].size
-
-        # Step in vgrid
-        step = dim_size // array.vgrid[current_index]
-
-        def get_offset(
-            i: int, step: int, offset_start: int, start: int, offset_end: int, end: int
-        ) -> ArrayOffset:
-            """Calculate an offset for array.
-
-            If it's first array, and there are more arrays in result, return offset from start and zero.
-            If it's only one array, offset from end would be equal to the one, which was provided.
-            For last array start offset is always zero, and offset form end would be equal
-            to the one, which was provided. For any array in between, offsets would be zeroes.
-
-            :param i: current array start point. i % step always equals 0
-            :param offset_start: offset from start
-            :param offset_end: offset from end
-            :param step: step of vgrid
-            :param start: start of current array( with offset)
-            :param end: start of current array( with offset)
-            """
-            if i == start - offset_start:
-                if end < i + step:
-                    return {"start": offset_start, "end": step + offset_end}
-                return {"start": offset_start, "end": 0}
-
-            if i == end - offset_end - step and end < i + step:
-                return {"start": 0, "end": step + offset_end}
-            return {"start": 0, "end": 0}
-
-        if type(slice_exp) is builtins.int:
-            # We may receive an int.
-            # In this case, the number of arrays is always 1.
-            # We return it as a list of one element, as the upper function does not know anything about type
-            # so just return it in the same format to avoid unnecessary checking
-            return [
-                [
-                    ArraysCoordinatesWithOffset(
-                        slice_exp // step,  # type: ignore[operator]
-                        ArrayOffset(
-                            start=slice_exp % step,  # type: ignore[operator]
-                        ),
-                    )
-                ]
-            ]
-
-        # If its None at slice_exp
-        # Get start of slice, and end of slice
-        start, stop, _ = match_slice_size(dim_size, slice_exp)  # type: ignore[arg-type]
-        # Offset from start
-        offset_start = start % step
-        # Offset from end (e.g. for step = 5, and stop = 10, offset would be 0
-        # as slice ends on the same point as stop )
-        offset_end = -(step - (stop % step)) if stop % step else 0
-        # We subtract offsets to get start and end points which are divided to parts
-        # by step (e.g. if there is 2 arrays, step is 20 and start is 12 and stop is 35,
-        # to get the correct number of Arrays, we should start from 0, go up to 40 with given
-        # step)
-        return [
-            [
-                ArraysCoordinatesWithOffset(
-                    i // step,
-                    ArrayOffset(**get_offset(i, step, offset_start, start, offset_end, stop)),
-                )
-            ]
-            for i in range(start - offset_start, stop - offset_end, step)
-        ]
-
-    def __get_arrays_for_dimension(
-        self, slice_exp: List[Union[slice, int]], array: "VArray", current_index: int
-    ) -> ArraysCoordinates:
-        """Calculate which Arrays are in the given dimension.
-
-        For every dimension, we calculate indexes of arrays for current dimension with offset
-        using self.__match_slice_exp method, which gives us following:
-        [[
-          (<position in dimension>, (<offset from start>, <offset from end>)),
-          (<position2 in dimension>, (<offset from start>, <offset from end>)),
-          ...
-        ]]
-        After this, for every position, we create variations for rest of dimensions recursively.
-        So [[(<position in dimension>, (<offset from start>, <offset from end>)), ...]], became
-        [[
-            (<position in dimension>, (<offset from start>, <offset from end>)),
-            (<position in dimension2>, (<offset from start>, <offset from end>))
-        ]]
-
-        :param slice_exp: Slice expression (e.g [1, 2], [1, slice(None, 2, 1)], [EllipsisType])
-        :param current_index: current index of dimension
-        :param array: Varray object
-        :return: [
-            [
-              (<position in dimension1>, (<offset from start>, <offset from end>)),
-              (<position in dimension2>, (<offset from start>, <offset from end>)),
-              ...
-            ],
-            [
-              (<position2 in dimension1>, (<offset from start>, <offset from end>)),
-              (<position2 in dimension2>, (<offset from start>, <offset from end>)),
-              ...
-            ]
-        ]
-        """
-        # Exit point for recursion. If we are at last dimension, there is no more recursion.
-        arrays = []
-        if len(slice_exp) == 1:
-            return self.__match_slice_exp(slice_exp[0], current_index, array)
-
-        #  arrays_tuple contains a list with arrays positions like
-        #  [[
-        #    (< position in dimension >, ( < offset from start >, < offset from end >)),
-        #    (< position2 in dimension >, ( < offset from start >, < offset from end >)),
-        #    ...
-        #  ]]
-        arrays_tuple = self.__match_slice_exp(slice_exp[0], current_index, array)
-        for array_tuple in arrays_tuple:
-            # For every position, we create list with arrays indexes for left dimensions.
-            # E.g:
-            #  If the number of dimensions is 3, and the current dimension index is 0
-            # It will create a list with positions for left 2 dimensions
-            variations = self.__get_arrays_for_dimension(slice_exp[1:], array, current_index + 1)
-            # variations example:
-            # [[
-            #    (< position in dimension1>, ( < offset from start >, < offset from end >)),
-            #    (< position in dimension2 >, ( < offset from start >, < offset from end >))
-            # ], ..]
-            for variation in variations:
-                # Concatenate every variation of dimension to current position
-                arrays.append([*array_tuple, *variation])
-
-        return arrays
-
-    def __fill_slice_expression(
-        self, array: "VArray", slice_exp: Tuple[Union[slice, None, int], ...]
-    ) -> List[Union[slice, int]]:
-        """Fill slice expression.
-
-         The number of elements in slice_exp would be to equal number of dimensions.
-        :param array: VArray instance
-        :param slice_exp: tuple of ints or slices
-        """
-        dimension_given_length = len(slice_exp)
-
-        slice_exp_ = []
-        for i in range(len(array.dimensions)):
-            slice_to_add = slice(None, None)
-            if i < dimension_given_length:
-                if isinstance(slice_exp[i], slice):
-                    slice_to_add = slice_exp[i]
-                elif isinstance(slice_exp[i], int):
-                    slice_to_add = slice_exp[i]
-                    if slice_exp[i] < 0:  # type: ignore[operator]
-                        slice_to_add = (  # type: ignore[operator]
-                            array.dimensions[i].size + slice_exp[i]  # type: ignore[operator]
-                        )
-
-            slice_exp_.append(slice_to_add)
-        return slice_exp_  # type: ignore[return-value]
-
-    def __get_array_subsets(
-        self, slice_exp: Tuple[Union[slice, None, int], ...], array: "VArray"
-    ) -> Arrays:
-        """Calculate which Arrays are in the given subset.
-
-        :param slice_exp: Slice expression (e.g [1, 2], [1, slice(None, 2, 1)], [EllipsisType])
-        :param array: Varray instance
-        """
-        filled_slice_expression = self.__fill_slice_expression(array, slice_exp)
-        arrays = self.__get_arrays_for_dimension(filled_slice_expression, array, 0)
-
-        # Reformat to have position and bounds side by side
-        array_positions = []
-
-        # Check if dimension index has changed
-        prev_position = [-1] * len(filled_slice_expression)
-        # Sizes of previous elements
-        prev_sizes = [0] * len(filled_slice_expression)
-        # Buffer of sizes, writes to prev sizes, only for dimension that has changed
-        prev_sizes_buffer = [0] * len(filled_slice_expression)
-
-        def calc_data_slice(
-            current_dimension: int, dim: Union[slice, int], array_vposition: list
-        ) -> Union[slice, int, None]:
-            """Calculate slice for data part.
-
-            :param current_dimension: Index of current dimension
-            :param dim: Subset dimension (e.g slice(0, 5))
-            :param array_vposition: Position of array
-            """
-            if isinstance(filled_slice_expression[current_dimension], int):
-                prev_position[current_dimension] = array_vposition[current_dimension]
-                return None
-
-            if isinstance(dim, int):
-                prev_position[current_dimension] = array_vposition[current_dimension]
-                return dim
-
-            dim_start, dim_stop, _ = match_slice_size(
-                array.dimensions[current_dimension].size // array.vgrid[current_dimension], dim
-            )
-            positions_length = len(array_vposition)
-
-            if prev_position[current_dimension] == array_vposition[current_dimension]:
-                prev_sizes_buffer[current_dimension] = prev_sizes[current_dimension]
-            if prev_position[current_dimension] != array_vposition[current_dimension]:
-                prev_sizes[current_dimension] = prev_sizes_buffer[current_dimension]
-
-            for i in range(positions_length):
-                if prev_position[i] != array_vposition[i] and i < positions_length - 1:
-                    prev_sizes_buffer[i + 1 : :] = [0] * (positions_length - i - 1)
-
-            elems_in_dimension = abs(dim_stop - dim_start)
-            if array_vposition[current_dimension] == 0:
-                prev_sizes[current_dimension] = prev_sizes_buffer[current_dimension] = 0
-
-            slice_start = prev_sizes[current_dimension]
-            slice_stop = slice_start + elems_in_dimension
-            # what was prev position in that dimension
-            prev_position[current_dimension] = array_vposition[current_dimension]
-            # how many elements in that dimension
-            prev_sizes_buffer[current_dimension] += elems_in_dimension
-            return slice(slice_start, slice_stop)
-
-        for array_ in arrays:
-            vposition: List[int] = []
-            bounds: List[Union[slice, int]] = []
-            for index, (position, offset) in enumerate(array_):
-                vposition.append(position)
-                if "end" not in offset:
-                    bounds.append(offset["start"])
-                    continue
-                start, end = offset["start"], offset["end"]
-                if end == 0:
-                    end = array.dimensions[index].size // array.vgrid[index]
-                    if start == 0:
-                        bounds.append(slice(None, None))
-                        continue
-                bounds.append(slice(start, end))
-
-            dt_slice = [calc_data_slice(i, dim, vposition) for i, dim in enumerate(bounds)]
-            array_positions.append(
-                ArrayPosition(
-                    vposition=tuple(vposition),
-                    bounds=tuple(bounds),
-                    data_slice=tuple([dt for dt in dt_slice if dt is not None]),
-                )
-            )
-
-        sorted_positions = sorted(array_positions, key=lambda p: p.vposition)
-        return sorted_positions
 
     def __init__(
         self,
-        slice_expression: Tuple[Union[slice, int], ...],
-        shape: Tuple[int, ...],
+        slice_expression: tuple[slice | int, ...],
+        shape: tuple[int, ...],
         array: "VArray",
         array_adapter: "BaseArrayAdapter",
         varray_adapter: "BaseVArrayAdapter",
         collection: "Collection",
     ):
-        """VSubset constructor.
-
-        Calculates arrays for future reading.
-
-        :param slice_expression: a slice, tuple of slices or numpy IndexExpression, created by VArray.__getitem__()
-        :param shape: subset shape, calculated by VArray.__getitem__()
-        :param array: an instance of VArray to which the virtual subset is bound
-        :param array_adapter: ArrayAdapter instance
-        :param varray_adapter: VArrayAdapter instances
-        :param collection: Collection instance
-        """
         self.__bounds = slice_expression
         self.__shape = shape
-        self.__array = array
+        self.__array: "VArray" = array
         self.__adapter: "BaseVArrayAdapter" = varray_adapter
         self.__array_adapter: "BaseArrayAdapter" = array_adapter
-        self.__arrays: Arrays = self.__get_array_subsets(
-            slice_expression, array  # type: ignore[arg-type]
-        )
+        # the Arrays are walked forwards: a negative step is replaced by its forward twin and the data of the
+        # subset is flipped along the axis on reading, and before splitting on writing
+        forward, self.__flipped_axes = positive_bounds(array.shape, slice_expression)
+        self.__arrays: Arrays = _array_positions(forward, array.shape, array.arrays_shape)
         self.__collection: "Collection" = collection
-        super().__init__(slice_expression, shape, array, array_adapter, varray_adapter, collection)
-        self.logger.debug(f"{self.__str__} instantiated")
+        super().__init__(slice_expression, shape, array, varray_adapter)
+        self.logger.debug("%s instantiated", self)
 
-    def _create_array_from_vposition(self, vpos: Tuple[int, ...]) -> Optional["Array"]:
-        array = self.__collection.arrays.filter({"vid": self.__array.id, "v_position": vpos}).last()
-        if not array:
-            self.logger.debug(f"Array for v_position {vpos} not found")
+    def _create_array_from_vposition(self, vpos: tuple[int, ...]) -> Optional["Array"]:
+        """Find the ``Array`` of the ``VArray`` at the position.
+
+        The ``VArray`` knows everything about its ``Arrays`` but their ids: the schema, the primary attributes (its
+        own id and the position) and the time attributes computed from the position, as on creation. So only the
+        id is asked from the adapter, and the file of the ``Array`` is not opened until its data is read.
+
+        :param vpos: ``v_position`` of the Array in the ``vgrid``
+        :returns: the Array, ``None`` if there is no Array at the position yet
+        """
+        from deker.arrays import Array
+
+        primary_attributes = {"vid": self.__array.id, "v_position": vpos}
+        schema = self.__collection.array_schema
+        id_ = self.__array_adapter.get_id_by_primary_attributes(primary_attributes, schema)
+        if id_ is None:
+            self.logger.debug("Array for v_position %s not found", vpos)
             return None
-        self.logger.debug(f"Created Array from meta for v_position {vpos}: {array.id}")
-        return array  # type: ignore[return-value]
+        self.logger.debug("Array for v_position %s found: %s", vpos, id_)
+        return Array(
+            collection=self.__collection,
+            adapter=self.__array_adapter,
+            id_=id_,
+            primary_attributes=primary_attributes,
+            custom_attributes=array_time_attributes(self.__array, vpos, schema),
+        )
+
+    def __clear_array(self, array_pos: ArrayPosition, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+        """Clear the part of one ``Array`` of the ``VArray`` covered by the subset; a fully covered one is deleted.
+
+        :param array_pos: position and bounds of the inner Array
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        """
+        check(token)
+        array = self._create_array_from_vposition(array_pos.vposition)
+        if array:
+            subset = array[array_pos.bounds]
+            if subset.shape == array.shape:
+                array._delete(background=False, _empty_trash=False, token=token)  # the trash is emptied by the clear
+            else:
+                subset._clear(timeout=timeout, background=False, _empty_trash=False, token=token)
 
     @not_deleted
-    @WriteVarrayLock()
-    def clear(self) -> None:
-        """Clear data in ``VArray`` by slice."""
+    def clear(
+        self, *, timeout: int | SentinelType = Sentinel, background: bool = False, _empty_trash: bool = True
+    ) -> None:
+        """Clear the data of the ``VArray`` within the subset.
 
-        def _clear(array_pos: ArrayPosition) -> None:
-            array = self._create_array_from_vposition(array_pos.vposition)
-            if array:
-                subset = array[array_pos.bounds]
-                if subset.shape == array.shape:
-                    array.delete()
-                else:
-                    subset.clear()
+        An ``Array`` the subset covers entirely (by its shape) is deleted: moved to the trash without waiting for
+        anybody; a partly covered one is cleared as ``Subset.clear`` clears it, waiting for its locks. The trash is
+        emptied once at the end. An ``Array`` not released within the timeout stops the clearing: the ``Arrays``
+        started are done, the trash is left for the next emptying, and the clearing again finishes the work.
 
-        self.logger.debug(f"Trying to clear data for {self.__str__()}")
-        results = self.__adapter.executor.map(_clear, self.__arrays)
-        list(results)
-        self.logger.info(f"{self!s} data cleared")
+        :param timeout: seconds to wait for each lock of each partly covered ``Array``; not given -
+          ``write_lock_timeout`` of the client
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the clearing; ``False`` - leave in the trash what the clearing
+          put there
+        :raises DekerValidationError: if the timeout is not a positive integer
+        :raises DekerLockError: if an ``Array`` is not released within the timeout
+        :raises DekerCancelledError: if the clearing is cancelled before any ``Array`` is started
+        :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
+        :raises DekerTrashError: if something in the trash is not removed; the subset is cleared all the same; not with
+          ``background``
+        :raises DekerCriticalError: if the collections directory or the trash of the storage does not exist
+        """
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            token = write_token()
+            check(token)
+            self.logger.debug("Trying to clear data for %s", self)
+            results = self.__adapter.executor.map(
+                partial(self.__clear_array, timeout=timeout, token=token), self.__arrays
+            )
+            list(results)
+        if _empty_trash:
+            self.__array_adapter.empty_trash(background=background)
+        self.logger.info("%s data cleared", self)
 
     def __sum_results(self, arrays_data: Iterator) -> np.ndarray:
         """Arrange data from arrays into VSubset shape.
 
         :param arrays_data: tuple of data positions in VSubset and data
+        :returns: data of the subset assembled from the arrays
         """
         results = np.empty(shape=self.shape, dtype=self.__array.dtype)
         for position, data in arrays_data:
             if position == tuple():
                 return data[position]
             results[position] = data
+        if self.__flipped_axes:
+            return np.flip(results, self.__flipped_axes)
         return results
 
+    def __read_array_data(
+        self, array_pos: ArrayPosition, *, timeout: int | SentinelType, token: AbstractToken
+    ) -> tuple[Slice, Numeric | ndarray | None]:
+        """Read the part of one ``Array`` of the ``VArray`` covered by the subset.
+
+        A missing ``Array`` reads as its fill value.
+
+        :param array_pos: position and bounds of the inner Array and the slice of the subset data it fills
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the read operation
+        :returns: slice of the subset data and the data read
+        """
+        check(token)
+        array = self._create_array_from_vposition(array_pos.vposition)
+        if array:
+            subset = array[array_pos.bounds]
+            result = subset._read(timeout=timeout, token=token)
+        else:
+            result = np.empty(
+                shape=create_shape_from_slice(self.__array.arrays_shape, array_pos.bounds),
+                dtype=self.__array.dtype,
+            )
+            result.fill(self.__array.fill_value)
+        return array_pos.data_slice, result
+
     @not_deleted
-    def read(self) -> Union[Numeric, np.ndarray]:
-        """Read data from ``VArray`` slice."""
+    def read(self, *, timeout: int | SentinelType = Sentinel) -> Numeric | np.ndarray:
+        """Read data from ``VArray`` slice, assembled from its ``Arrays``.
 
-        def _read_data(array_pos: ArrayPosition) -> Tuple[Slice, Union[Numeric, ndarray, None]]:
-            array: "Array" = self._create_array_from_vposition(array_pos.vposition)
-            if array:
-                subset: Subset = array[array_pos.bounds]
-                result = subset.read()
-            else:
-                result = np.empty(
-                    shape=create_shape_from_slice(
-                        self.__array.arrays_shape, array_pos.bounds  # type: ignore[attr-defined]
-                    ),
-                    dtype=self.__array.dtype,
-                )
-                result.fill(self.__array.fill_value)
-            return array_pos.data_slice, result
-
-        self.logger.debug(f"Trying to read data from {self!s}")
-        arrays_data = self.__adapter.executor.map(_read_data, self.__arrays)
-        data = self.__sum_results(arrays_data)
-        self.logger.info(f"{self!s} data read")
+        :param timeout: seconds the whole read may take; not given - ``read_timeout`` of the client
+        :returns: the data of the subset shape; a number for a single cell; the fill value where nothing was written
+        :raises DekerValidationError: if the timeout is not a positive integer
+        :raises DekerLockError: if a writer holds one of the ``Arrays``
+        :raises DekerTimeoutError: if the read takes longer than its timeout; no data is returned then
+        :raises DekerCancelledError: if the read is cancelled from outside
+        :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
+        """
+        validate_timeout(timeout=timeout)
+        with TokenErrorConverter():
+            token = read_token(resolve_timeout(timeout, self.__adapter.ctx.config.read_timeout))
+            check(token)
+            self.logger.debug("Trying to read data from %s", self)
+            arrays_data = self.__adapter.executor.map(
+                partial(self.__read_array_data, timeout=timeout, token=token), self.__arrays
+            )
+            data = self.__sum_results(arrays_data)
+            check(token)
+        self.logger.info("%s data read", self)
         return data
 
-    @not_deleted
-    @WriteVarrayLock()
-    def update(self, data: Data) -> None:
-        """Update data in ``VArray`` by slice.
+    def __create_array(
+        self, vposition: tuple[int, ...], *, timeout: int | SentinelType, token: AbstractToken
+    ) -> "Array":
+        """Create the missing ``Array`` of the ``VArray`` at the position.
 
-        * Data cannot be ``None``
-        * Data ``shape`` should be equal to the ``VSubset.shape``
-        * Data ``dtype`` should be equal to the ``VArray.dtype``
+        A new ``Array`` gets the start values of its time dimensions calculated from its position:
+        ``VATD.step * ATD.size * vpos[vpos.index(ATD)] + VATD.start_value``
+        (ATD - Array time dimension, VATD - VArray time dimension, vpos - v_position).
 
-        :param data: new data which shall match subset slicing
+        :param vposition: ``v_position`` of the Array in the ``vgrid``
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        :returns: the created Array
         """
         from deker.arrays import Array
 
-        def _update(array_data: ArrayPositionedData) -> None:
-            """If there is a need in the future to calculate Array's time dimension start value.  # noqa: DAR101, D400
+        array = Array(
+            collection=self.__collection,
+            adapter=self.__array_adapter,
+            primary_attributes={"vid": self.__array.id, "v_position": vposition},
+            custom_attributes=array_time_attributes(self.__array, vposition, self.__collection.array_schema),
+        )
+        self.__array_adapter.create(array, timeout=timeout, token=token)
+        return array
 
-            ATD - Array time dimension
-            VATD - VArray time dimension
-            vpos - v_position
+    def __update_array_data(
+        self, array_data: ArrayPositionedData, *, timeout: int | SentinelType, token: AbstractToken
+    ) -> None:
+        """Update the part of one ``Array`` of the ``VArray`` covered by the subset, creating it if it is missing.
 
-            start_value = VATD.step * ATD.size * vpos[vpos.index(ATD)] + VATD.start_value
-            """
-            array = self._create_array_from_vposition(array_data.vposition)
-            if not array:
-                custom_attributes = {}
-                for n, dim_schema in enumerate(self.__collection.array_schema.dimensions):
-                    if isinstance(dim_schema, TimeDimensionSchema) and isinstance(
-                        dim_schema.start_value, str
-                    ):
-                        attr_name = dim_schema.start_value[1:]
-                        dim: TimeDimension = self.__array.dimensions[n]
-                        pos = array_data.vposition[n]
-                        custom_attributes[attr_name] = dim.start_value + dim.step * pos  # type: ignore[operator]
+        The ``Array`` is held exclusively only while its part is written (its own write lock), so the Arrays
+        of one ``VArray`` are written independently and a writer never holds an Array it is not writing.
 
-                kwargs = {
-                    "collection": self.__collection,
-                    "adapter": self.__array_adapter,
-                    "primary_attributes": {
-                        "vid": self.__array.id,
-                        "v_position": array_data.vposition,
-                    },
-                    "custom_attributes": custom_attributes,
-                }
-                array = Array(**kwargs)  # type: ignore[arg-type]
-                self.__array_adapter.create(array)
-            subset = array[array_data.bounds]
-            subset.update(array_data.data)
+        :param array_data: position and bounds of the inner Array and the data for it
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        """
+        check(token)
+        array = self._create_array_from_vposition(array_data.vposition)
+        if not array:
+            with ArrayCreationLock(self.__adapter, self.__array, self.__collection, timeout=timeout, token=token):
+                # another writer may have created the Array while this one waited for the lock
+                array = self._create_array_from_vposition(array_data.vposition) or self.__create_array(
+                    array_data.vposition, timeout=timeout, token=token
+                )
+        subset = array[array_data.bounds]
+        subset._update(array_data.data, timeout=timeout, token=token)
 
-        self.logger.debug(f"Trying to update data for {self!s}")
-        if data is None:
-            raise DekerArrayError("Updating data shall not be None")
+    def __update(self, data: Data, *, timeout: int | SentinelType, token: AbstractToken) -> None:
+        """Write the data into the ``Arrays`` of the ``VArray`` under the token of the operation.
 
-        data = self.__array_adapter._process_data(
-            self.__array.dtype, self.__array.shape, data, self.__bounds
+        :param data: new data which shall match subset slicing
+        :param timeout: timeout of the operation as it was given
+        :param token: token of the write operation
+        :raises DekerCriticalError: if an ``Array`` found the collections directory of the storage gone; whatever the
+          others met
+        :raises TokenCancelledError: if the write is cancelled before any ``Array`` is started
+        :raises DekerInstanceNotExistsError: if an ``Array`` does not exist because the ``VArray`` was deleted
+        :raises DekerLockError: if every ``Array`` that failed was not released within the write lock timeout
+        :raises DekerVSubsetError: if one or more ``Arrays`` could not be written for other reasons, or for mixed ones
+        """
+        check(token)
+        processed = self.__array_adapter._process_data(self.__array.dtype, self.__array.shape, data, self.__bounds)
+        # a scalar fills the whole subset, as it does for an Array subset
+        data_array = (
+            processed if isinstance(processed, np.ndarray) else np.full(self.__shape, processed, self.__array.dtype)
         )
 
+        if self.__flipped_axes:
+            data_array = np.flip(data_array, self.__flipped_axes)
         positions = [
-            ArrayPositionedData(vpos, array_bounds, data[data_bounds])
+            ArrayPositionedData(vpos, array_bounds, data_array[data_bounds])
             for vpos, array_bounds, data_bounds in self.__arrays
         ]
-        futures = [self.__adapter.executor.submit(_update, position) for position in positions]
+        futures = [
+            self.__adapter.executor.submit(self.__update_array_data, position, timeout=timeout, token=token)
+            for position in positions
+        ]
 
-        exceptions = []
+        exceptions: list[Exception] = []
+        descriptions: list[str] = []
         for future in futures:
             try:
                 future.result()
             except Exception as e:
-                exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
+                exceptions.append(e)
+                descriptions.append(repr(e) + "\n" + traceback.format_exc(-1))
 
+        # the collections directory of the storage is gone: the critical error itself, never folded into another one
+        critical = [e for e in exceptions if isinstance(e, DekerCriticalError)]
+        if critical:
+            raise critical[0]
+        # a cancelled Array means no Array of the write was started: the write is cancelled as a whole
+        cancelled = [e for e in exceptions if isinstance(e, TokenCancelledError)]
+        if cancelled:
+            raise cancelled[0]
+        # an Array that does not exist: the VArray is looked at only now, never on the way of success
+        if any(isinstance(e, DekerInstanceNotExistsError) for e in exceptions) and self._is_deleted():
+            raise DekerInstanceNotExistsError(_NOT_EXISTING.format(instance=self, method=VSubset.update.__qualname__))
+        if exceptions and all(isinstance(e, DekerLockError) for e in exceptions):
+            causes = "; ".join(str(e) for e in exceptions)
+            raise DekerLockError(
+                f"{self!s} is written partly: {len(exceptions)} of {len(positions)} Arrays were not released in time, "
+                f"the others are written; repeat the write: {causes}"
+            )
         if exceptions:
             raise DekerVSubsetError(
-                f"ATTENTION: Data in {self!s} MAY BE NOW CORRUPTED due to the exceptions occurred in threads",
-                exceptions,
+                f"{self!s} is written partly: {len(exceptions)} of {len(positions)} Arrays failed, "
+                "the others are written",
+                descriptions,
             )
 
-        self.logger.info(f"{self!s} data updated OK")
+    @not_deleted
+    def update(self, data: Data, *, timeout: int | SentinelType = Sentinel) -> None:
+        """Update data in ``VArray`` by slice.
+
+        * Data cannot be ``None``
+        * Data ``shape`` should be equal to the ``VSubset.shape``, or data is a number that fills the whole subset
+        * Python numbers, lists and tuples are converted to the ``VArray.dtype`` when every value fits it;
+          NumPy arrays and scalars shall have the ``VArray.dtype`` already
+
+        The ``Arrays`` the subset covers are written one by one in the executor of the client, each under its own
+        write lock; a missing ``Array`` is created. The ``Arrays`` that failed are reported together, the others
+        are written. When every failed ``Array`` was not released within the write lock timeout, the error is
+        ``DekerLockError``: nothing is broken, the write can simply be repeated. A write cancelled from outside
+        stops only before any of its ``Arrays`` is started; once one is started, every ``Array`` is written.
+
+        :param data: new data which shall match subset slicing
+        :param timeout: seconds to wait for the lock of each ``Array``; not given - ``write_lock_timeout`` of the
+          client
+        :raises DekerArrayError: if the data is ``None``
+        :raises DekerValidationError: if the data does not fit the shape or the dtype, or the timeout is not a
+          positive integer
+        :raises DekerCancelledError: if the write is cancelled before any ``Array`` is started
+        :raises DekerLockError: if every ``Array`` that failed was not released within the write lock timeout
+        :raises DekerVSubsetError: if one or more ``Arrays`` could not be written for other reasons, or for mixed ones
+        :raises DekerInstanceNotExistsError: if the ``VArray`` was deleted
+        :raises DekerCriticalError: if the collections directory of the storage is gone
+        """
+        validate_timeout(timeout=timeout)
+        self.logger.debug("Trying to update data for %s", self)
+        if data is None:
+            raise DekerArrayError("Updating data shall not be None")
+        with TokenErrorConverter():
+            self.__update(data, timeout=timeout, token=write_token())
+        self.logger.info("%s data updated OK", self)

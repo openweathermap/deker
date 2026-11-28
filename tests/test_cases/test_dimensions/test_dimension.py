@@ -5,7 +5,7 @@ import pytest
 from deker.arrays import Array
 from deker.dimensions import Dimension
 from deker.errors import DekerValidationError
-from deker.types import IndexLabels
+from deker.types import IndexLabels, Scale
 
 
 class TestDimensionNameValidation:
@@ -75,7 +75,8 @@ class TestDimensionNameValidation:
 
 class TestDimensionSizeValidators:
     @pytest.mark.parametrize(
-        "size", [1, 2, 200, 100000, 9223372036854775807]  # maximal valid value: (2**63 - 1)
+        "size",
+        [1, 2, 200, 100000, 9223372036854775807],  # maximal valid value: (2**63 - 1)
     )
     def test_dimension_size_ok(self, size: int):
         """Test size ok."""
@@ -216,13 +217,7 @@ class TestDimensionLabelsValidation:
 
     def test_dimension_repr(self, array: Array):
         for dim in array.dimensions:
-            s = (
-                f"{dim.__class__.__name__}("
-                f"name={dim.name!r}, "
-                f"size={dim.size!r}, "
-                f"step={dim.step!r}"
-                f")"
-            )
+            s = f"{dim.__class__.__name__}(name={dim.name!r}, size={dim.size!r}, step={dim.step!r})"
             if hasattr(dim, "labels") and dim.labels is not None:
                 s = s[:-1] + f", labels={dim.labels})"
             if hasattr(dim, "scale") and dim.scale is not None:
@@ -239,3 +234,59 @@ class TestDimensionLabelsValidation:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+INVALID_SCALE_VALUES = [
+    pytest.param(Scale(start_value=0.0, step=0.5, name=5), "non-empty string", id="name-not-a-string"),
+    pytest.param(Scale(start_value=0.0, step=0.5, name=""), "non-empty string", id="name-empty"),
+    pytest.param(Scale(start_value=0.0, step=0.5, name="  "), "non-empty string", id="name-blank"),
+    pytest.param(Scale(start_value=0, step=0.5), "shall be float", id="start-value-int"),
+    pytest.param(Scale(start_value=0.0, step=1), "shall be float", id="step-int"),
+    pytest.param(Scale(start_value="0.0", step=0.5), "shall be float", id="start-value-string"),
+    pytest.param({"start_value": 0, "step": 0.5}, "shall be float", id="dict-start-value-int"),
+    pytest.param({"start_value": 0.0, "step": 0.5, "name": 5}, "non-empty string", id="dict-name-not-a-string"),
+]
+
+
+class TestDimensionScaleValidation:
+    """A Dimension built directly (not from a schema) validates its scale the same way the schema does."""
+
+    @pytest.mark.parametrize("scale", [1, 1.0, "scale", (0.0, 0.5), [0.0, 0.5], True])
+    def test_scale_of_a_wrong_type_raises(self, scale):
+        with pytest.raises(DekerValidationError, match="instance of deker.types.classes.Scale"):
+            Dimension(name="x", size=4, scale=scale)
+
+    @pytest.mark.parametrize(
+        "scale",
+        [
+            pytest.param({"start": 0.0, "step": 0.5}, id="wrong-key"),
+            pytest.param({"start_value": 0.0}, id="missing-step"),
+            pytest.param({"start_value": 0.0, "step": 0.5, "unit": "deg"}, id="extra-key"),
+        ],
+    )
+    def test_scale_dict_with_wrong_keys_raises(self, scale: dict):
+        with pytest.raises(DekerValidationError, match="argument"):
+            Dimension(name="x", size=4, scale=scale)
+
+    @pytest.mark.parametrize(("scale", "message"), INVALID_SCALE_VALUES)
+    def test_invalid_scale_values_raise(self, scale, message: str):
+        with pytest.raises(DekerValidationError, match=message):
+            Dimension(name="x", size=4, scale=scale)
+
+    @pytest.mark.parametrize(
+        "scale",
+        [
+            pytest.param(Scale(start_value=0.0, step=0.5), id="unnamed"),
+            pytest.param(Scale(start_value=90.0, step=-0.5, name="lat"), id="named-descending"),
+            pytest.param({"start_value": 0.0, "step": 0.5, "name": "lon"}, id="dict"),
+        ],
+    )
+    def test_valid_scale_is_kept(self, scale):
+        dimension = Dimension(name="x", size=4, scale=scale)
+        expected = Scale(**scale) if isinstance(scale, dict) else scale
+        assert dimension.scale == expected
+        assert dimension.labels is None
+
+    def test_labels_and_scale_together_raise(self):
+        with pytest.raises(DekerValidationError, match="either `labels` or `scale`"):
+            Dimension(name="x", size=2, labels=["a", "b"], scale=Scale(start_value=0.0, step=0.5))

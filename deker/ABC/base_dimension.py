@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -17,7 +17,8 @@
 """Abstract wrappers for array dimension and dimension index labels."""
 
 from abc import ABC
-from typing import Union
+from datetime import timedelta
+from typing import Any
 
 from deker.errors import DekerValidationError
 from deker.types.private.classes import Serializer
@@ -28,7 +29,7 @@ class BaseDimension(Serializer, ABC):
 
     __slots__ = ("__name", "__size", "__step")
 
-    def _validate(self, name: str, size: int, **kwargs: dict) -> None:  # noqa[ARG002]
+    def _validate(self, name: str, size: int, **kwargs: Any) -> None:  # noqa: ARG002
         if not isinstance(name, str):
             raise DekerValidationError("Name shall be str")
         if not name or name.isspace():
@@ -36,7 +37,7 @@ class BaseDimension(Serializer, ABC):
         if size is None or isinstance(size, bool) or not isinstance(size, int) or size <= 0:
             raise DekerValidationError("Size shall be a positive int")
 
-    def __init__(self, name: str, size: int, **kwargs: dict) -> None:
+    def __init__(self, name: str, size: int, **kwargs: Any) -> None:
         super().__init__()
         self._validate(name, size, **kwargs)  # pragma: no cover
         self.__name = name  # pragma: no cover
@@ -54,6 +55,6 @@ class BaseDimension(Serializer, ABC):
         return self.__size  # pragma: no cover
 
     @property
-    def step(self) -> Union[int, float]:
+    def step(self) -> int | float | timedelta:
         """Dimension values step."""
         return self.__step  # pragma: no cover

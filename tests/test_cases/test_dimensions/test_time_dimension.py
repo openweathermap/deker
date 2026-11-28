@@ -39,9 +39,7 @@ class TestTimeDimensionStartValueValidation:
     )
     def test_time_dimension_start_value_raises_no_tzinfo(self, start_value):
         with pytest.raises(DekerValidationError):
-            assert TimeDimension(
-                name="td", size=2, start_value=start_value, step=timedelta(weeks=1)
-            )
+            assert TimeDimension(name="td", size=2, start_value=start_value, step=timedelta(weeks=1))
 
     @pytest.mark.parametrize(
         "start_value",
@@ -72,9 +70,7 @@ class TestTimeDimensionStartValueValidation:
     )
     def test_time_dimension_start_value_raises_invalid_type(self, start_value):
         with pytest.raises(DekerValidationError):
-            assert TimeDimension(
-                name="td", size=2, start_value=start_value, step=timedelta(weeks=1)
-            )
+            assert TimeDimension(name="td", size=2, start_value=start_value, step=timedelta(weeks=1))
 
 
 class TestTimeDimensionStepValidation:
@@ -196,3 +192,12 @@ class TestTimeDimensionStepValidation:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestTimeDimensionAttributeReference:
+    @pytest.mark.parametrize("start_value", ["$time", "$dt", "$parent.time"])
+    def test_start_value_referring_to_an_attribute_is_kept_as_is(self, start_value: str):
+        """A $-reference is resolved by the array from its attributes, the dimension keeps the reference."""
+        dimension = TimeDimension(name="td", size=2, start_value=start_value, step=timedelta(hours=1))
+        assert dimension.start_value == start_value
+        assert dimension.step == timedelta(hours=1)

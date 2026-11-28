@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -15,8 +15,11 @@
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 import datetime
+import math
 
-from typing import Any, Optional, Union
+from typing import Any
+
+from deker_tools.typings import Sentinel, SentinelType
 
 from deker.ABC.base_dimension import BaseDimension
 from deker.errors import DekerValidationError
@@ -24,22 +27,60 @@ from deker.log import SelfLoggerMixin
 from deker.types import IndexLabels, Labels, Scale
 
 
+def validate_labels(name: str, size: int, labels: Any) -> None:
+    """Check the labels of a dimension: the rules are the same for the schema and for the dimension.
+
+    Labels are a non-empty list or tuple of unique non-blank strings, or of unique finite floats, one label
+    per cell of the dimension. Integers and booleans are not labels: an integer index is a position, and a
+    label that is an integer could never be told from one.
+
+    :param name: name of the dimension, for the message
+    :param size: size of the dimension
+    :param labels: labels to check
+    :raises DekerValidationError: if the labels break one of the rules
+    """
+    prefix = f"Invalid labels of dimension {name}: "
+    if not isinstance(labels, (tuple, list)):
+        raise DekerValidationError(prefix + f"a list or a tuple is expected, got {type(labels).__name__}")
+    if not labels:
+        raise DekerValidationError(prefix + "labels cannot be empty, use None instead")
+    if len(labels) != size:
+        raise DekerValidationError(prefix + f"{len(labels)} labels for {size} cells")
+    if all(isinstance(label, str) for label in labels):
+        if any(not label or label.isspace() for label in labels):
+            raise DekerValidationError(prefix + "a label cannot be an empty or a blank string")
+    elif all(isinstance(label, float) and not isinstance(label, bool) for label in labels):
+        if any(not math.isfinite(label) for label in labels):
+            raise DekerValidationError(prefix + "a label cannot be nan or infinite")
+    else:
+        raise DekerValidationError(prefix + "labels shall be all strings or all floats")
+    if len(set(labels)) < len(labels):
+        raise DekerValidationError(prefix + "labels shall be unique")
+
+
 class Dimension(SelfLoggerMixin, BaseDimension):
     """``Dimension`` of a grid axes or any other series except time (for time series use ``TimeDimension``).
 
     May be used for defining the majority of parameters which may be stored in an array.
-    You can use ``labels`` or ``scale`` parameter to create a mapping of some names or values to the dimension indexes.
+    You can use ``labels`` or ``scale`` parameter to create a mapping of some names or values to the dimension indexes,
+    but not both at once. The constructor validates the parameters, sets the defaults and converts labels and scale
+    to their types; the ``step`` of a ``Dimension`` is always 1.
 
     :param name: dimension unique name (e.g. "length")
     :param size: dimension cells quantity
-    :param labels: ordered mapping of dimension values names to their indexes
+    :param labels: ordered sequence of unique dimension values names (all strings or all floats), one per cell,
+      mapped to their indexes; default None
 
       ::
 
         ["name1", "name2", ..., "nameN"]
-        ("float1", "float2", ..., "floatN")
+        (0.25, 0.5, ..., 1.0)
 
-    :param scale: a description of dimension regular scale; default None
+    :param scale: a regular scale of the dimension: a ``Scale(start_value, step, name)`` or a dictionary of its
+      fields; the value of the cell ``i`` is ``start_value + step * i``; default None
+    :param kwargs: extra keyword arguments, ignored
+    :raises DekerValidationError: if the name or the size is invalid, both labels and scale are passed, or the labels
+      or the scale break their rules
     """
 
     __slots__ = ("__name", "__size", "__step", "__labels", "__scale")
@@ -48,10 +89,20 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         self,
         name: str,
         size: int,
-        labels: Optional[Labels] = None,
-        scale: Optional[Union[dict, Scale]] = None,
-        **kwargs: Any,  # noqa[ARG002]
+        labels: Labels | None = None,
+        scale: dict | Scale | None = None,
+        **kwargs: Any,  # noqa: ARG002
     ) -> None:
+        """Validate the constructor arguments.
+
+        :param name: dimension name
+        :param size: dimension size
+        :param labels: dimension labels, if any
+        :param scale: dimension scale, if any
+        :param kwargs: extra keyword arguments, ignored
+        :raises DekerValidationError: if the name or the size is invalid, both labels and scale are passed, or the
+          labels or the scale break their rules
+        """
         super()._validate(name, size)
 
         if all(param is None for param in (labels, scale)):
@@ -66,110 +117,55 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         if scale is not None:
             if not isinstance(scale, (dict, Scale)):
                 raise DekerValidationError(
-                    f"Scale parameter value shall be an instance of deker.types.classes.Scale, not {type(self.scale)}"
+                    f"Scale parameter value shall be an instance of deker.types.classes.Scale, not {type(scale)}"
                 )
 
             if isinstance(scale, dict):
                 try:
-                    scale: Scale = Scale(**scale)
+                    scale_ = Scale(**scale)
                 except TypeError as e:
                     raise DekerValidationError(e)
+            else:
+                scale_ = scale
 
-            for attr in scale._fields:
-                value = getattr(scale, attr)
+            for attr in scale_._fields:
+                value = getattr(scale_, attr)
                 if attr == "name":
-                    if value is not None and (
-                        not isinstance(value, str) or not value or value.isspace()
-                    ):
-                        raise DekerValidationError(
-                            f"Scale attribute '{attr}' value shall be non-empty string"
-                        )
+                    if value is not None and (not isinstance(value, str) or not value or value.isspace()):
+                        raise DekerValidationError(f"Scale attribute '{attr}' value shall be non-empty string")
 
                 elif not isinstance(value, float):
                     raise DekerValidationError(f"Scale attribute '{attr}' value shall be float")
 
-            scale_end_non_inclusive = scale.start_value
-            scale_end_non_inclusive += scale.step * size
-            scale_size = int(round(abs((scale_end_non_inclusive - scale.start_value) / scale.step)))
-            if scale_size != size:
-                raise DekerValidationError(
-                    f"Dimension {name} wrong scale: does not match dimension size {size}"
-                )
+            scale_end_non_inclusive = scale_.start_value
+            scale_end_non_inclusive += scale_.step * size
+            scale_size = int(round(abs((scale_end_non_inclusive - scale_.start_value) / scale_.step)))
+            if scale_size != size:  # pragma: no cover  # guard: the scale end is computed from the size itself
+                raise DekerValidationError(f"Dimension {name} wrong scale: does not match dimension size {size}")
 
         if labels is not None:
-            common_labels_exc = (
-                "Labels shall be an ordered sequence or mapping of unique elements to their "
-                "indexes in the dimension axis"
-            )
-
-            if not isinstance(labels, (tuple, list, dict)):
-                raise DekerValidationError(common_labels_exc)
-
-            if isinstance(labels, (list, tuple, dict)) and not labels:
-                raise DekerValidationError("Label cannot be empty, use None instead")
-
-            if len(labels) != size:
-                raise DekerValidationError("Labels quantity do not match dimension size")
-
-            if isinstance(labels, dict):
-                for key, val in labels.items():
-                    if not isinstance(key, str) or not isinstance(val, int):
-                        raise DekerValidationError(common_labels_exc)
-
-            if isinstance(labels, (list, tuple)):
-                if all(isinstance(el, (list, tuple)) for el in labels):
-                    keys = {el[0] for el in labels}
-                    vals = {el[1] for el in labels}
-                    if len(keys) < len(labels) or len(vals) < len(labels):
-                        raise DekerValidationError(common_labels_exc)
-                    if not all(isinstance(key, str) for key in keys) or not all(
-                        isinstance(val, int) for val in vals
-                    ):
-                        raise DekerValidationError(common_labels_exc)
-                elif len(set(labels)) < len(labels) or all(
-                    (
-                        all(not isinstance(el, str) for el in labels),
-                        all(not isinstance(el, int) for el in labels),
-                        all(not isinstance(el, float) for el in labels),
-                    )
-                ):
-                    raise DekerValidationError(common_labels_exc)
+            validate_labels(name, size, labels)
 
     def __init__(
         self,
         name: str,
         size: int,
-        labels: Optional[Labels] = None,
-        scale: Optional[dict] = None,
+        labels: Labels | None = None,
+        scale: dict | Scale | None = None,
         **kwargs: Any,
     ) -> None:
-        """Dimension constructor.
-
-        Validates parameters, sets them to default and converts labels and scale to a corresponding type.
-
-        :param name: dimension name (e.g. "time")
-        :param size: dimension cells quantity
-        :param labels: ordered mapping of dimension values names to their indexes; default None
-            ["name1", "name2", ..., "nameN"] |
-            ("name1", "name2", ..., "nameN") |
-            [("name1", 0), ("name2", 1), ..., ("nameN", N)] |
-            (("name1", 0), ("name2", 1), ..., ("nameN", N)) |
-            {"name1": 0, "name2": 1, ..., "nameN": N}
-        :param scale: a description of dimension regular scale; default None
-        :param kwargs: any keyword arguments
-        """
         super().__init__(name, size, **kwargs)
         self._validate(name, size, labels, scale)
         self.__name: str = name
         self.__size: int = size
         self.__step: int = 1  # step attribute kept for further usage unification
-        self.__labels: Optional[IndexLabels] = labels if not labels else IndexLabels(labels)
-        self.__scale: Optional[Scale] = scale if not scale else Scale(**scale)
-        self.logger.debug(f"Dimension {name} instantiated")
+        self.__labels: IndexLabels | None = IndexLabels(labels) if labels else None
+        self.__scale: Scale | None = Scale(**scale) if isinstance(scale, dict) else scale
+        self.logger.debug("Dimension %s instantiated", name)
 
     @property
     def step(self) -> int:
-        """Get ``Dimension`` step."""
+        """Get ``Dimension`` step: always 1, kept for the common interface of the dimensions."""
         return self.__step
 
     @property
@@ -183,13 +179,13 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         return self.__size
 
     @property
-    def labels(self) -> Optional[IndexLabels]:
-        """Get ``Dimension`` labels."""
+    def labels(self) -> IndexLabels | None:
+        """Get ``Dimension`` labels; ``None`` if the dimension has none."""
         return self.__labels
 
     @property
-    def scale(self) -> Optional[Scale]:
-        """Get ``Dimension`` regular scale."""
+    def scale(self) -> Scale | None:
+        """Get ``Dimension`` regular scale; ``None`` if the dimension has none."""
         return self.__scale
 
     @property
@@ -207,13 +203,7 @@ class Dimension(SelfLoggerMixin, BaseDimension):
         return self.size
 
     def __repr__(self) -> str:
-        s = (
-            f"{self.__class__.__name__}("
-            f"name={self.name!r}, "
-            f"size={self.size!r}, "
-            f"step={self.step!r}"
-            f")"
-        )
+        s = f"{self.__class__.__name__}(name={self.name!r}, size={self.size!r}, step={self.step!r})"
         if self.labels:
             s = s[:-1] + f", labels={self.labels})"
         if self.scale:
@@ -227,11 +217,15 @@ class Dimension(SelfLoggerMixin, BaseDimension):
 class TimeDimension(SelfLoggerMixin, BaseDimension):
     """Special dimension for time series.
 
+    The value of the cell ``i`` is ``start_value + step * i``.
+
     :param name: dimension name (e.g. "time")
     :param size: dimension cells quantity
 
     :param start_value: time mark of the first cell (index 0) in dimension
-    :param step: a ``datetime.timedelta`` step of ``TimeDimension`` series within the grid
+    :param step: a non-zero ``datetime.timedelta`` step of ``TimeDimension`` series within the grid
+    :raises DekerValidationError: if the name or the size is invalid, the step is not a non-zero ``timedelta``,
+      or the start value is neither a timezone-aware datetime, nor such an ISO string, nor an attribute reference
 
     .. note::
 
@@ -254,29 +248,37 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         self,
         name: str,
         size: int,
-        start_value: datetime.datetime,
+        start_value: datetime.datetime | str,
         step: datetime.timedelta,
     ) -> None:
-        super().__init__(name, size, **{"start_value": start_value, "step": step})  # type: ignore[arg-type]
+        super().__init__(name, size, start_value=start_value, step=step)
         self.__name: str = name
         self.__size: int = size
         self.__step: datetime.timedelta = step
-        self.__start_value: datetime.datetime = start_value
-        self.logger.debug(f"dimension {name} instantiated")
+        self.__start_value: datetime.datetime | str = start_value
+        self.logger.debug("dimension %s instantiated", name)
 
     def _validate(
         self,
         name: str,
         size: int,
-        start_value: Union[datetime.datetime, str],
-        step: datetime.timedelta,
-        **kwargs: Any,  # noqa[ARG002]
+        start_value: datetime.datetime | str | SentinelType = Sentinel,
+        step: datetime.timedelta | SentinelType = Sentinel,
+        **kwargs: Any,  # noqa: ARG002
     ) -> None:
+        """Validate the constructor arguments.
+
+        :param name: dimension name
+        :param size: dimension size
+        :param start_value: time mark of the first cell
+        :param step: step of the series
+        :param kwargs: extra keyword arguments, ignored
+        :raises DekerValidationError: if the name or the size is invalid, the step is not a non-zero ``timedelta``,
+          or the start value is neither a timezone-aware datetime, nor such an ISO string, nor an attribute reference
+        """
         super()._validate(name, size)
         if not isinstance(step, datetime.timedelta) or not step:
-            raise DekerValidationError(
-                'TimeDimension "step" shall be a none-zero datetime.timedelta'
-            )
+            raise DekerValidationError('TimeDimension "step" shall be a none-zero datetime.timedelta')
 
         if isinstance(start_value, str):
             if not start_value.startswith("$"):
@@ -286,7 +288,7 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
                     "or a reference to an attribute name starting with `$`"
                 )
                 try:
-                    dt = datetime.datetime.fromisoformat(start_value)  # type: ignore[arg-type]
+                    dt = datetime.datetime.fromisoformat(start_value)
                     if dt.tzinfo is None:
                         raise DekerValidationError(incorrect_time_dimension_error)
                 except ValueError:
@@ -317,8 +319,12 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
         return self.__size
 
     @property
-    def start_value(self) -> Union[datetime.datetime, str]:
-        """Get ``TimeDimension`` start value."""
+    def start_value(self) -> datetime.datetime | str:
+        """Get ``TimeDimension`` start value as it was given: a ``datetime``, an ISO string or a reference ``"$name"``.
+
+        The dimensions of an array are built with a ``datetime``: the schema converts ISO strings and the array
+        resolves the references to its attributes.
+        """
         return self.__start_value
 
     @property
@@ -334,9 +340,7 @@ class TimeDimension(SelfLoggerMixin, BaseDimension):
             "size": self.size,
             "step": self.step,
             "start_value": (
-                self.start_value.isoformat()
-                if isinstance(self.start_value, datetime.datetime)
-                else self.start_value
+                self.start_value.isoformat() if isinstance(self.start_value, datetime.datetime) else self.start_value
             ),
         }
 

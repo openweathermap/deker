@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -13,11 +13,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from typing import List
+
+from types import TracebackType
+
+from deker_tools.cancel import TokenCancelledError, TokenTimeoutError
 
 
 class DekerBaseApplicationError(Exception):
-    """Base attribute exception."""
+    """Base exception of Deker: every Deker error is its subclass."""
 
 
 class DekerClientError(DekerBaseApplicationError, RuntimeError):
@@ -26,8 +29,16 @@ class DekerClientError(DekerBaseApplicationError, RuntimeError):
     pass
 
 
+class DekerAdapterClosedError(DekerClientError):
+    """If an adapter or a factory is used after the client context was closed.
+
+    It is a ``DekerClientError``: every object of a closed client answers with it,
+    while the client itself raises a plain ``DekerClientError``.
+    """
+
+
 class DekerArrayError(DekerBaseApplicationError):
-    """If something goes wrong in Array."""
+    """If something goes wrong in Array or VArray: a missing file, a creation of an array that exists."""
 
 
 class DekerArrayTypeError(DekerArrayError):
@@ -73,19 +84,26 @@ class DekerFilterError(DekerBaseApplicationError):
 
 
 class DekerValidationError(DekerBaseApplicationError):
-    """If something goes wrong during validation."""
+    """If something goes wrong during validation.
 
-    pass
+    :param args: the message, as of any exception
+    :param parameters: names of the dictionaries of the arguments the error is in - ``primary_attributes``, then
+      ``custom_attributes``; empty if the error is not in them
+    """
+
+    def __init__(self, *args: object, parameters: tuple[str, ...] = ()) -> None:
+        super().__init__(*args)
+        self.parameters = parameters
 
 
 class DekerIntegrityError(DekerBaseApplicationError):
-    """If something goes wrong during integrity check."""
+    """If the integrity check is asked to stop at the first finding and finds one."""
 
     pass
 
 
 class DekerLockError(DekerBaseApplicationError):
-    """If a Collection or a Array or VArray instance is locked."""
+    """If a lock cannot be taken: a reader meets a writer, or a writer does not get the file within the timeout."""
 
     pass
 
@@ -94,6 +112,18 @@ class DekerInstanceNotExistsError(DekerBaseApplicationError):
     """If instance was deleted, but user is trying to call methods on it."""
 
     pass
+
+
+class DekerTrashError(DekerBaseApplicationError):
+    """If the trash of the storage is not emptied: the data is no longer available, but its disk space is not freed."""
+
+
+class DekerCriticalError(Exception):
+    """If Deker cannot work on: a directory of the storage the client creates when it opens is missing.
+
+    It is not a ``DekerBaseApplicationError``, so the handlers of the errors of Deker do not catch it: the service
+    stops, and the client creates the directories again when it opens next time.
+    """
 
 
 class DekerInvalidManagerCallError(DekerBaseApplicationError):
@@ -112,21 +142,19 @@ class DekerExceptionGroup(DekerBaseApplicationError):
 
     Name, message and reasonable tracebacks of all
     of these exceptions shall be collected in a list
-    and passed to this class along with some message.
+    and passed to this class along with some message::
 
-    ```
-    futures = [executor.submit(func, arg) for arg in iterable]
+        futures = [executor.submit(func, arg) for arg in iterable]
 
-    exceptions = []
-    for future in futures:
-        try:
-            future.result()
-        except Exception as e:
-            exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
-    ```
+        exceptions = []
+        for future in futures:
+            try:
+                future.result()
+            except Exception as e:
+                exceptions.append(repr(e) + "\n" + traceback.format_exc(-1))
     """
 
-    def __init__(self, message: str, exceptions: List[str]):
+    def __init__(self, message: str, exceptions: list[str]):
         self.message = message
         self.exceptions = exceptions
         super().__init__(message, exceptions)
@@ -144,7 +172,53 @@ class DekerMemoryError(DekerBaseApplicationError, MemoryError):
 class DekerVSubsetError(DekerSubsetError, DekerExceptionGroup):
     """If something goes wrong while VSubset managing.
 
-    Regarding that VSubset's inner Subsets' processing
-    is made in an Executor, this exception actually is
-    an `exceptions messages group`.
+    A ``VSubset`` reads, writes and clears the ``Arrays`` of its ``VArray`` one by one in an executor,
+    so this exception is a group of the messages of the ``Arrays`` that failed; the other ``Arrays``
+    are processed.
     """
+
+
+class DekerCancelledError(DekerBaseApplicationError):
+    """The operation is cancelled from outside, for instance its client went away; nothing is changed by it.
+
+    A write is cancelled only before any of its files is started; once one is started, the write goes to its end.
+    """
+
+
+class DekerTimeoutError(DekerCancelledError):
+    """The read took longer than its timeout; no data is returned."""
+
+
+class TokenErrorConverter:
+    """Turn the errors of the cancellation tokens of deker-tools into the errors of DEKER.
+
+    Every public operation of DEKER runs its work inside: an operation stopped at one of its cancellation points
+    raises ``DekerTimeoutError`` or ``DekerCancelledError`` with the text of the token error and without its
+    traceback. Other exceptions pass as they are.
+    """
+
+    def __enter__(self) -> "TokenErrorConverter":
+        """Enter the work of the operation.
+
+        :returns: the converter itself
+        """
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_value: BaseException | None,
+        traceback: TracebackType | None,
+    ) -> None:
+        """Raise the error of DEKER for a token error of the work.
+
+        :param exc_type: type of the exception raised in the work, if any
+        :param exc_value: the exception raised in the work, if any
+        :param traceback: traceback of the exception, if any
+        :raises DekerTimeoutError: if a timeout token stopped the work
+        :raises DekerCancelledError: if any other token stopped the work
+        """
+        if isinstance(exc_value, TokenTimeoutError):
+            raise DekerTimeoutError(str(exc_value)) from None
+        if isinstance(exc_value, TokenCancelledError):
+            raise DekerCancelledError(str(exc_value)) from None

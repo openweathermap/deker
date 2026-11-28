@@ -278,6 +278,10 @@ we may use ``labels`` to describe it::
     ]
 
 You can provide not only a list of ``strings``, but a list (or a tuple) of ``floats`` as well.
+The labels are checked when the schema is made: there is one label per cell, the labels are
+unique, all strings (none of them empty or blank) or all finite floats. Integers and booleans
+are not labels, because an integer in a slice is always a position; a list that mixes strings
+and floats is rejected too.
 
 Both ``labels`` and ``scale`` provide a mapping of some reasonable information onto your data
 cells. If ``labels`` is always a full sequence kept in metadata and in memory, ``scale`` is
@@ -569,7 +573,7 @@ and NumPy data types:
         - 64
         - 8
         - -1.7976931348623157*10^308 ... |br| 1.7976931348623157*10^308
-      * - ``numpy.float128`` |br| ``numpy.longdouble``
+      * - ``numpy.float128`` |br| ``numpy.longdouble`` [#f1]_
         - 128
         - 16
         - -1.189731495357231765*10^4932 ... |br| 1.189731495357231765*10^4932
@@ -600,10 +604,14 @@ and NumPy data types:
         - 16
         - -1.189731495357231765*10^4932-1.189731495357231765*10^4932j ... |br|
           1.189731495357231765*10^4932+1.189731495357231765*10^4932j
-      * - ``numpy.complex256`` |br| ``numpy.clongdouble``
+      * - ``numpy.complex256`` |br| ``numpy.clongdouble`` [#f1]_
         - 256
         - 32
         - `even more`
+
+.. [#f1] Not available on Apple silicon macOS and on Windows: NumPy has no ``float128`` and
+   ``complex256`` there. DEKER™ works there without them; a collection created with one of them
+   elsewhere cannot be opened there.
 
 
 Python ``int``, ``float`` and ``complex`` are correspondingly converted to ``numpy.int64``,

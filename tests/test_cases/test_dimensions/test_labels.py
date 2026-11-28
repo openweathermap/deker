@@ -71,3 +71,18 @@ class TestIndexLabels:
 
 if __name__ == "__main__":
     pytest.main()
+
+
+class TestIndexLabelsLookups:
+    @pytest.mark.parametrize(("labels", "idx", "expected"), [(["a", "b", "c"], 0, "a"), (["a", "b", "c"], -1, "c")])
+    def test_index_to_name(self, labels: list, idx: int, expected: str):
+        assert IndexLabels(labels).index_to_name(idx) == expected
+
+    @pytest.mark.parametrize("idx", [3, -4, 100])
+    def test_index_to_name_out_of_range_is_none(self, idx: int):
+        assert IndexLabels(["a", "b", "c"]).index_to_name(idx) is None
+
+    def test_name_to_index(self):
+        labels = IndexLabels(["a", "b", "c"])
+        assert labels.name_to_index("b") == 1
+        assert labels.name_to_index("z") is None

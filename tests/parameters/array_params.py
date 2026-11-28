@@ -1,8 +1,7 @@
 from datetime import datetime
-from typing import List
 
 
-def attributes_validation_params() -> List[dict]:
+def attributes_validation_params() -> list[dict]:
     """Generates attributes validation params"."""
     default_attributes = {"primary_attributes": {"primary_attribute": 1}}
     return [

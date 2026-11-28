@@ -2,11 +2,14 @@
 
 ![image](docs/deker/images/logo_50.png)
 
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![PyPI version shields.io](https://img.shields.io/pypi/v/deker.svg?color=0)](https://pypi.python.org/pypi/deker/)
 [![PyPI pyversions](https://img.shields.io/pypi/pyversions/deker.svg)](https://pypi.python.org/pypi/deker/) 
 [![GitHub license](https://badgen.net/github/license/openweathermap/deker)](https://github.com/openweathermap/deker/blob/main/LICENSE)
 [![codecov](https://codecov.io/gh/openweathermap/deker/branch/main/graph/badge.svg?token=Z040BQWIOR)](https://codecov.io/gh/openweathermap/deker)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![PyPI - Downloads](https://img.shields.io/pypi/dm/deker)](pypi)
+[![Pepy - Total Downloads](https://img.shields.io/pepy/dt/deker)](pypi)
 
 DEKER™ is pure Python implementation of petabyte-scale highly parallel data storage engine for
 multidimensional arrays.
@@ -80,7 +83,7 @@ To install DEKER™ run:
    ```bash
    pip install deker
    ```
-Please refer to documentation for advanced topics such as running on Apple silicone or using Xarray
+Please refer to documentation for advanced topics such as the data types on Apple silicon or using Xarray
 with DEKER™ API.
 
 ### First Steps
@@ -97,14 +100,14 @@ DEKER_URI = "file:///tmp/deker"
 
 # Define 3-dimensional schema with to numeric and one time dimension
 dimensions = [
-   DimensionSchema(name="y", size=128),
-   DimensionSchema(name="x", size=128),
-   TimeDimensionSchema(
-      name="forecast_dt",
-      size=128,
-      start_value=datetime.now(timezone.utc),
-      step=timedelta(3),
-   )
+    DimensionSchema(name="y", size=128),
+    DimensionSchema(name="x", size=128),
+    TimeDimensionSchema(
+        name="forecast_dt",
+        size=128,
+        start_value=datetime.now(timezone.utc),
+        step=timedelta(3),
+    ),
 ]
 
 # Define array schema with float dtype and dimensions
@@ -112,15 +115,15 @@ array_schema = ArraySchema(dtype=float, dimensions=dimensions)
 
 # Instantiate client using context manager
 with Client(DEKER_URI) as client:
-   # Create collection
-   collection = client.create_collection("my_collection", array_schema)
-   
-   # Create array
-   array = collection.create()
-   
-   # Write some data
-   array[:].update(np.ones(shape=array.shape))
-   
-   # And read the data back
-   data = array[:].read()
+    # Create collection
+    collection = client.create_collection("my_collection", array_schema)
+
+    # Create array
+    array = collection.create()
+
+    # Write some data
+    array[:].update(np.ones(shape=array.shape))
+
+    # And read the data back
+    data = array[:].read()
 ```

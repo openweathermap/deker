@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,113 +14,122 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from __future__ import annotations
 
-from collections import OrderedDict, namedtuple
+from collections import OrderedDict
 from pathlib import Path
-from typing import List, Optional, Tuple, Union
-from urllib.parse import ParseResult, _NetlocResultMixinStr, parse_qs, quote, urlparse
+from typing import NamedTuple
+from urllib.parse import _NetlocResultMixinStr, parse_qs, quote, urlparse
 
 from deker_tools.path import is_path_valid
 
 from deker.errors import DekerValidationError
 
-ParseResultWithServers = namedtuple("ParseResultWithServers", ParseResult._fields + ("servers",))
+
+class ParseResultWithServers(NamedTuple):
+    """Result of uri parsing: ``urllib.parse.ParseResult`` fields plus the list of cluster servers.
+
+    :param scheme: uri scheme, e.g. ``file`` or ``http``
+    :param netloc: network location of the first server (with credentials and port, if any)
+    :param path: uri path
+    :param params: uri parameters
+    :param query: query string parsed into a dictionary
+    :param fragment: uri fragment
+    :param servers: full uris of all cluster servers, or ``None`` for a single server
+    """
+
+    scheme: str
+    netloc: str
+    path: str
+    params: str
+    query: dict[str, list[str]]
+    fragment: str
+    servers: list[str] | None
 
 
 class Uri(ParseResultWithServers, _NetlocResultMixinStr):
     """Deker client uri wrapper.
 
-    Overrides parsed result to have query as a dictionary.
+    Overrides parsed result to have query as a dictionary. A cluster uri lists its hosts with commas,
+    ``http://user:pass@host1,host2``: ``netloc`` keeps the first host, ``servers`` the full uris of the others
+    with the same credentials.
     Validation ref: https://t.ly/ekbU
     """
 
+    NETLOC_SEPARATOR = "://"
+    SERVERS_SEPARATOR = "@"  # separates credentials from a host: ``user:pass@host``
+    SERVERS_DIVIDER = ","  # separates cluster hosts: ``host1,host2``
+    PATH_SEPARATOR = "/"
+    PARAMS_SEPARATOR = ";"
+
+    # Backward compatibility: the delimiters used to be published under this (misused) name, and
+    # deker-server-adapters < 1.3 read ``Uri.__annotations__["netloc"]["separator"]``.
+    # Keep it the last statement of the class body: an annotated assignment below would be added to it.
     __annotations__ = OrderedDict(
         scheme={"separator": None, "divider": None},
-        netloc={"separator": "://", "divider": None},
-        servers={"separator": "@", "divider": ","},
-        path={"separator": "/", "divider": "/"},
-        params={"separator": ";", "divider": ","},
+        netloc={"separator": NETLOC_SEPARATOR, "divider": None},
+        servers={"separator": SERVERS_SEPARATOR, "divider": SERVERS_DIVIDER},
+        path={"separator": PATH_SEPARATOR, "divider": PATH_SEPARATOR},
+        params={"separator": PARAMS_SEPARATOR, "divider": ","},
         query={"separator": "?", "divider": "&"},
         fragment={"separator": "#", "divider": None},
     )
 
     @property
     def raw_url(self) -> str:
-        """Get url from raw uri without query string, arguments and fragments."""
-        url = self.scheme + self.__annotations__["netloc"]["separator"]  # type: ignore[attr-defined]
-        if self.netloc:  # type: ignore[attr-defined]
-            url += self.netloc  # type: ignore[attr-defined]
-        url += quote(
-            str(self.path), safe=self.__annotations__["netloc"]["separator"][:-1]  # type: ignore[attr-defined]
-        )
+        """Get the url of the first server without query string, parameters and fragment: ``scheme://netloc/path``."""
+        url = self.scheme + self.NETLOC_SEPARATOR
+        if self.netloc:
+            url += self.netloc
+        url += quote(str(self.path), safe=self.NETLOC_SEPARATOR[:-1])
         return url
 
     @classmethod
-    def __get_servers_and_netloc(cls, netloc: str, scheme: str) -> Tuple[str, Optional[List[str]]]:
+    def __get_servers_and_netloc(cls, netloc: str, scheme: str) -> tuple[str, list[str] | None]:
         """Parse list of servers.
 
         :param netloc: Netloc object
         :param scheme: http or https
+        :returns: netloc of the first node and the uris of the other nodes, or ``None`` for a single server
+            or a scheme that has no clusters
         """
         # If scheme is not http or https, it cannot work in cluster mode
-        if (
-            scheme not in ["http", "https"]
-            or cls.__annotations__["servers"]["divider"] not in netloc
-        ):
+        if scheme not in ["http", "https"] or cls.SERVERS_DIVIDER not in netloc:
             # So servers will be None
             return netloc, None
 
         # Otherwise parse servers
-        servers = netloc.split(cls.__annotations__["servers"]["divider"])
+        servers = netloc.split(cls.SERVERS_DIVIDER)
         node_with_possible_auth = servers[0]
-        if cls.__annotations__["servers"]["separator"] in node_with_possible_auth:
-            auth, _ = node_with_possible_auth.split(cls.__annotations__["servers"]["separator"])
+        if cls.SERVERS_SEPARATOR in node_with_possible_auth:
+            auth, _ = node_with_possible_auth.split(cls.SERVERS_SEPARATOR)
             return (
                 node_with_possible_auth,
-                [
-                    f"{scheme}{cls.__annotations__['netloc']['separator']}"
-                    f"{auth}"
-                    f"{cls.__annotations__['servers']['separator']}"
-                    f"{host}"
-                    for host in servers[1:]
-                ],
+                [f"{scheme}{cls.NETLOC_SEPARATOR}{auth}{cls.SERVERS_SEPARATOR}{host}" for host in servers[1:]],
             )
         return (
             node_with_possible_auth,
-            [f"{scheme}{cls.__annotations__['netloc']['separator']}{host}" for host in servers[1:]],
+            [f"{scheme}{cls.NETLOC_SEPARATOR}{host}" for host in servers[1:]],
         )
 
     @classmethod
-    def __parse(cls, uri: str) -> Uri:
+    def __parse(cls, uri: str) -> "Uri":
         """Parse uri from string.
 
         :param uri: : scheme://username:password@host:port/path;parameters?query
+        :returns: parsed ``Uri``
         """
         result = urlparse(uri)
-
-        if ";" in result.path:
-            path, params = result.path.split(cls.__annotations__["params"]["separator"])
-        else:
-            path, params = result.path, result.params
-
         query = parse_qs(result.query)
         netloc, servers = cls.__get_servers_and_netloc(result.netloc, result.scheme)
-        return Uri(  # type: ignore
-            result.scheme,
-            netloc,
-            path,  # type: ignore[arg-type]
-            params,
-            query,  # type: ignore[arg-type]
-            result.fragment,
-            servers,
-        )
+        return Uri(result.scheme, netloc, result.path, result.params, query, result.fragment, servers)
 
     @classmethod
     def validate(cls, uri: str) -> None:
         """Validate uri from string.
 
         :param uri: : scheme://username:password@host:port/path;parameters?query
+        :raises DekerValidationError: if the uri is not a non-empty string, or the path of a ``file://`` uri
+          is invalid
         """
         if not isinstance(uri, str):
             raise DekerValidationError(f"Invalid uri type: {uri} - {type(uri)}")
@@ -128,41 +137,40 @@ class Uri(ParseResultWithServers, _NetlocResultMixinStr):
             raise DekerValidationError("Empty uri passed")
 
         parsed_uri = cls.__parse(uri)
-        if parsed_uri.scheme == "file":  # type: ignore[attr-defined]
-            pathname = Path(parsed_uri.path)  # type: ignore[attr-defined]
+        if parsed_uri.scheme == "file":
+            pathname = Path(parsed_uri.path)
             try:
                 is_path_valid(pathname)
             except Exception as e:
                 raise DekerValidationError(f"Invalid uri: {e}; {uri}")
 
     @classmethod
-    def create(cls, uri: str) -> Uri:
+    def create(cls, uri: str) -> "Uri":
         """Create parsed and validated uri from string.
 
         :param uri: scheme://username:password@host:port/path;parameters?query
+        :returns: parsed and validated ``Uri``
+        :raises DekerValidationError: if the uri is not a non-empty string, or the path of a ``file://`` uri
+          is invalid
         """
         cls.validate(uri)
         return cls.__parse(uri)
 
-    def __truediv__(self, other: Union[str, Path]) -> Uri:
+    def __truediv__(self, other: str | Path) -> "Uri":
         """Join uri to Path or string.
 
         :param other: Path or string to join
+        :returns: ``Uri`` with the joined path
         """
-        sep = self.__annotations__["path"]["separator"]
         other = str(other)
-        path = sep.join((self.path, other.strip()))  # type: ignore[attr-defined]
-        netloc, servers = self.__get_servers_and_netloc(self.netloc, self.scheme)  # type: ignore[attr-defined]
-        res = Uri(  # type: ignore
-            self.scheme,  # type: ignore[attr-defined]
-            netloc,
-            path,  # type: ignore[attr-defined]
-            self.params,  # type: ignore[attr-defined]
-            self.query,  # type: ignore[attr-defined]
-            self.fragment,  # type: ignore[attr-defined]
-            servers,
-        )
-        return res
+        path = self.PATH_SEPARATOR.join((self.path, other.strip()))
+        netloc, servers = self.__get_servers_and_netloc(self.netloc, self.scheme)
+        return Uri(self.scheme, netloc, path, self.params, self.query, self.fragment, servers)
 
-    def __itruediv__(self, other: str) -> Uri:
+    def __itruediv__(self, other: str | Path) -> "Uri":
+        """Join uri to Path or string in place: the same as ``/``, a ``Uri`` is immutable.
+
+        :param other: Path or string to join
+        :returns: ``Uri`` with the joined path
+        """
         return self.__truediv__(other)

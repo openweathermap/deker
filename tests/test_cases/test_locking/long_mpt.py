@@ -1,6 +1,5 @@
 import sys
 
-
 sys.path.insert(0, ".")
 
 import argparse
@@ -14,7 +13,6 @@ from pathlib import Path
 
 from deker.config import DekerConfig
 from deker.locks import Flock
-
 
 path = Path("/tmp/mp_test/collections/coll.lock")
 
@@ -66,5 +64,5 @@ if __name__ == "__main__":
             sync_method(start)
         elif args.command == "async":
             asyncio.run(async_method(start))
-    except:
+    except BaseException:
         pass

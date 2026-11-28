@@ -9,7 +9,6 @@
 import os
 import sys
 
-
 # Add support for auto-doc
 
 # Ensure that sanic is present in the path, to allow sphinx-apidoc to
@@ -19,14 +18,15 @@ sys.path.insert(0, os.path.abspath(".."))
 
 
 project = "Deker"
-copyright = "2023-2026, OpenWeather"
-author = "OpenWeather"
+copyright = "2023-2026, Openweather Ltd."
+author = "Openweather Ltd."
 # The version info for the project you're documenting, acts as replacement for
 # |version| and |release|, also used in various other places throughout the
 # built documents.
 #
-# The short X.Y version.
-version = os.getenv("GITHUB_REF_NAME") if os.getenv("GITHUB_REF_TYPE", "") == "tag" else "latest"
+# The name the build is published under: the tag of a release (v2.0.0), a line of releases (1.x);
+# a build that is not published is "latest".
+version = os.getenv("DOCS_VERSION", "latest")
 # The full version, including alpha/beta/rc tags.
 release = version
 
@@ -73,7 +73,6 @@ todo_include_todos = False
 # a list of builtin themes.
 html_theme = "sphinx_rtd_theme"
 html_theme_options = {
-    "display_version": True,
     "prev_next_buttons_location": "bottom",
     "style_external_links": True,
     "vcs_pageview_mode": "",
@@ -84,6 +83,9 @@ html_theme_options = {
     "includehidden": True,
     "titles_only": False,
 }
+
+# The version switcher (_templates/versions.html) shows this name as the current one.
+html_context = {"current_version": version}
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,

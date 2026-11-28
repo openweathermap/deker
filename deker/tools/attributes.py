@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,8 +16,9 @@
 import re
 
 from collections import OrderedDict
+from collections.abc import Sequence
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, List, Optional, Tuple, Type, Union
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
@@ -29,15 +30,19 @@ if TYPE_CHECKING:
 
 def serialize_attribute_value(
     val: Any,
-) -> Union[Tuple[str, int, float, tuple], str, int, float, tuple]:
-    """Serialize attribute value.
+) -> tuple[str, int, float, tuple] | str | int | float | tuple:
+    """Serialize an attribute value for the JSON metadata.
 
-    :param val: complex number
+    A datetime becomes an ISO string, a complex number a string, a NumPy number a Python one, a NumPy array
+    a list, a tuple or a list a tuple of serialized elements; everything else stays as it is.
+
+    :param val: attribute value
+    :returns: JSON-serializable value
     """
     if isinstance(val, datetime):
         return val.isoformat()
     if isinstance(val, np.ndarray):
-        return val.tolist()  # type: ignore[attr-defined]
+        return val.tolist()
     if isinstance(val, complex):
         return str(val)
     if isinstance(val, np.integer):
@@ -47,15 +52,16 @@ def serialize_attribute_value(
     if isinstance(val, np.complexfloating):
         return str(complex(val))
     if isinstance(val, (list, tuple)):
-        return serialize_attribute_nested_tuples(val)  # type: ignore[arg-type]
+        return serialize_attribute_nested_tuples(val)
 
     return val
 
 
-def serialize_attribute_nested_tuples(value: Union[tuple, list]) -> Tuple[Any, ...]:
+def serialize_attribute_nested_tuples(value: tuple | list) -> tuple[Any, ...]:
     """Serialize attribute nested tuples and their elements.
 
     :param value: tuple instance
+    :returns: tuple with serialized elements
     """
     serialized = []
     for el in value:
@@ -63,26 +69,31 @@ def serialize_attribute_nested_tuples(value: Union[tuple, list]) -> Tuple[Any, .
             val = serialize_attribute_nested_tuples(el)
         else:
             val = serialize_attribute_value(el)
-        serialized.append(val)  # type: ignore[arg-type]
+        serialized.append(val)
     return tuple(serialized)
 
 
-def deserialize_attribute_value(val: Any, dtype: Type, from_tuple: bool) -> Any:
-    """Deserialize attribute value.
+def deserialize_attribute_value(val: Any, dtype: type, from_tuple: bool) -> Any:
+    """Deserialize attribute value read from the JSON metadata.
+
+    A datetime attribute is parsed from its ISO string into UTC; the others are converted with the dtype of the
+    schema; a tuple is deserialized element by element, where a string that looks like a serialized complex number
+    becomes a complex number again.
 
     :param val: attribute value
     :param dtype: attribute dtype from schema or type of tuple element
     :param from_tuple: flag for tuple inner elements
+    :returns: value converted back to its Python type
     """
     if dtype == datetime:
-        val = get_utc(val)
-    else:
-        val = dtype(val)
+        return get_utc(val)
 
-    if isinstance(val, (list, tuple)) and dtype == tuple:
-        return deserialize_attribute_nested_tuples(val)  # type: ignore[arg-type]
+    val = dtype(val)
 
-    if dtype == str:
+    if isinstance(val, (list, tuple)) and dtype == tuple:  # noqa: E721  # dtype may be a numpy type, keep `==`
+        return deserialize_attribute_nested_tuples(val)
+
+    if dtype == str:  # noqa: E721  # dtype may be a numpy type, keep `==`
         # if the value comes from a tuple as one of its elements
         if from_tuple:
             # it may be a serialized string representation of a complex number
@@ -92,10 +103,10 @@ def deserialize_attribute_value(val: Any, dtype: Type, from_tuple: bool) -> Any:
             )
             # as far as we don't exactly know what it is
             # we try to catch it by a regular expression
-            if re.findall(complex_number_regex, val):  # type: ignore[arg-type]
+            if re.findall(complex_number_regex, val):
                 try:
                     # and to convert it to a complex number if there's a match
-                    return complex(val)  # type: ignore[arg-type]
+                    return complex(val)
                 except ValueError:
                     # if conversion fails we return string
                     return val
@@ -103,15 +114,18 @@ def deserialize_attribute_value(val: Any, dtype: Type, from_tuple: bool) -> Any:
     return val
 
 
-def deserialize_attribute_nested_tuples(value: Tuple[Any, ...]) -> Tuple[Any, ...]:
+def deserialize_attribute_nested_tuples(value: tuple[Any, ...] | list[Any]) -> tuple[Any, ...]:
     """Deserialize attribute nested tuples and their elements.
 
-    :param value: attribute tuple value
+    :param value: attribute tuple (or list, as JSON stores tuples) value
+    :returns: tuple with deserialized elements
     """
     deserialized = []
     for el in value:
-        if isinstance(el, (tuple, list)):
-            value = deserialize_attribute_nested_tuples(el)  # type: ignore[arg-type]
+        if el is None:
+            value = None
+        elif isinstance(el, (tuple, list)):
+            value = deserialize_attribute_nested_tuples(el)
         else:
             value = deserialize_attribute_value(el, type(el), True)
         deserialized.append(value)
@@ -119,15 +133,19 @@ def deserialize_attribute_nested_tuples(value: Tuple[Any, ...]) -> Tuple[Any, ..
 
 
 def make_ordered_dict(
-    primary_attributes: Optional[dict],
-    custom_attributes: Optional[dict],
-    attrs_schema: Union[List["AttributeSchema"], Tuple["AttributeSchema", ...]],
-) -> Tuple[OrderedDict, OrderedDict]:
-    """Ensure that attributes in dict are located in correct order (Based on schema).
+    primary_attributes: dict,
+    custom_attributes: dict,
+    attrs_schema: Sequence["AttributeSchema"],
+) -> tuple[OrderedDict, OrderedDict]:
+    """Order the attributes as in the schema and deserialize their values.
+
+    Every attribute of the schema shall be present; a custom attribute may be ``None``.
 
     :param primary_attributes:  Primary attributes dict
     :param custom_attributes: Custom attributes dict
     :param attrs_schema: Schema of attributes to get order
+    :returns: primary and custom attributes ordered as in the schema
+    :raises KeyError: if an attribute of the schema is missing
     """
     # To ensure the order of attributes
     ordered_primary_attributes: OrderedDict = OrderedDict()
@@ -147,8 +165,6 @@ def make_ordered_dict(
             result_attributes[attr_schema.name] = value
             continue
 
-        result_attributes[attr_schema.name] = deserialize_attribute_value(
-            value, attr_schema.dtype, False
-        )
+        result_attributes[attr_schema.name] = deserialize_attribute_value(value, attr_schema.dtype, False)
 
     return ordered_primary_attributes, ordered_custom_attributes

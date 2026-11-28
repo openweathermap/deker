@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -14,17 +14,23 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-from typing import TYPE_CHECKING, Optional, Tuple
+from typing import TYPE_CHECKING
+
+from cantok import AbstractToken
+from deker_tools.cancel import check
+from deker_tools.typings import Sentinel, SentinelType
 
 from deker.ABC.base_array import BaseArray
+from deker.errors import DekerInvalidSchemaError
 from deker.schemas import ArraySchema, VArraySchema
+from deker.subset import Subset, VSubset
 
 if TYPE_CHECKING:
     from deker.ABC.base_adapters import BaseArrayAdapter, BaseVArrayAdapter
     from deker.collection import Collection
 
 
-class Array(BaseArray):
+class Array(BaseArray[Subset]):
     """``Array`` is an abstract wrapper over final low-level arrays containing data.
 
     ``Array`` is created by collection. It is a ``lazy`` object that does not interact with its data itself,
@@ -74,12 +80,6 @@ class Array(BaseArray):
     - ``__getitem__``: returns a ``Subset`` instance bound to the ``Array``
     - ``__repr__``: ordinary behaviour
     - ``__str__``: ordinary behaviour
-
-    :param collection: instance of the ``Collection``, to which the ``Array`` is bound
-    :param adapter: ``Array`` adapter instance
-    :param id_: array unique uuid string
-    :param primary_attributes: any primary attributes keyword mapping
-    :param custom_attributes: any custom attributes keyword mapping
     """
 
     __slots__ = (
@@ -92,20 +92,20 @@ class Array(BaseArray):
         self,
         collection: "Collection",
         adapter: "BaseArrayAdapter",
-        id_: Optional[str] = None,
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
+        id_: str | SentinelType = Sentinel,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
     ) -> None:
-        """Array initialization.
+        """Array constructor.
 
-        :param collection: instance of the collection, to which the array is bound
-        :param adapter: Array adapter instance
-        :param id_: array unique uuid string
-        :param primary_attributes: primary attributes keyword mapping
-        :param custom_attributes: custom attributes keyword mapping
+        :param collection: instance of the ``Collection``, to which the ``Array`` is bound
+        :param adapter: ``Array`` adapter instance
+        :param id_: array unique uuid string; generated if not passed
+        :param primary_attributes: any primary attributes keyword mapping
+        :param custom_attributes: any custom attributes keyword mapping
         """
-        self.__collection = collection
-        self.__adapter = adapter
+        self.__collection: "Collection" = collection
+        self.__adapter: "BaseArrayAdapter" = adapter
         super().__init__(
             collection,
             self.__adapter,
@@ -116,17 +116,26 @@ class Array(BaseArray):
 
     @property
     def _adapter(self) -> "BaseArrayAdapter":
-        return self.__adapter  # type: ignore[return-value]
+        return self.__adapter
+
+    def _create_subset(self, bounds: tuple[slice | int, ...], shape: tuple[int, ...]) -> Subset:
+        """Create a lazy ``Subset`` bound to the ``Array``.
+
+        :param bounds: validated and normalized index expression
+        :param shape: subset shape
+        :returns: ``Subset`` for the given bounds
+        """
+        return Subset(bounds, shape, self, self.__adapter)
 
     @property
-    def _vid(self) -> Optional[str]:
-        """Get id of the ``VArray`` to which the ``Array`` is bound."""
+    def _vid(self) -> str | None:
+        """Get id of the ``VArray`` to which the ``Array`` is bound; ``None`` in a collection of ``Arrays``."""
         if self.__collection.varray_schema:
             return self.primary_attributes.get("vid")
 
     @property
-    def _v_position(self) -> Optional[Tuple[int, ...]]:
-        """Get ``Array`` position in ``VArray``."""
+    def _v_position(self) -> tuple[int, ...] | None:
+        """Get ``Array`` position in the ``vgrid`` of its ``VArray``; ``None`` in a collection of ``Arrays``."""
         if self.__collection.varray_schema:
             vpos = self.primary_attributes.get("v_position")
             return tuple(vpos) if vpos else vpos
@@ -137,12 +146,12 @@ class Array(BaseArray):
         return self.__collection.array_schema
 
 
-class VArray(BaseArray):
+class VArray(BaseArray[VSubset]):
     """Virtual array or ``VArray`` is an abstract virtual array that consists of ordinary ``Arrays``.
 
-    ``VArray`` is an "array of arrays" or an "image of pixels". If we consider ``VArray`` as an image -
-    it is split by virtual grid into tiles. In this case, each tile is an ordinary ``Array``.
-    Meanwhile, for user ``VArray`` acts as an ordinary ``Array``.
+    ``VArray`` is an "array of arrays": it is split by its virtual grid (``vgrid``) into ordinary ``Arrays``,
+    each keeping one part of the data in a file of its own. Meanwhile, for user ``VArray`` acts as an ordinary
+    ``Array``.
 
     ``VArray`` is created by ``Collection``. It is a ``lazy`` object that does not interact with its data itself,
     but it possesses all information about the virtual array (and even a bit more). Interaction with data
@@ -190,16 +199,9 @@ class VArray(BaseArray):
     - ``read_meta``: reads the array's metadata from storage
     - ``update_custom_attributes``: updates ``VArray's`` custom attributes values
     - ``delete``: deletes ``VArray`` from the storage with all its data and metadata
-    - ``__getitem__``: returns a ``Subset`` instance bound to the ``VArray``
+    - ``__getitem__``: returns a ``VSubset`` instance bound to the ``VArray``
     - ``__repr__``: ordinary behaviour
     - ``__str__``: ordinary behaviour
-
-    :param collection: instance of the ``Collection``, to which the ``VArray`` is bound
-    :param adapter: ``VArray`` adapter instance
-    :param array_adapter: ``Array`` adapter instance
-    :param id_: ``VArray`` unique uuid string
-    :param primary_attributes: any primary attribute keyword mapping
-    :param custom_attributes: any custom attributes keyword mapping
     """
 
     __slots__ = (
@@ -214,22 +216,22 @@ class VArray(BaseArray):
         collection: "Collection",
         adapter: "BaseVArrayAdapter",
         array_adapter: "BaseArrayAdapter",
-        id_: Optional[str] = None,
-        primary_attributes: Optional[dict] = None,
-        custom_attributes: Optional[dict] = None,
+        id_: str | SentinelType = Sentinel,
+        primary_attributes: dict | SentinelType = Sentinel,
+        custom_attributes: dict | SentinelType = Sentinel,
     ) -> None:
-        """VArray initialization.
+        """VArray constructor.
 
-        :param collection: instance of the collection, to which the virtual array is bound
-        :param adapter: VArray adapter instance
-        :param array_adapter: Array adapter instance
-        :param id_: virtual array unique uuid string
+        :param collection: instance of the ``Collection``, to which the ``VArray`` is bound
+        :param adapter: ``VArray`` adapter instance
+        :param array_adapter: adapter of the ``Arrays`` the ``VArray`` is made of
+        :param id_: ``VArray`` unique uuid string; generated if not passed
         :param primary_attributes: any primary attribute keyword mapping
         :param custom_attributes: any custom attributes keyword mapping
         """
-        self.__collection = collection
-        self.__adapter = adapter
-        self.__array_adapter = array_adapter
+        self.__collection: "Collection" = collection
+        self.__adapter: "BaseVArrayAdapter" = adapter
+        self.__array_adapter: "BaseArrayAdapter" = array_adapter
         super().__init__(
             collection,
             id_=id_,
@@ -241,32 +243,61 @@ class VArray(BaseArray):
 
     @property
     def _adapter(self) -> "BaseVArrayAdapter":
-        return self.__adapter  # type: ignore[return-value]
+        return self.__adapter
+
+    def _create_subset(self, bounds: tuple[slice | int, ...], shape: tuple[int, ...]) -> VSubset:
+        """Create a lazy ``VSubset`` bound to the ``VArray``.
+
+        :param bounds: validated and normalized index expression
+        :param shape: subset shape
+        :returns: ``VSubset`` for the given bounds
+        """
+        return VSubset(bounds, shape, self, self.__array_adapter, self.__adapter, self.__collection)
 
     @property
-    def vgrid(self) -> Tuple[int, ...]:
+    def vgrid(self) -> tuple[int, ...]:
         """Get ``VArray`` virtual grid."""
-        return self.schema.vgrid  # type: ignore[return-value]
+        vgrid = self.schema.vgrid
+        if vgrid is None:  # pragma: no cover
+            raise DekerInvalidSchemaError("VArraySchema vgrid is not set")
+        return tuple(vgrid)
 
     @property
-    def arrays_shape(self) -> Tuple[int, ...]:
-        """Get the shape of inner ``Arrays``."""
-        return self.schema.arrays_shape  # type: ignore[return-value]
+    def arrays_shape(self) -> tuple[int, ...]:
+        """Get the shape of the ``Arrays`` the ``VArray`` is made of."""
+        arrays_shape = self.schema.arrays_shape
+        if arrays_shape is None:  # pragma: no cover
+            raise DekerInvalidSchemaError("VArraySchema arrays_shape is not set")
+        return tuple(arrays_shape)
 
     @property
     def as_dict(self) -> dict:
-        """Serialize self into dict."""
+        """Serialize the ``VArray`` into a dictionary: the fields of an ``Array`` and the ``vgrid``."""
         d = super().as_dict
         d["vgrid"] = self.vgrid
         return d
 
-    def delete(self) -> None:
-        """Delete ``VArray`` from storage."""
-        self.__array_adapter.delete_all_by_vid(self.id, self.__collection)
-        self._adapter.delete(self)
-        self.logger.debug(f"VArray {self.id} is deleted")
+    def _delete(self, *, background: bool, _empty_trash: bool, token: AbstractToken) -> None:
+        """Delete the ``VArray`` from the storage: its symlink, every ``Array`` it is made of, its json file.
+
+        Without its symlink the ``VArray`` is not found by its attributes and the creators of its ``Arrays`` see it
+        gone; until its json file goes, a deletion stopped halfway is found by its id and done again. The trash is
+        emptied once, after the json file.
+
+        :param background: empty the trash in a daemon thread and return at once
+        :param _empty_trash: empty the trash after the moves; ``False`` - only move
+        :param token: token of the write operation
+        """
+        check(token)
+        self._adapter.delete(self, background=background, _empty_trash=False, token=token)
+        self.__array_adapter.delete_all_by_vid(self.id, self.__collection, token=token)
+        self._adapter.delete_main_file(self, background=background, _empty_trash=_empty_trash)
+        self.logger.debug("VArray %s is deleted", self.id)
 
     @property
-    def schema(self) -> Optional[VArraySchema]:
+    def schema(self) -> VArraySchema:
         """Return ``VArraySchema`` of the VArray's Collection."""
-        return self.__collection.varray_schema
+        schema = self.__collection.varray_schema
+        if schema is None:  # pragma: no cover
+            raise DekerInvalidSchemaError("VArray collection has no VArraySchema")
+        return schema

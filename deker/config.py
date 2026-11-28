@@ -1,5 +1,5 @@
 # deker - multidimensional arrays storage engine
-# Copyright (C) 2023  OpenWeather
+# Copyright (C) 2023-2026  Openweather Ltd.
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -16,22 +16,36 @@
 
 from attr import asdict, dataclass, fields
 
+DEFAULT_READ_TIMEOUT = 60  # Seconds a read may take, the default of the client.
+
+DEFAULT_WRITE_LOCK_TIMEOUT = 60  # Seconds a writer waits for a locked file, the default of the client.
+
 
 @dataclass(kw_only=True)
 class DekerConfig:
-    """Deker application configuration.
+    """Deker application configuration, built by the ``Client`` from its arguments.
 
     :param uri: Deker uri string
     :param workers: number of threads for VArray management
-    :param write_lock_timeout: number of seconds for WriteLock timeout
-    :param write_lock_check_interval: number of seconds for WriteLock check
+    :param read_timeout: seconds a read may take, unless the read is given its own timeout
+    :param write_lock_timeout: seconds a writer waits for a locked file to be released
+    :param write_lock_check_interval: seconds a writer sleeps between the checks of a lock
     :param memory_limit: RAM size in bytes available for Deker
     :param loglevel: Deker logging level
+    :param collections_directory: directory of the collections in the storage
+    :param trash_directory: directory of the storage where the deleted files wait for their removal
+    :param array_data_directory: directory of the files of the ``Arrays`` in a collection
+    :param varray_data_directory: directory of the files of the ``VArrays`` in a collection
+    :param array_symlinks_directory: directory of the symlinks of the ``Arrays`` in a collection
+    :param varray_symlinks_directory: directory of the symlinks of the ``VArrays`` in a collection
+    :param skip_collection_create_memory_check: skip the memory check when a collection is created
+    :raises ValueError: if a setting has a wrong type
     """
 
     # configurable attributes
     uri: str
     workers: int
+    read_timeout: int
     write_lock_timeout: int
     write_lock_check_interval: int
     memory_limit: int
@@ -39,6 +53,7 @@ class DekerConfig:
 
     # non configurable default attributes
     collections_directory: str = "collections"
+    trash_directory: str = "trash"
     array_data_directory: str = "array_data"
     varray_data_directory: str = "varray_data"
     array_symlinks_directory: str = "array_symlinks"
@@ -51,8 +66,11 @@ class DekerConfig:
         return asdict(self)
 
     def __attrs_post_init__(self) -> None:
-        """Check if types are correct."""
-        for field in fields(self.__class__):  # type: ignore[arg-type]
+        """Check that every setting has the type of its field.
+
+        :raises ValueError: if a setting has a wrong type
+        """
+        for field in fields(self.__class__):
             default_value = getattr(self, field.name)
             if not isinstance(default_value, field.type):
-                raise ValueError(f"'{field.name}' setting has wrong type")  # noqa[TRY004]
+                raise ValueError(f"'{field.name}' setting has wrong type")  # noqa: TRY004

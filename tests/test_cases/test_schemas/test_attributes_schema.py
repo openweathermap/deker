@@ -2,7 +2,6 @@ import collections
 
 from collections import OrderedDict, namedtuple
 from datetime import datetime
-from typing import FrozenSet
 
 import pytest
 
@@ -12,7 +11,7 @@ from deker import Client, DimensionSchema
 from deker.arrays import Array, VArray
 from deker.collection import Collection
 from deker.dimensions import Dimension, TimeDimension
-from deker.errors import DekerCollectionAlreadyExistsError, DekerValidationError
+from deker.errors import DekerCollectionAlreadyExistsError, DekerInvalidSchemaError, DekerValidationError
 from deker.schemas import ArraySchema, AttributeSchema
 from deker.types.private.typings import NumericDtypes
 
@@ -77,10 +76,10 @@ class TestAttributesSchemaNameValidation:
             "-0.1",
             str(set()),
             'set("abc")',
-            repr({"abc", "def"}),
+            pytest.param(repr({"abc", "def"}), id="repr-of-a-set"),  # a fixed id for pytest-xdist: the order varies
             str(tuple()),
             'tuple("abc")',
-            repr(tuple({"abc", "def"})),
+            pytest.param(repr(tuple({"abc", "def"})), id="repr-of-a-tuple-of-a-set"),  # a fixed id, as above
             "(1,)",
             str([]),
             '["abc"]',
@@ -113,7 +112,7 @@ class TestAttributesSchemaDtypeValidation:
             dict,
             set,
             OrderedDict,
-            FrozenSet,
+            frozenset,
             namedtuple,
             collections.deque,
             collections.Counter,
@@ -220,10 +219,8 @@ class TestAttributesSchemaPrimaryValidation:
             AttributeSchema(name="some_attr", dtype=dtype, primary=primary)
 
 
-@pytest.mark.parametrize("primary", (True, False))
-def test_schema_conversion(
-    primary: bool, client: Client, local_array_adapter: LocalArrayAdapter, name: str
-):
+@pytest.mark.parametrize("primary", [True, False])
+def test_schema_conversion(primary: bool, client: Client, local_array_adapter: LocalArrayAdapter, name: str):
     key = "primary_attributes" if primary else "custom_attributes"
 
     schema = ArraySchema(
@@ -249,3 +246,11 @@ def test_schema_conversion(
 
 if __name__ == "__main__":
     pytest.main()
+
+
+def test_attributes_schema_as_dict_with_a_corrupted_dtype_raises():
+    """A dtype outside the known ones (corrupted after validation) is reported, not serialized as garbage."""
+    schema = AttributeSchema(name="a", dtype=int, primary=False)
+    schema.dtype = bytes
+    with pytest.raises(DekerInvalidSchemaError, match="invalid/corrupted"):
+        schema.as_dict

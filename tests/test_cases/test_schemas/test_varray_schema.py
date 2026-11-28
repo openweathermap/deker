@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, timezone
-from typing import Any, List, Union
+from typing import Any
 
 import numpy as np
 import pytest
@@ -7,7 +7,7 @@ import pytest
 from tests.parameters.schemas_params import VArraySchemaCreationParams
 
 from deker.errors import DekerValidationError
-from deker.schemas import DimensionSchema, TimeDimensionSchema, VArraySchema
+from deker.schemas import AttributeSchema, DimensionSchema, TimeDimensionSchema, VArraySchema
 
 
 @pytest.mark.parametrize("params", VArraySchemaCreationParams.WRONG_params_dataclass_raises())
@@ -100,16 +100,12 @@ def test_varray_schema_is_split_correctly(dimensions, splitter: dict, expected):
     [
         [DimensionSchema(name="x", size=1), DimensionSchema(name="x", size=2)],
         [
-            TimeDimensionSchema(
-                name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)
-            ),
+            TimeDimensionSchema(name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)),
             DimensionSchema(name="x", size=2),
         ],
         [
             DimensionSchema(name="x", size=2),
-            TimeDimensionSchema(
-                name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)
-            ),
+            TimeDimensionSchema(name="x", size=1, step=timedelta(1), start_value=datetime.now(tz=timezone.utc)),
         ],
     ],
 )
@@ -120,11 +116,32 @@ def test_varray_schema_is_split_correctly(dimensions, splitter: dict, expected):
         dict(arrays_shape=(1, 1)),
     ],
 )
-def test_dimensions_non_unique_names_error(
-    dims: List[Union[DimensionSchema, TimeDimensionSchema]], splitter
-):
+def test_dimensions_non_unique_names_error(dims: list[DimensionSchema | TimeDimensionSchema], splitter):
     with pytest.raises(DekerValidationError):
         assert VArraySchema(dtype=int, dimensions=dims, **splitter)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    "attrs",
+    [
+        [
+            AttributeSchema(name="name", dtype=int, primary=True),
+            AttributeSchema(name="name", dtype=float, primary=False),
+        ],
+        [
+            AttributeSchema(name="name", dtype=int, primary=True),
+            AttributeSchema(name="name", dtype=float, primary=True),
+        ],
+        [
+            AttributeSchema(name="name", dtype=int, primary=False),
+            AttributeSchema(name="name", dtype=float, primary=False),
+        ],
+    ],
+)
+def test_attributes_non_unique_names_error(attrs: list[AttributeSchema], dimensions: list[DimensionSchema]):
+    with pytest.raises(DekerValidationError) as error:
+        VArraySchema(dtype=int, dimensions=dimensions, vgrid=[1] * len(dimensions), attributes=attrs)  # type: ignore[arg-type]
+    assert str(error.value) == "Attribute name shall be unique"
 
 
 @pytest.mark.parametrize("vgrid_class", [tuple, list])
